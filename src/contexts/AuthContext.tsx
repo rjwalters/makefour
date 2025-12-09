@@ -7,6 +7,7 @@ interface AuthContextType {
   user: PublicUser | null
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
   register: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
+  loginWithGoogle: () => void
   logout: () => Promise<void>
   encryptionKey: CryptoKey | null
 }
@@ -36,6 +37,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [user, setUser] = useState<PublicUser | null>(null)
   const [encryptionKey, setEncryptionKey] = useState<CryptoKey | null>(null)
+
+  useEffect(() => {
+    // Check for OAuth callback token in URL
+    const handleOAuthCallback = async () => {
+      const params = new URLSearchParams(window.location.search)
+      const oauthToken = params.get('oauth_token')
+      const oauthProvider = params.get('oauth_provider')
+
+      if (oauthToken && oauthProvider) {
+        // Clear the URL params
+        window.history.replaceState({}, '', window.location.pathname)
+
+        // Store the session token and fetch user data
+        localStorage.setItem('makefour_session_token', oauthToken)
+
+        try {
+          const response = await fetch('/api/auth/me', {
+            headers: { 'Authorization': `Bearer ${oauthToken}` }
+          })
+
+          if (response.ok) {
+            const data = await response.json()
+            setUser(data.user)
+            setIsAuthenticated(true)
+            console.log(`✓ OAuth login successful (${oauthProvider}):`, data.user.email)
+          } else {
+            localStorage.removeItem('makefour_session_token')
+          }
+        } catch (error) {
+          console.error('OAuth callback failed:', error)
+          localStorage.removeItem('makefour_session_token')
+        }
+        return
+      }
+    }
+
+    handleOAuthCallback()
+  }, [])
 
   useEffect(() => {
     // Check if user is already authenticated via session token
@@ -193,8 +232,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsAuthenticated(false)
   }
 
+  const loginWithGoogle = () => {
+    // Redirect to Google OAuth endpoint
+    window.location.href = '/api/auth/google'
+  }
+
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, login, register, logout, encryptionKey }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, register, loginWithGoogle, logout, encryptionKey }}>
       {children}
     </AuthContext.Provider>
   )
