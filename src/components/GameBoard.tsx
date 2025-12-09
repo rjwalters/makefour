@@ -112,17 +112,6 @@ export default function GameBoard({
         </div>
       </div>
 
-      {/* Player color legend */}
-      <div className="flex gap-6 text-sm text-muted-foreground">
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-red-500" />
-          <span>Player 1</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-yellow-400" />
-          <span>Player 2</span>
-        </div>
-      </div>
     </div>
   )
 }
