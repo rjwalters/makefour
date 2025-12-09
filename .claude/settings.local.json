@@ -3,7 +3,8 @@
     "allow": [
       "Bash(cat:*)",
       "Bash(mkdir:*)",
-      "Bash(git branch:*)"
+      "Bash(git branch:*)",
+      "Bash(git -C /Users/rwalters/GitHub/makefour status:*)"
     ],
     "deny": [],
     "ask": []

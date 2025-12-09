@@ -1,0 +1,268 @@
+import { useState, useEffect, useCallback } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
+import { Button } from '../components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
+import ThemeToggle from '../components/ThemeToggle'
+import GameBoard from '../components/GameBoard'
+import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
+import { getStateAtMove, type GameState } from '../game/makefour'
+
+interface GameData {
+  id: string
+  outcome: 'win' | 'loss' | 'draw'
+  moves: number[]
+  moveCount: number
+  createdAt: number
+}
+
+export default function ReplayPage() {
+  const { logout, user } = useAuth()
+  const { gameId } = useParams<{ gameId: string }>()
+  const { apiCall } = useAuthenticatedApi()
+
+  const [game, setGame] = useState<GameData | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Current move index for replay (0 = empty board, moves.length = final state)
+  const [currentMoveIndex, setCurrentMoveIndex] = useState(0)
+  const [gameState, setGameState] = useState<GameState | null>(null)
+
+  // Fetch game data
+  useEffect(() => {
+    const fetchGame = async () => {
+      if (!gameId) return
+
+      setIsLoading(true)
+      setError(null)
+
+      try {
+        const data = await apiCall<GameData>(`/api/games/${gameId}`)
+        setGame(data)
+        // Start at final position
+        setCurrentMoveIndex(data.moves.length)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load game')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchGame()
+  }, [gameId])
+
+  // Update game state when move index changes
+  useEffect(() => {
+    if (!game) return
+
+    const state = getStateAtMove(game.moves, currentMoveIndex)
+    setGameState(state)
+  }, [game, currentMoveIndex])
+
+  const goToStart = useCallback(() => {
+    setCurrentMoveIndex(0)
+  }, [])
+
+  const goBack = useCallback(() => {
+    setCurrentMoveIndex((prev) => Math.max(0, prev - 1))
+  }, [])
+
+  const goForward = useCallback(() => {
+    if (!game) return
+    setCurrentMoveIndex((prev) => Math.min(game.moves.length, prev + 1))
+  }, [game])
+
+  const goToEnd = useCallback(() => {
+    if (!game) return
+    setCurrentMoveIndex(game.moves.length)
+  }, [game])
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      switch (e.key) {
+        case 'ArrowLeft':
+          goBack()
+          break
+        case 'ArrowRight':
+          goForward()
+          break
+        case 'Home':
+          goToStart()
+          break
+        case 'End':
+          goToEnd()
+          break
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [goBack, goForward, goToStart, goToEnd])
+
+  const formatDate = (timestamp: number) => {
+    return new Date(timestamp).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
+
+  const getOutcomeLabel = (outcome: GameData['outcome']) => {
+    switch (outcome) {
+      case 'win':
+        return 'You won!'
+      case 'loss':
+        return 'You lost'
+      case 'draw':
+        return 'Draw'
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
+        <p className="text-lg text-muted-foreground">Loading game...</p>
+      </div>
+    )
+  }
+
+  if (error || !game || !gameState) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <p className="text-red-500 mb-4">{error || 'Game not found'}</p>
+            <Link to="/games">
+              <Button>Back to Games</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
+      <header className="border-b bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
+        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+          <div>
+            <Link to="/dashboard" className="text-2xl font-bold hover:opacity-80">
+              MakeFour
+            </Link>
+            {user && (
+              <p className="text-xs text-muted-foreground">{user.email}</p>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Link to="/games">
+              <Button variant="outline" size="sm">
+                My Games
+              </Button>
+            </Link>
+            <Link to="/play">
+              <Button size="sm">Play</Button>
+            </Link>
+            <ThemeToggle />
+            <Button variant="outline" onClick={logout} size="sm">
+              Logout
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="container mx-auto px-4 py-8">
+        <div className="max-w-lg mx-auto">
+          <Card>
+            <CardHeader className="text-center">
+              <CardTitle className="text-2xl">Game Replay</CardTitle>
+              <p className="text-muted-foreground">{formatDate(game.createdAt)}</p>
+              <p className="text-lg font-semibold mt-2">{getOutcomeLabel(game.outcome)}</p>
+            </CardHeader>
+            <CardContent className="flex flex-col items-center gap-6">
+              <GameBoard
+                board={gameState.board}
+                currentPlayer={gameState.currentPlayer}
+                winner={gameState.winner}
+                disabled={true}
+              />
+
+              {/* Replay controls */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={goToStart}
+                  disabled={currentMoveIndex === 0}
+                  title="Go to start (Home)"
+                >
+                  ⏮
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={goBack}
+                  disabled={currentMoveIndex === 0}
+                  title="Previous move (←)"
+                >
+                  ◀
+                </Button>
+                <span className="px-4 text-sm font-medium min-w-[80px] text-center">
+                  {currentMoveIndex} / {game.moves.length}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={goForward}
+                  disabled={currentMoveIndex === game.moves.length}
+                  title="Next move (→)"
+                >
+                  ▶
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={goToEnd}
+                  disabled={currentMoveIndex === game.moves.length}
+                  title="Go to end (End)"
+                >
+                  ⏭
+                </Button>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Use arrow keys to navigate
+              </p>
+
+              {/* Move list */}
+              <div className="w-full">
+                <p className="text-sm font-medium mb-2">Moves</p>
+                <div className="flex flex-wrap gap-1">
+                  {game.moves.map((col, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setCurrentMoveIndex(idx + 1)}
+                      className={`w-8 h-8 text-xs rounded border transition-colors ${
+                        idx + 1 === currentMoveIndex
+                          ? 'bg-primary text-primary-foreground'
+                          : idx + 1 < currentMoveIndex
+                          ? 'bg-muted'
+                          : 'bg-background hover:bg-accent'
+                      }`}
+                      title={`Move ${idx + 1}: Column ${col + 1}`}
+                    >
+                      {col + 1}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </main>
+    </div>
+  )
+}

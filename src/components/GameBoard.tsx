@@ -1,6 +1,5 @@
 import { cn } from '@/lib/utils'
 import {
-  ROWS,
   COLUMNS,
   type Board,
   type Player,

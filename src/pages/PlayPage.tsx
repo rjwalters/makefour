@@ -12,6 +12,7 @@ import {
   type Player,
 } from '../game/makefour'
 import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
+import { analyzePosition, type Analysis } from '../ai/coach'
 
 export default function PlayPage() {
   const { logout, user } = useAuth()
@@ -20,6 +21,8 @@ export default function PlayPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [gameSaved, setGameSaved] = useState(false)
+  const [analysis, setAnalysis] = useState<Analysis | null>(null)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
 
   const handleColumnClick = useCallback((column: number) => {
     const newState = makeMove(gameState, column)
@@ -27,6 +30,7 @@ export default function PlayPage() {
       setGameState(newState)
       setGameSaved(false)
       setSaveError(null)
+      setAnalysis(null) // Clear analysis when move is made
     }
   }, [gameState])
 
@@ -34,7 +38,26 @@ export default function PlayPage() {
     setGameState(createGameState())
     setGameSaved(false)
     setSaveError(null)
+    setAnalysis(null)
   }, [])
+
+  const handleAnalyze = useCallback(async () => {
+    if (gameState.winner !== null) return
+
+    setIsAnalyzing(true)
+    try {
+      const result = await analyzePosition({
+        board: gameState.board,
+        currentPlayer: gameState.currentPlayer,
+        moveHistory: gameState.moveHistory,
+      })
+      setAnalysis(result)
+    } catch (error) {
+      console.error('Analysis failed:', error)
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }, [gameState])
 
   const handleSaveGame = useCallback(async () => {
     if (!gameState.winner || gameSaved) return
@@ -168,9 +191,31 @@ export default function PlayPage() {
 
                 {/* Mid-game actions */}
                 {gameState.winner === null && gameState.moveHistory.length > 0 && (
-                  <Button onClick={handleNewGame} variant="outline" className="mx-auto">
-                    Reset Game
-                  </Button>
+                  <div className="flex gap-2 justify-center">
+                    <Button onClick={handleNewGame} variant="outline">
+                      Reset Game
+                    </Button>
+                    <Button
+                      onClick={handleAnalyze}
+                      variant="secondary"
+                      disabled={isAnalyzing}
+                    >
+                      {isAnalyzing ? 'Analyzing...' : 'Analyze Position'}
+                    </Button>
+                  </div>
+                )}
+
+                {/* AI Analysis display */}
+                {analysis && (
+                  <div className="p-3 bg-muted rounded-lg text-sm">
+                    <p className="font-medium mb-1">AI Coach (experimental)</p>
+                    <p className="text-muted-foreground">{analysis.evaluation}</p>
+                    {analysis.bestMove >= 0 && (
+                      <p className="mt-1">
+                        Suggested move: Column {analysis.bestMove + 1}
+                      </p>
+                    )}
+                  </div>
                 )}
 
                 {/* Move counter */}

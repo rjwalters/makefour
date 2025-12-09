@@ -6,7 +6,7 @@ pages_build_output_dir = "./dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "makefour-db"
-database_id = "YOUR_DATABASE_ID_HERE"
+database_id = "e97c7189-5136-4901-b60c-d15105b91bfa"
 
 # Workers AI binding
 [ai]
