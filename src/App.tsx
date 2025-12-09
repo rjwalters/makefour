@@ -13,29 +13,22 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
-  console.log('🚀 MakeFour App initialized - ready for development!')
-  console.log('Environment:', import.meta.env.MODE)
-  console.log('Timestamp:', new Date().toISOString())
-
   return (
     <ThemeProvider>
       <AuthProvider>
         <BrowserRouter>
           <Routes>
+            {/* Public routes */}
+            <Route path="/" element={<PlayPage />} />
+            <Route path="/play" element={<PlayPage />} />
             <Route path="/login" element={<LoginPage />} />
+
+            {/* Protected routes - require authentication */}
             <Route
               path="/dashboard"
               element={
                 <ProtectedRoute>
                   <DashboardPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/play"
-              element={
-                <ProtectedRoute>
-                  <PlayPage />
                 </ProtectedRoute>
               }
             />
@@ -55,7 +48,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </BrowserRouter>
       </AuthProvider>

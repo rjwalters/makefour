@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { Button } from '../components/ui/button'
@@ -9,55 +9,70 @@ import {
   createGameState,
   makeMove,
   type GameState,
-  type Player,
 } from '../game/makefour'
 import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
-import { analyzePosition, type Analysis } from '../ai/coach'
+import { suggestMove } from '../ai/coach'
 
 export default function PlayPage() {
-  const { logout, user } = useAuth()
+  const { logout, user, isAuthenticated } = useAuth()
   const { apiCall } = useAuthenticatedApi()
   const [gameState, setGameState] = useState<GameState>(createGameState)
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [gameSaved, setGameSaved] = useState(false)
-  const [analysis, setAnalysis] = useState<Analysis | null>(null)
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [isBotThinking, setIsBotThinking] = useState(false)
+
+  // Player is always Player 1 (red), Bot is Player 2 (yellow)
+  const playerNumber = 1
+  const botNumber = 2
+  const isPlayerTurn = gameState.currentPlayer === playerNumber && gameState.winner === null
+
+  // Bot makes a move when it's the bot's turn
+  useEffect(() => {
+    if (gameState.currentPlayer !== botNumber || gameState.winner !== null) {
+      return
+    }
+
+    setIsBotThinking(true)
+
+    const makeBotMove = async () => {
+      // Small delay for UX - makes it feel like the bot is "thinking"
+      await new Promise((resolve) => setTimeout(resolve, 500))
+
+      const botMove = await suggestMove({
+        board: gameState.board,
+        currentPlayer: gameState.currentPlayer,
+        moveHistory: gameState.moveHistory,
+      })
+
+      const newState = makeMove(gameState, botMove)
+      if (newState) {
+        setGameState(newState)
+      }
+      setIsBotThinking(false)
+    }
+
+    makeBotMove()
+  }, [gameState])
 
   const handleColumnClick = useCallback((column: number) => {
+    // Only allow clicks on player's turn
+    if (!isPlayerTurn || isBotThinking) return
+
     const newState = makeMove(gameState, column)
     if (newState) {
       setGameState(newState)
       setGameSaved(false)
       setSaveError(null)
-      setAnalysis(null) // Clear analysis when move is made
     }
-  }, [gameState])
+  }, [gameState, isPlayerTurn, isBotThinking])
 
   const handleNewGame = useCallback(() => {
     setGameState(createGameState())
     setGameSaved(false)
     setSaveError(null)
-    setAnalysis(null)
+    setIsBotThinking(false)
   }, [])
-
-  const handleAnalyze = useCallback(async () => {
-    if (gameState.winner !== null) return
-
-    setIsAnalyzing(true)
-    try {
-      const result = await analyzePosition({
-        board: gameState.board,
-        currentPlayer: gameState.currentPlayer,
-        moveHistory: gameState.moveHistory,
-      })
-      setAnalysis(result)
-    } catch (error) {
-      console.error('Analysis failed:', error)
-    } finally {
-      setIsAnalyzing(false)
-    }
-  }, [gameState])
 
   const handleSaveGame = useCallback(async () => {
     if (!gameState.winner || gameSaved) return
@@ -66,11 +81,11 @@ export default function PlayPage() {
     setSaveError(null)
 
     try {
-      // Determine outcome from Player 1's perspective
+      // Determine outcome from player's perspective (Player 1)
       let outcome: 'win' | 'loss' | 'draw'
       if (gameState.winner === 'draw') {
         outcome = 'draw'
-      } else if (gameState.winner === 1) {
+      } else if (gameState.winner === playerNumber) {
         outcome = 'win'
       } else {
         outcome = 'loss'
@@ -96,14 +111,32 @@ export default function PlayPage() {
     if (gameState.winner === 'draw') {
       return "It's a draw!"
     }
-    if (gameState.winner !== null) {
-      return `Player ${gameState.winner} wins!`
+    if (gameState.winner === playerNumber) {
+      return 'You win!'
     }
-    return `Player ${gameState.currentPlayer}'s turn`
+    if (gameState.winner === botNumber) {
+      return 'Bot wins!'
+    }
+    if (isBotThinking) {
+      return 'Bot is thinking...'
+    }
+    return 'Your turn'
   }
 
-  const getPlayerColor = (player: Player): string => {
-    return player === 1 ? 'text-red-500' : 'text-yellow-500'
+  const getStatusColor = (): string => {
+    if (gameState.winner === playerNumber) {
+      return 'text-green-600 dark:text-green-400'
+    }
+    if (gameState.winner === botNumber) {
+      return 'text-red-500'
+    }
+    if (gameState.winner === 'draw') {
+      return 'text-muted-foreground'
+    }
+    if (isBotThinking) {
+      return 'text-yellow-500'
+    }
+    return 'text-red-500' // Player's color
   }
 
   return (
@@ -111,7 +144,7 @@ export default function PlayPage() {
       <header className="border-b bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div>
-            <Link to="/dashboard" className="text-2xl font-bold hover:opacity-80">
+            <Link to="/" className="text-2xl font-bold hover:opacity-80">
               MakeFour
             </Link>
             {user && (
@@ -119,15 +152,28 @@ export default function PlayPage() {
             )}
           </div>
           <div className="flex gap-2">
-            <Link to="/dashboard">
-              <Button variant="outline" size="sm">
-                Dashboard
-              </Button>
-            </Link>
-            <ThemeToggle />
-            <Button variant="outline" onClick={logout} size="sm">
-              Logout
-            </Button>
+            {isAuthenticated ? (
+              <>
+                <Link to="/dashboard">
+                  <Button variant="outline" size="sm">
+                    Dashboard
+                  </Button>
+                </Link>
+                <ThemeToggle />
+                <Button variant="outline" onClick={logout} size="sm">
+                  Logout
+                </Button>
+              </>
+            ) : (
+              <>
+                <ThemeToggle />
+                <Link to="/login">
+                  <Button variant="outline" size="sm">
+                    Login
+                  </Button>
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -135,19 +181,21 @@ export default function PlayPage() {
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-lg mx-auto">
           <Card>
-            <CardHeader className="text-center">
-              <CardTitle className="text-3xl">MakeFour</CardTitle>
-              <p
-                className={`text-lg font-semibold ${
-                  gameState.winner !== null && gameState.winner !== 'draw'
-                    ? getPlayerColor(gameState.winner as Player)
-                    : gameState.winner === null
-                    ? getPlayerColor(gameState.currentPlayer)
-                    : ''
-                }`}
-              >
+            <CardHeader className="text-center pb-2">
+              <div className="flex justify-center items-center gap-4 mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 rounded-full bg-red-500" />
+                  <span className="text-sm font-medium">You</span>
+                </div>
+                <span className="text-muted-foreground">vs</span>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 rounded-full bg-yellow-400" />
+                  <span className="text-sm font-medium">Bot</span>
+                </div>
+              </div>
+              <CardTitle className={`text-2xl ${getStatusColor()}`}>
                 {getStatusMessage()}
-              </p>
+              </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col items-center gap-6">
               <GameBoard
@@ -155,6 +203,7 @@ export default function PlayPage() {
                 currentPlayer={gameState.currentPlayer}
                 winner={gameState.winner}
                 onColumnClick={handleColumnClick}
+                disabled={!isPlayerTurn || isBotThinking}
               />
 
               <div className="flex flex-col gap-3 w-full">
@@ -165,7 +214,7 @@ export default function PlayPage() {
                       <Button onClick={handleNewGame} size="lg">
                         Play Again
                       </Button>
-                      {!gameSaved && (
+                      {isAuthenticated && !gameSaved && (
                         <Button
                           onClick={handleSaveGame}
                           variant="outline"
@@ -176,14 +225,22 @@ export default function PlayPage() {
                         </Button>
                       )}
                     </div>
-                    {gameSaved && (
+                    {isAuthenticated && gameSaved && (
                       <p className="text-center text-sm text-green-600 dark:text-green-400">
                         Game saved to history!
                       </p>
                     )}
-                    {saveError && (
+                    {isAuthenticated && saveError && (
                       <p className="text-center text-sm text-red-600 dark:text-red-400">
                         {saveError}
+                      </p>
+                    )}
+                    {!isAuthenticated && (
+                      <p className="text-center text-sm text-muted-foreground">
+                        <Link to="/login" className="text-primary hover:underline">
+                          Sign in
+                        </Link>
+                        {' '}to save games and track your progress
                       </p>
                     )}
                   </div>
@@ -192,29 +249,9 @@ export default function PlayPage() {
                 {/* Mid-game actions */}
                 {gameState.winner === null && gameState.moveHistory.length > 0 && (
                   <div className="flex gap-2 justify-center">
-                    <Button onClick={handleNewGame} variant="outline">
-                      Reset Game
+                    <Button onClick={handleNewGame} variant="outline" size="sm">
+                      New Game
                     </Button>
-                    <Button
-                      onClick={handleAnalyze}
-                      variant="secondary"
-                      disabled={isAnalyzing}
-                    >
-                      {isAnalyzing ? 'Analyzing...' : 'Analyze Position'}
-                    </Button>
-                  </div>
-                )}
-
-                {/* AI Analysis display */}
-                {analysis && (
-                  <div className="p-3 bg-muted rounded-lg text-sm">
-                    <p className="font-medium mb-1">AI Coach (experimental)</p>
-                    <p className="text-muted-foreground">{analysis.evaluation}</p>
-                    {analysis.bestMove >= 0 && (
-                      <p className="mt-1">
-                        Suggested move: Column {analysis.bestMove + 1}
-                      </p>
-                    )}
                   </div>
                 )}
 
