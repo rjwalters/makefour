@@ -36,7 +36,7 @@ import {
 /**
  * Weights for position evaluation heuristics.
  */
-const EVAL_WEIGHTS = {
+export const EVAL_WEIGHTS = {
   WIN: 100000,
   THREE_IN_ROW: 100,
   TWO_IN_ROW: 10,
