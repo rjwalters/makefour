@@ -77,10 +77,13 @@ CREATE TABLE IF NOT EXISTS games (
   opponent_type TEXT NOT NULL DEFAULT 'ai',
   -- AI difficulty level (null for human games)
   ai_difficulty TEXT,
+  -- Bot persona ID for ranked bot games (null for training/human games)
+  bot_persona_id TEXT,
   -- Which player the user played as (1 = red/first, 2 = yellow/second)
   player_number INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (bot_persona_id) REFERENCES bot_personas(id),
   CHECK (outcome IN ('win', 'loss', 'draw')),
   CHECK (opponent_type IN ('human', 'ai')),
   CHECK (ai_difficulty IS NULL OR ai_difficulty IN ('beginner', 'intermediate', 'expert', 'perfect')),
@@ -107,6 +110,7 @@ CREATE INDEX IF NOT EXISTS idx_games_created_at ON games(created_at);
 CREATE INDEX IF NOT EXISTS idx_games_outcome ON games(outcome);
 CREATE INDEX IF NOT EXISTS idx_games_opponent_type ON games(opponent_type);
 CREATE INDEX IF NOT EXISTS idx_games_ai_difficulty ON games(ai_difficulty);
+CREATE INDEX IF NOT EXISTS idx_games_bot_persona ON games(bot_persona_id);
 
 -- Rating history table - tracks ELO changes after each game
 CREATE TABLE IF NOT EXISTS rating_history (
@@ -261,3 +265,26 @@ CREATE TABLE IF NOT EXISTS bot_personas (
 
 -- Index for finding active personas
 CREATE INDEX IF NOT EXISTS idx_bot_personas_active ON bot_personas(is_active, current_elo);
+
+-- Player vs bot stats - tracks per-player records against each bot
+CREATE TABLE IF NOT EXISTS player_bot_stats (
+  user_id TEXT NOT NULL,
+  bot_persona_id TEXT NOT NULL,
+  wins INTEGER NOT NULL DEFAULT 0,
+  losses INTEGER NOT NULL DEFAULT 0,
+  draws INTEGER NOT NULL DEFAULT 0,
+  -- Current streak: positive = win streak, negative = loss streak
+  current_streak INTEGER NOT NULL DEFAULT 0,
+  best_win_streak INTEGER NOT NULL DEFAULT 0,
+  -- Timestamp of first win against this bot (milestone)
+  first_win_at INTEGER,
+  last_played_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, bot_persona_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (bot_persona_id) REFERENCES bot_personas(id) ON DELETE CASCADE
+);
+
+-- Indexes for player bot stats
+CREATE INDEX IF NOT EXISTS idx_player_bot_stats_user ON player_bot_stats(user_id);
+CREATE INDEX IF NOT EXISTS idx_player_bot_stats_bot ON player_bot_stats(bot_persona_id);
+CREATE INDEX IF NOT EXISTS idx_player_bot_stats_last_played ON player_bot_stats(last_played_at DESC);
