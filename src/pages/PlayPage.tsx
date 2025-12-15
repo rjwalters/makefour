@@ -20,7 +20,7 @@ import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
 import { useMatchmaking, type MatchmakingMode } from '../hooks/useMatchmaking'
 import { useBotGame, type BotDifficulty } from '../hooks/useBotGame'
 import { useSounds } from '../hooks/useSounds'
-import { suggestMove, analyzeThreats, DIFFICULTY_LEVELS, type DifficultyLevel } from '../ai/coach'
+import { suggestMove, analyzeThreats, analyzePosition, DIFFICULTY_LEVELS, type DifficultyLevel, type Analysis } from '../ai/coach'
 
 type GameMode = 'ai' | 'hotseat' | 'online'
 type GamePhase = 'setup' | 'playing' | 'matchmaking' | 'online' | 'botGame'
@@ -49,6 +49,8 @@ export default function PlayPage() {
   const [isBotThinking, setIsBotThinking] = useState(false)
   const [gamePhase, setGamePhase] = useState<GamePhase>('setup')
   const [showAnalysis, setShowAnalysis] = useState(false)
+  const [hint, setHint] = useState<Analysis | null>(null)
+  const [isGettingHint, setIsGettingHint] = useState(false)
 
   // Derive settings from preferences (local state for in-session changes before game starts)
   const [settings, setSettings] = useState<GameSettings>(() => ({
@@ -267,6 +269,7 @@ export default function PlayPage() {
     setGameSaved(false)
     setSaveError(null)
     setIsBotThinking(false)
+    setHint(null)
     matchmaking.reset()
     botGame.reset()
   }, [matchmaking, botGame])
@@ -276,6 +279,7 @@ export default function PlayPage() {
     setGameSaved(false)
     setSaveError(null)
     setIsBotThinking(false)
+    setHint(null)
   }, [])
 
   const handleSaveGame = useCallback(async () => {
@@ -348,6 +352,33 @@ export default function PlayPage() {
     matchmaking.leaveQueue()
     setGamePhase('setup')
   }, [matchmaking])
+
+  // Get hint (AI coach suggestion)
+  const handleGetHint = useCallback(async () => {
+    if (isGettingHint || gameState.winner !== null) return
+
+    setIsGettingHint(true)
+    try {
+      const analysis = await analyzePosition(
+        {
+          board: gameState.board,
+          currentPlayer: gameState.currentPlayer,
+          moveHistory: gameState.moveHistory,
+        },
+        settings.difficulty
+      )
+      setHint(analysis)
+    } catch (error) {
+      console.error('Failed to get hint:', error)
+    } finally {
+      setIsGettingHint(false)
+    }
+  }, [gameState, settings.difficulty, isGettingHint])
+
+  // Clear hint when game state changes (new move made)
+  useEffect(() => {
+    setHint(null)
+  }, [gameState.moveHistory.length])
 
   // Resign from online game
   const handleResign = useCallback(() => {
@@ -694,6 +725,32 @@ export default function PlayPage() {
             />
           )}
         </div>
+
+        {/* Get Hint button and display - only in AI training mode during player's turn */}
+        {settings.mode === 'ai' && !isGameOver && gameState.currentPlayer === userPlayerNumber && !isBotThinking && (
+          <div className="w-full space-y-3">
+            <Button
+              onClick={handleGetHint}
+              variant="secondary"
+              disabled={isGettingHint}
+              className="w-full"
+            >
+              {isGettingHint ? 'Analyzing...' : 'Get Hint'}
+            </Button>
+
+            {hint && (
+              <div className="p-3 bg-muted rounded-lg text-sm">
+                <p className="font-medium mb-1">AI Coach (experimental)</p>
+                <p className="text-muted-foreground">{hint.evaluation}</p>
+                {hint.bestMove >= 0 && (
+                  <p className="mt-1 font-medium">
+                    Suggested move: Column {hint.bestMove + 1}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex flex-col gap-3 w-full">
           {/* Game over actions */}
