@@ -47,6 +47,22 @@ interface RecentGameRow {
   created_at: number
 }
 
+interface MatchupStatsRow {
+  opponent_id: string
+  total_games: number
+  wins: number
+  losses: number
+  draws: number
+  avg_moves: number
+  last_game_at: number
+}
+
+interface OpponentPersonaRow {
+  id: string
+  name: string
+  avatar_url: string | null
+}
+
 /**
  * GET /api/bot/personas/:id - Get a specific bot persona with full profile
  */
@@ -101,6 +117,62 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
       .bind(botUserId)
       .all<{ rating: number; created_at: number }>()
 
+    // Get head-to-head matchup stats against other bots
+    const matchupStats = await DB.prepare(`
+      SELECT
+        opponent_id,
+        COUNT(*) as total_games,
+        SUM(CASE WHEN outcome = 'win' THEN 1 ELSE 0 END) as wins,
+        SUM(CASE WHEN outcome = 'loss' THEN 1 ELSE 0 END) as losses,
+        SUM(CASE WHEN outcome = 'draw' THEN 1 ELSE 0 END) as draws,
+        AVG(move_count) as avg_moves,
+        MAX(created_at) as last_game_at
+      FROM games
+      WHERE user_id = ?
+        AND opponent_id IS NOT NULL
+        AND opponent_id LIKE 'bot_%'
+      GROUP BY opponent_id
+      ORDER BY total_games DESC
+    `)
+      .bind(botUserId)
+      .all<MatchupStatsRow>()
+
+    // Get persona info for all opponents
+    const opponentIds = matchupStats.results.map(m => m.opponent_id.replace('bot_', ''))
+    let opponentPersonas: OpponentPersonaRow[] = []
+    if (opponentIds.length > 0) {
+      const placeholders = opponentIds.map(() => '?').join(',')
+      const opponentResult = await DB.prepare(`
+        SELECT id, name, avatar_url
+        FROM bot_personas
+        WHERE id IN (${placeholders})
+      `)
+        .bind(...opponentIds)
+        .all<OpponentPersonaRow>()
+      opponentPersonas = opponentResult.results
+    }
+
+    // Build matchups array with persona info
+    const matchups = matchupStats.results.map(stat => {
+      const personaId = stat.opponent_id.replace('bot_', '')
+      const opponentPersona = opponentPersonas.find(p => p.id === personaId)
+      const winRate = stat.total_games > 0
+        ? Math.round((stat.wins / stat.total_games) * 100)
+        : 0
+      return {
+        opponentId: personaId,
+        opponentName: opponentPersona?.name ?? personaId,
+        opponentAvatarUrl: opponentPersona?.avatar_url ?? null,
+        totalGames: stat.total_games,
+        wins: stat.wins,
+        losses: stat.losses,
+        draws: stat.draws,
+        winRate,
+        avgMoves: Math.round(stat.avg_moves),
+        lastGameAt: stat.last_game_at,
+      }
+    })
+
     // Use bot user stats if available, otherwise fall back to persona stats
     const stats = botUser || {
       rating: persona.current_elo,
@@ -142,6 +214,8 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
       })),
       // Rating history (reversed for chronological order)
       ratingHistory: ratingHistory.results.reverse(),
+      // Head-to-head matchup records against other bots
+      matchups,
     })
   } catch (error) {
     console.error('GET /api/bot/personas/:id error:', error)

@@ -15,6 +15,19 @@ interface RecentGame {
   createdAt: number
 }
 
+interface BotMatchup {
+  opponentId: string
+  opponentName: string
+  opponentAvatarUrl: string | null
+  totalGames: number
+  wins: number
+  losses: number
+  draws: number
+  winRate: number
+  avgMoves: number
+  lastGameAt: number
+}
+
 interface BotProfile {
   id: string
   name: string
@@ -31,6 +44,7 @@ interface BotProfile {
   winRate: number
   recentGames: RecentGame[]
   ratingHistory: Array<{ rating: number; createdAt: number }>
+  matchups?: BotMatchup[]
 }
 
 export default function BotProfilePage() {
@@ -237,6 +251,75 @@ export default function BotProfilePage() {
                   <div className="flex justify-between mt-2 text-xs text-muted-foreground">
                     <span>Oldest</span>
                     <span>Most Recent</span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Bot vs Bot Matchups */}
+            {profile.matchups && profile.matchups.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Bot Matchups</CardTitle>
+                  <CardDescription>Head-to-head records against other bots</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {profile.matchups.map((matchup) => (
+                      <Link
+                        key={matchup.opponentId}
+                        to={`/bot/${matchup.opponentId}`}
+                        className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted/70 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <BotAvatar
+                            avatarUrl={matchup.opponentAvatarUrl}
+                            name={matchup.opponentName}
+                            size="sm"
+                          />
+                          <div>
+                            <span className="font-medium">vs {matchup.opponentName}</span>
+                            <div className="text-xs text-muted-foreground">
+                              {matchup.totalGames} games, avg {matchup.avgMoves} moves
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <div className="flex items-center gap-2">
+                              <span className="text-green-600 dark:text-green-400 font-medium">{matchup.wins}</span>
+                              <span className="text-muted-foreground">-</span>
+                              <span className="text-red-600 dark:text-red-400 font-medium">{matchup.losses}</span>
+                              {matchup.draws > 0 && (
+                                <>
+                                  <span className="text-muted-foreground">-</span>
+                                  <span className="text-yellow-600 dark:text-yellow-400 font-medium">{matchup.draws}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div className="w-20">
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${
+                                    matchup.winRate >= 60 ? 'bg-green-500' :
+                                    matchup.winRate >= 40 ? 'bg-yellow-500' : 'bg-red-500'
+                                  }`}
+                                  style={{ width: `${matchup.winRate}%` }}
+                                />
+                              </div>
+                              <span className={`text-xs font-medium min-w-[2.5rem] text-right ${
+                                matchup.winRate >= 60 ? 'text-green-600 dark:text-green-400' :
+                                matchup.winRate >= 40 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'
+                              }`}>
+                                {matchup.winRate}%
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </Link>
+                    ))}
                   </div>
                 </CardContent>
               </Card>

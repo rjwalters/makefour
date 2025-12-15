@@ -319,8 +319,8 @@ export async function updateBotRatings(
     statements.push(
       DB.prepare(`
         INSERT INTO games (id, user_id, outcome, moves, move_count, rating_change,
-                          opponent_type, player_number, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'ai', 1, ?)
+                          opponent_type, opponent_id, player_number, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'ai', ?, 1, ?)
       `).bind(
         bot1GameId,
         game.player1_id,
@@ -328,6 +328,7 @@ export async function updateBotRatings(
         JSON.stringify(moves),
         moves.length,
         bot1Result.ratingChange,
+        game.player2_id,
         now
       ),
       DB.prepare(`
@@ -392,8 +393,8 @@ export async function updateBotRatings(
     statements.push(
       DB.prepare(`
         INSERT INTO games (id, user_id, outcome, moves, move_count, rating_change,
-                          opponent_type, player_number, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'ai', 2, ?)
+                          opponent_type, opponent_id, player_number, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'ai', ?, 2, ?)
       `).bind(
         bot2GameId,
         game.player2_id,
@@ -401,6 +402,7 @@ export async function updateBotRatings(
         JSON.stringify(moves),
         moves.length,
         bot2Result.ratingChange,
+        game.player1_id,
         now
       ),
       DB.prepare(`

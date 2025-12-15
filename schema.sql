@@ -75,6 +75,8 @@ CREATE TABLE IF NOT EXISTS games (
   rating_change INTEGER DEFAULT 0,
   -- Type of opponent: 'human' for hotseat, 'ai' for AI opponent
   opponent_type TEXT NOT NULL DEFAULT 'ai',
+  -- Opponent user ID (for bot vs bot matchup tracking)
+  opponent_id TEXT,
   -- AI difficulty level (null for human games)
   ai_difficulty TEXT,
   -- Which player the user played as (1 = red/first, 2 = yellow/second)
@@ -107,6 +109,9 @@ CREATE INDEX IF NOT EXISTS idx_games_created_at ON games(created_at);
 CREATE INDEX IF NOT EXISTS idx_games_outcome ON games(outcome);
 CREATE INDEX IF NOT EXISTS idx_games_opponent_type ON games(opponent_type);
 CREATE INDEX IF NOT EXISTS idx_games_ai_difficulty ON games(ai_difficulty);
+-- Index for bot matchup queries
+CREATE INDEX IF NOT EXISTS idx_games_opponent_id ON games(opponent_id);
+CREATE INDEX IF NOT EXISTS idx_games_user_opponent ON games(user_id, opponent_id);
 
 -- Rating history table - tracks ELO changes after each game
 CREATE TABLE IF NOT EXISTS rating_history (
