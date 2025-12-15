@@ -11,6 +11,7 @@ interface Game {
   outcome: 'win' | 'loss' | 'draw'
   moves: number[]
   moveCount: number
+  ratingChange: number
   createdAt: number
 }
 
@@ -174,9 +175,23 @@ export default function GamesPage() {
                             </p>
                           </div>
                         </div>
-                        <Button variant="ghost" size="sm">
-                          Replay
-                        </Button>
+                        <div className="flex items-center gap-3">
+                          {game.ratingChange !== 0 && (
+                            <span
+                              className={`text-sm font-medium ${
+                                game.ratingChange > 0
+                                  ? 'text-green-600 dark:text-green-400'
+                                  : 'text-red-600 dark:text-red-400'
+                              }`}
+                            >
+                              {game.ratingChange > 0 ? '+' : ''}
+                              {game.ratingChange}
+                            </span>
+                          )}
+                          <Button variant="ghost" size="sm">
+                            Replay
+                          </Button>
+                        </div>
                       </div>
                     </Link>
                   ))}
