@@ -6,6 +6,7 @@
 
 import { Button } from './ui/button'
 import { useBotPersonas, type BotPersona } from '../hooks/useBotPersonas'
+import BotAvatar from './BotAvatar'
 
 interface BotPersonaSelectorProps {
   selectedPersonaId: string | null
@@ -60,15 +61,22 @@ function BotPersonaCard({
         }
       `}
     >
-      {/* Header with name and rating */}
+      {/* Header with avatar, name and rating */}
       <div className="flex justify-between items-start mb-2">
-        <div>
-          <h3 className="font-semibold text-lg">{persona.name}</h3>
-          <span
-            className={`text-sm font-medium ${getRatingTierColor(persona.rating)}`}
-          >
-            {persona.rating} - {getRatingTierName(persona.rating)}
-          </span>
+        <div className="flex items-start gap-3">
+          <BotAvatar
+            avatarUrl={persona.avatarUrl}
+            name={persona.name}
+            size="md"
+          />
+          <div>
+            <h3 className="font-semibold text-lg">{persona.name}</h3>
+            <span
+              className={`text-sm font-medium ${getRatingTierColor(persona.rating)}`}
+            >
+              {persona.rating} - {getRatingTierName(persona.rating)}
+            </span>
+          </div>
         </div>
         {/* Play style badge */}
         <span

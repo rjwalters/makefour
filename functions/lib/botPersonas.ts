@@ -78,7 +78,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
     id: 'rookie',
     name: 'Rookie',
     description: 'A friendly beginner still learning the ropes. Makes lots of mistakes but never gives up!',
-    avatar_url: null,
+    avatar_url: '🌱',
     ai_engine: 'minimax',
     ai_config: {
       searchDepth: 2,
@@ -142,7 +142,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
     id: 'rusty',
     name: 'Rusty',
     description: 'A friendly old-timer getting back into the game. Encouraging and self-deprecating.',
-    avatar_url: null,
+    avatar_url: '🔧',
     ai_engine: 'minimax',
     ai_config: {
       searchDepth: 3,
@@ -206,7 +206,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
     id: 'blitz',
     name: 'Blitz',
     description: 'A competitive, energetic bot who loves friendly trash talk and fast-paced games.',
-    avatar_url: null,
+    avatar_url: '⚡',
     ai_engine: 'minimax',
     ai_config: {
       searchDepth: 4,
@@ -270,7 +270,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
     id: 'nova',
     name: 'Nova',
     description: 'A promising player with flashes of brilliance. Confident but gracious.',
-    avatar_url: null,
+    avatar_url: '⭐',
     ai_engine: 'minimax',
     ai_config: {
       searchDepth: 4,
@@ -334,7 +334,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
     id: 'neuron',
     name: 'Neuron',
     description: 'A curious, analytical bot who processes moves methodically and sometimes gets confused.',
-    avatar_url: null,
+    avatar_url: '🧠',
     ai_engine: 'minimax',
     ai_config: {
       searchDepth: 5,
@@ -398,7 +398,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
     id: 'scholar',
     name: 'Scholar',
     description: 'A methodical player who has studied every opening. Analytical and precise.',
-    avatar_url: null,
+    avatar_url: '📚',
     ai_engine: 'minimax',
     ai_config: {
       searchDepth: 6,
@@ -462,7 +462,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
     id: 'viper',
     name: 'Viper',
     description: 'A cunning strategist who sets traps and thrives on opponent mistakes.',
-    avatar_url: null,
+    avatar_url: '🐍',
     ai_engine: 'minimax',
     ai_config: {
       searchDepth: 5,
@@ -526,7 +526,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
     id: 'titan',
     name: 'Titan',
     description: 'A powerful player who dominates the center and crushes opposition.',
-    avatar_url: null,
+    avatar_url: '🏔️',
     ai_engine: 'minimax',
     ai_config: {
       searchDepth: 7,
@@ -590,7 +590,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
     id: 'sentinel',
     name: 'Sentinel',
     description: 'A stoic defender who speaks few words but plays with unwavering precision.',
-    avatar_url: null,
+    avatar_url: '🛡️',
     ai_engine: 'minimax',
     ai_config: {
       searchDepth: 10,
@@ -654,7 +654,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
     id: 'oracle',
     name: 'Oracle',
     description: 'A mysterious seer who speaks in riddles and plays with perfect foresight.',
-    avatar_url: null,
+    avatar_url: '🔮',
     ai_engine: 'deep-minimax',
     ai_config: {
       searchDepth: 42,
@@ -719,7 +719,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
     id: 'neuron',
     name: 'Neuron',
     description: 'Plays by intuition using pattern recognition. Sometimes brilliant, sometimes baffling.',
-    avatar_url: null,
+    avatar_url: '🧠',
     ai_engine: 'neural',
     ai_config: {
       searchDepth: 3, // hybridDepth for neural engine

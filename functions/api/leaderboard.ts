@@ -27,6 +27,7 @@ interface LeaderboardRow {
 interface BotPersonaInfo {
   name: string
   description: string
+  avatar_url: string | null
 }
 
 /**
@@ -74,13 +75,17 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     if (botPersonaIds.length > 0) {
       const placeholders = botPersonaIds.map(() => '?').join(',')
       const personas = await DB.prepare(`
-        SELECT id, name, description FROM bot_personas WHERE id IN (${placeholders})
+        SELECT id, name, description, avatar_url FROM bot_personas WHERE id IN (${placeholders})
       `)
         .bind(...botPersonaIds)
-        .all<{ id: string; name: string; description: string }>()
+        .all<{ id: string; name: string; description: string; avatar_url: string | null }>()
 
       for (const persona of personas.results) {
-        botPersonaMap.set(persona.id, { name: persona.name, description: persona.description })
+        botPersonaMap.set(persona.id, {
+          name: persona.name,
+          description: persona.description,
+          avatar_url: persona.avatar_url,
+        })
       }
     }
 
@@ -115,6 +120,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
         isBot,
         botPersonaId: isBot ? player.bot_persona_id : null,
         botDescription: isBot && personaInfo ? personaInfo.description : null,
+        botAvatarUrl: isBot && personaInfo ? personaInfo.avatar_url : null,
       }
     })
 
