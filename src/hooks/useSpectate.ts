@@ -198,7 +198,7 @@ export function useSpectate() {
 
       setState((prev) => ({
         ...prev,
-        status: gameState.status === 'active' ? 'watching' : 'watching',
+        status: 'watching',
         currentGame: gameState,
         error: null,
       }))
