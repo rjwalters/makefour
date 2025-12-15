@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { Button } from '../components/ui/button'
@@ -7,6 +7,14 @@ import ThemeToggle from '../components/ThemeToggle'
 import GameBoard from '../components/GameBoard'
 import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
 import { getStateAtMove, type GameState } from '../game/makefour'
+import {
+  analyzeGame,
+  summarizeGameQuality,
+  getMoveQualityColor,
+  getMoveQualityLabel,
+  type MoveAnalysis,
+  type GameQualitySummary,
+} from '../ai/moveQuality'
 
 interface GameData {
   id: string
@@ -28,6 +36,22 @@ export default function ReplayPage() {
   // Current move index for replay (0 = empty board, moves.length = final state)
   const [currentMoveIndex, setCurrentMoveIndex] = useState(0)
   const [gameState, setGameState] = useState<GameState | null>(null)
+
+  // Move quality analysis
+  const [moveAnalyses, setMoveAnalyses] = useState<MoveAnalysis[]>([])
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+
+  // Compute summary from analyses
+  const qualitySummary = useMemo<GameQualitySummary | null>(() => {
+    if (moveAnalyses.length === 0) return null
+    return summarizeGameQuality(moveAnalyses)
+  }, [moveAnalyses])
+
+  // Get current move analysis (for the move that led to current state)
+  const currentMoveAnalysis = useMemo<MoveAnalysis | null>(() => {
+    if (currentMoveIndex === 0 || moveAnalyses.length === 0) return null
+    return moveAnalyses[currentMoveIndex - 1] || null
+  }, [currentMoveIndex, moveAnalyses])
 
   // Fetch game data
   useEffect(() => {
@@ -51,6 +75,25 @@ export default function ReplayPage() {
 
     fetchGame()
   }, [gameId])
+
+  // Analyze game moves for quality scoring
+  useEffect(() => {
+    const performAnalysis = async () => {
+      if (!game || game.moves.length === 0) return
+
+      setIsAnalyzing(true)
+      try {
+        const analyses = await analyzeGame(game.moves)
+        setMoveAnalyses(analyses)
+      } catch (err) {
+        console.error('Failed to analyze game:', err)
+      } finally {
+        setIsAnalyzing(false)
+      }
+    }
+
+    performAnalysis()
+  }, [game])
 
   // Update game state when move index changes
   useEffect(() => {
@@ -237,28 +280,123 @@ export default function ReplayPage() {
                 Use arrow keys to navigate
               </p>
 
-              {/* Move list */}
+              {/* Current move quality info */}
+              {currentMoveAnalysis && (
+                <div className="w-full p-3 rounded-lg bg-muted/50">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`px-2 py-1 rounded text-xs font-medium ${getMoveQualityColor(currentMoveAnalysis.quality)}`}
+                      >
+                        {getMoveQualityLabel(currentMoveAnalysis.quality)}
+                      </span>
+                      <span className="text-sm text-muted-foreground">
+                        Move {currentMoveIndex}: Column {currentMoveAnalysis.column + 1}
+                      </span>
+                    </div>
+                    {currentMoveAnalysis.quality !== 'optimal' && (
+                      <span className="text-xs text-muted-foreground">
+                        Best: Column {currentMoveAnalysis.optimalMove + 1}
+                      </span>
+                    )}
+                  </div>
+                  {(currentMoveAnalysis.quality === 'mistake' ||
+                    currentMoveAnalysis.quality === 'blunder') && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {currentMoveAnalysis.quality === 'blunder'
+                        ? 'This move significantly worsened the position.'
+                        : 'A better move was available.'}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Move list with quality colors */}
               <div className="w-full">
-                <p className="text-sm font-medium mb-2">Moves</p>
+                <p className="text-sm font-medium mb-2">
+                  Moves {isAnalyzing && <span className="text-xs text-muted-foreground">(analyzing...)</span>}
+                </p>
                 <div className="flex flex-wrap gap-1">
-                  {game.moves.map((col, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setCurrentMoveIndex(idx + 1)}
-                      className={`w-8 h-8 text-xs rounded border transition-colors ${
-                        idx + 1 === currentMoveIndex
-                          ? 'bg-primary text-primary-foreground'
-                          : idx + 1 < currentMoveIndex
-                          ? 'bg-muted'
-                          : 'bg-background hover:bg-accent'
-                      }`}
-                      title={`Move ${idx + 1}: Column ${col + 1}`}
-                    >
-                      {col + 1}
-                    </button>
-                  ))}
+                  {game.moves.map((col, idx) => {
+                    const analysis = moveAnalyses[idx]
+                    const isSelected = idx + 1 === currentMoveIndex
+                    const qualityClass = analysis
+                      ? getMoveQualityColor(analysis.quality)
+                      : ''
+
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => setCurrentMoveIndex(idx + 1)}
+                        className={`w-8 h-8 text-xs rounded border transition-all ${
+                          isSelected
+                            ? 'ring-2 ring-primary ring-offset-2 dark:ring-offset-gray-900'
+                            : ''
+                        } ${
+                          analysis
+                            ? qualityClass
+                            : idx + 1 < currentMoveIndex
+                            ? 'bg-muted'
+                            : 'bg-background hover:bg-accent'
+                        }`}
+                        title={`Move ${idx + 1}: Column ${col + 1}${analysis ? ` (${getMoveQualityLabel(analysis.quality)})` : ''}`}
+                      >
+                        {col + 1}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
+
+              {/* Quality summary statistics */}
+              {qualitySummary && (
+                <div className="w-full p-4 rounded-lg bg-muted/30 border">
+                  <p className="text-sm font-medium mb-3">Move Quality Summary</p>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-muted-foreground text-xs">Optimal moves</p>
+                      <p className="font-medium text-green-600 dark:text-green-400">
+                        {qualitySummary.counts.optimal} ({qualitySummary.optimalPercentage.toFixed(0)}%)
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">Good or better</p>
+                      <p className="font-medium">
+                        {qualitySummary.counts.optimal + qualitySummary.counts.good} (
+                        {qualitySummary.goodOrBetterPercentage.toFixed(0)}%)
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">Mistakes</p>
+                      <p className="font-medium text-orange-500">
+                        {qualitySummary.mistakeCount}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">Blunders</p>
+                      <p className="font-medium text-red-500">
+                        {qualitySummary.blunderCount}
+                      </p>
+                    </div>
+                  </div>
+                  {/* Quality legend */}
+                  <div className="mt-4 pt-3 border-t">
+                    <p className="text-xs text-muted-foreground mb-2">Legend</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(['optimal', 'good', 'neutral', 'mistake', 'blunder'] as const).map(
+                        (quality) => (
+                          <span
+                            key={quality}
+                            className={`px-2 py-0.5 rounded text-xs ${getMoveQualityColor(quality)}`}
+                          >
+                            {getMoveQualityLabel(quality)}
+                          </span>
+                        )
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
