@@ -7,6 +7,7 @@
 
 import { validateSession, errorResponse, jsonResponse } from '../../../lib/auth'
 import { z } from 'zod'
+import type { ChatPersonality } from '../../../lib/botPersonas'
 
 interface Env {
   DB: D1Database
@@ -31,6 +32,13 @@ interface ActiveGameRow {
   current_turn: number
   status: string
   winner: string | null
+  bot_persona_id: string | null
+}
+
+interface BotPersonaRow {
+  id: string
+  name: string
+  chat_personality: string
 }
 
 const messageSchema = z.object({
@@ -144,7 +152,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     // Get the game
     const game = await DB.prepare(`
-      SELECT id, player1_id, player2_id, moves, current_turn, status, winner
+      SELECT id, player1_id, player2_id, moves, current_turn, status, winner, bot_persona_id
       FROM active_games
       WHERE id = ?
     `)
@@ -183,14 +191,34 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       VALUES (?, ?, ?, 'human', ?, ?)
     `).bind(messageId, gameId, session.userId, content, now).run()
 
-    // Check if this is a bot game (player2 is 'bot')
-    const isVsBot = game.player2_id === 'bot'
+    // Check if this is a bot game (player2 is 'bot' or 'bot-opponent')
+    const isVsBot = game.player2_id === 'bot' || game.player2_id === 'bot-opponent'
 
     let botResponse: string | null = null
 
     if (isVsBot && game.status === 'active') {
+      // Load bot persona personality if available
+      let personality: ChatPersonality | null = null
+      if (game.bot_persona_id) {
+        const persona = await DB.prepare(`
+          SELECT id, name, chat_personality
+          FROM bot_personas
+          WHERE id = ?
+        `)
+          .bind(game.bot_persona_id)
+          .first<BotPersonaRow>()
+
+        if (persona) {
+          try {
+            personality = JSON.parse(persona.chat_personality) as ChatPersonality
+          } catch {
+            // Fall back to default personality
+          }
+        }
+      }
+
       // Generate bot response using Cloudflare Workers AI with Llama
-      botResponse = await generateBotResponse(AI, content, game)
+      botResponse = await generateBotResponse(AI, content, game, personality)
 
       if (botResponse) {
         const botMessageId = crypto.randomUUID()
@@ -215,14 +243,39 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 }
 
 /**
+ * Default chat personality for backwards compatibility
+ */
+const DEFAULT_PERSONALITY: ChatPersonality = {
+  name: 'Bot',
+  systemPrompt: `You are a friendly Connect 4 opponent chatting with your human player during a game. Your personality is competitive but good-natured - you enjoy the game and have fun banter.`,
+  reactions: {
+    gameStart: ["Let's play!", "Ready for a good game!"],
+    playerGoodMove: ["Nice move!", "Well played!"],
+    playerBlunder: ["Interesting choice...", "Hmm, okay!"],
+    botWinning: ["Things are looking up!", "I like my position."],
+    botLosing: ["You're doing well!", "Good game so far!"],
+    gameWon: ["Good game! I got lucky.", "GG!"],
+    gameLost: ["Well played! You got me.", "GG! Nice win!"],
+    draw: ["A draw! Good game.", "Neither of us could break through!"],
+  },
+  chattiness: 0.5,
+  useEmoji: false,
+  maxLength: 150,
+  temperature: 0.7,
+}
+
+/**
  * Generate a bot response using Cloudflare Workers AI (Llama model)
+ * Uses the persona's chat_personality for customized responses.
  */
 async function generateBotResponse(
   AI: Ai,
   userMessage: string,
-  game: ActiveGameRow
+  game: ActiveGameRow,
+  personality: ChatPersonality | null
 ): Promise<string | null> {
   try {
+    const pers = personality || DEFAULT_PERSONALITY
     const moves = JSON.parse(game.moves) as number[]
     const moveCount = moves.length
     const isPlayerTurn = game.current_turn === 1
@@ -241,29 +294,33 @@ async function generateBotResponse(
 
     if (game.winner) {
       if (game.winner === '1') {
-        gameContext = 'You just won the game!'
+        gameContext = 'The player just won the game!'
       } else if (game.winner === '2') {
-        gameContext = 'I just won the game!'
+        gameContext = 'You (the bot) just won the game!'
       } else {
-        gameContext = "The game ended in a draw!"
+        gameContext = 'The game ended in a draw!'
       }
     }
 
-    const systemPrompt = `You are a friendly Connect 4 opponent chatting with your human player during a game. Your personality is competitive but good-natured - you enjoy the game and have fun banter.
+    // Build the system prompt using persona's personality
+    const emojiRule = pers.useEmoji
+      ? '- You may use 1-2 emojis per message if it fits your personality'
+      : '- Do NOT use emojis'
+
+    const systemPrompt = `${pers.systemPrompt}
 
 Current game context: ${gameContext}
 ${isPlayerTurn ? "It's the player's turn." : "It's your turn to play."}
 
 Rules for your responses:
-- Keep responses SHORT (1-2 sentences max)
-- Be conversational and fun
+- Keep responses SHORT (1-2 sentences max, under ${pers.maxLength} characters)
+- Stay in character
 - Comment on the game when relevant
 - Be a good sport (congratulate good moves, be gracious)
 - If asked for hints, give vague suggestions only, never reveal optimal moves
-- Use casual language
-- Do NOT use emojis excessively (max 1 per message if any)
-- If the message is a greeting, respond warmly
-- If they're frustrated, be encouraging
+${emojiRule}
+- If the message is a greeting, respond warmly in character
+- If they're frustrated, be encouraging in your own way
 
 Remember: You are the yellow player (Player 2), they are red (Player 1).`
 
@@ -272,20 +329,25 @@ Remember: You are the yellow player (Player 2), they are red (Player 1).`
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userMessage }
       ],
-      max_tokens: 100,
-      temperature: 0.7,
+      max_tokens: Math.min(100, Math.ceil(pers.maxLength / 3)),
+      temperature: pers.temperature,
     })
 
     if (response && typeof response === 'object' && 'response' in response) {
       const text = (response as { response: string }).response
       // Trim and limit length
-      return text.trim().slice(0, 200)
+      return text.trim().slice(0, pers.maxLength)
     }
 
     return null
   } catch (error) {
     console.error('Bot response generation error:', error)
-    // Return a fallback response
+    // Return a fallback response from canned reactions
+    const pers = personality || DEFAULT_PERSONALITY
+    const fallbacks = pers.reactions.playerGoodMove
+    if (fallbacks && fallbacks.length > 0) {
+      return fallbacks[Math.floor(Math.random() * fallbacks.length)]
+    }
     return "Good move! Let's see how this plays out."
   }
 }
