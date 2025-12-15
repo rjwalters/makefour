@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import ThemeToggle from '../components/ThemeToggle'
+import { VerificationBanner } from '../components/VerificationBanner'
 
 export default function DashboardPage() {
   const { logout, user } = useAuth()
@@ -121,6 +122,8 @@ export default function DashboardPage() {
           </div>
         )}
       </header>
+
+      <VerificationBanner />
 
       <main className="container mx-auto px-4 py-8">
         {/* Rating Stats Card */}

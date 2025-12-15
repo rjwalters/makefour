@@ -17,6 +17,7 @@ const joinQueueSchema = z.object({
 interface UserRow {
   id: string
   rating: number
+  email_verified: number
 }
 
 interface QueueEntry {
@@ -74,15 +75,23 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse('Already in matchmaking queue', 409)
     }
 
-    // Get user's current rating
+    // Get user's current rating and verification status
     const user = await DB.prepare(`
-      SELECT id, rating FROM users WHERE id = ?
+      SELECT id, rating, email_verified FROM users WHERE id = ?
     `)
       .bind(session.userId)
       .first<UserRow>()
 
     if (!user) {
       return errorResponse('User not found', 404)
+    }
+
+    // Require email verification for online matchmaking
+    if (user.email_verified !== 1) {
+      return errorResponse(
+        'Email verification required for online matchmaking. Please verify your email first.',
+        403
+      )
     }
 
     // Add to queue

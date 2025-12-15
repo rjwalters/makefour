@@ -11,6 +11,7 @@ import LeaderboardPage from './pages/LeaderboardPage'
 import SpectatorPage from './pages/SpectatorPage'
 import ProfilePage from './pages/ProfilePage'
 import StatsPage from './pages/StatsPage'
+import VerifyEmailPage from './pages/VerifyEmailPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -29,6 +30,7 @@ function App() {
             <Route path="/play" element={<PlayPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/spectate" element={<SpectatorPage />} />
+            <Route path="/verify-email" element={<VerifyEmailPage />} />
 
             {/* Protected routes - require authentication */}
             <Route

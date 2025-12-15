@@ -37,20 +37,20 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100)
     const offset = parseInt(url.searchParams.get('offset') || '0')
 
-    // Fetch top players by rating (only those who have played at least 1 game)
+    // Fetch top players by rating (only verified users who have played at least 1 game)
     const players = await DB.prepare(`
       SELECT id, email, rating, games_played, wins, losses, draws
       FROM users
-      WHERE games_played > 0
+      WHERE games_played > 0 AND email_verified = 1
       ORDER BY rating DESC, wins DESC
       LIMIT ? OFFSET ?
     `)
       .bind(limit, offset)
       .all<LeaderboardRow>()
 
-    // Get total count for pagination
+    // Get total count for pagination (only verified users)
     const countResult = await DB.prepare(`
-      SELECT COUNT(*) as count FROM users WHERE games_played > 0
+      SELECT COUNT(*) as count FROM users WHERE games_played > 0 AND email_verified = 1
     `).first<{ count: number }>()
 
     const total = countResult?.count || 0
