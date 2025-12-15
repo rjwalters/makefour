@@ -20,6 +20,7 @@ import {
   calculateTimeBudget,
   type DifficultyLevel,
   type BotPersonaConfig,
+  type AIConfig,
 } from '../../../lib/bot'
 import { z } from 'zod'
 
@@ -47,8 +48,14 @@ interface ActiveGameRow {
   turn_started_at: number | null
   is_bot_game: number
   bot_difficulty: string | null
+  bot_persona_id: string | null
   created_at: number
   updated_at: number
+}
+
+interface BotPersonaRow {
+  id: string
+  ai_config: string
 }
 
 const moveSchema = z.object({
@@ -98,7 +105,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       SELECT id, player1_id, player2_id, moves, current_turn, status, mode,
              winner, player1_rating, player2_rating, last_move_at,
              time_control_ms, player1_time_ms, player2_time_ms, turn_started_at,
-             is_bot_game, bot_difficulty, created_at, updated_at
+             is_bot_game, bot_difficulty, bot_persona_id, created_at, updated_at
       FROM active_games
       WHERE id = ? AND is_bot_game = 1
     `)
@@ -141,6 +148,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       turnStartedAt: game.turn_started_at,
       isBotGame: true,
       botDifficulty: game.bot_difficulty,
+      botPersonaId: game.bot_persona_id,
     })
   } catch (error) {
     console.error('GET /api/bot/game/:id error:', error)
@@ -174,7 +182,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       SELECT id, player1_id, player2_id, moves, current_turn, status, mode,
              winner, player1_rating, player2_rating, last_move_at,
              time_control_ms, player1_time_ms, player2_time_ms, turn_started_at,
-             is_bot_game, bot_difficulty, created_at, updated_at
+             is_bot_game, bot_difficulty, bot_persona_id, created_at, updated_at
       FROM active_games
       WHERE id = ? AND is_bot_game = 1
     `)
@@ -194,6 +202,20 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     if (game.status !== 'active') {
       return errorResponse('Game is not active', 400)
+    }
+
+    // Look up persona AI config if available
+    let personaAIConfig: AIConfig | null = null
+    if (game.bot_persona_id) {
+      const persona = await DB.prepare(`
+        SELECT id, ai_config FROM bot_personas WHERE id = ?
+      `)
+        .bind(game.bot_persona_id)
+        .first<BotPersonaRow>()
+
+      if (persona) {
+        personaAIConfig = JSON.parse(persona.ai_config)
+      }
     }
 
     const playerNumber = isPlayer1 ? 1 : 2

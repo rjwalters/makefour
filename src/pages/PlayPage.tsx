@@ -9,6 +9,7 @@ import SoundToggle from '../components/SoundToggle'
 import GameBoard from '../components/GameBoard'
 import AnalysisPanel from '../components/AnalysisPanel'
 import ChatPanel from '../components/ChatPanel'
+import BotPersonaSelector from '../components/BotPersonaSelector'
 import { GameTimers } from '../components/GameTimer'
 import {
   createGameState,
@@ -20,6 +21,7 @@ import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
 import { useMatchmaking, type MatchmakingMode } from '../hooks/useMatchmaking'
 import { useBotGame, type BotDifficulty } from '../hooks/useBotGame'
 import { useSounds } from '../hooks/useSounds'
+import type { BotPersona } from '../hooks/useBotPersonas'
 import { suggestMove, analyzeThreats, analyzePosition, DIFFICULTY_LEVELS, type DifficultyLevel, type Analysis } from '../ai/coach'
 
 type GameMode = 'ai' | 'hotseat' | 'online'
@@ -52,6 +54,7 @@ export default function PlayPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [hint, setHint] = useState<Analysis | null>(null)
   const [isGettingHint, setIsGettingHint] = useState(false)
+  const [selectedPersona, setSelectedPersona] = useState<BotPersona | null>(null)
 
   // Derive settings from preferences (local state for in-session changes before game starts)
   const [settings, setSettings] = useState<GameSettings>(() => ({
@@ -255,7 +258,11 @@ export default function PlayPage() {
       matchmaking.joinQueue(settings.matchmakingMode, settings.allowSpectators)
     } else if (settings.mode === 'ai' && settings.botGameMode === 'ranked') {
       // Start ranked bot game (server-side, timed)
-      botGame.createGame(settings.difficulty as BotDifficulty, settings.playerColor)
+      if (selectedPersona) {
+        botGame.createGameWithPersona(selectedPersona.id, settings.playerColor)
+      } else {
+        botGame.createGame(settings.difficulty as BotDifficulty, settings.playerColor)
+      }
       sounds.playGameStart()
     } else {
       // Training mode or hotseat (client-side)
@@ -271,6 +278,7 @@ export default function PlayPage() {
     setSaveError(null)
     setIsBotThinking(false)
     setHint(null)
+    setSelectedPersona(null)
     matchmaking.reset()
     botGame.reset()
   }, [matchmaking, botGame])
@@ -516,25 +524,32 @@ export default function PlayPage() {
               )}
             </div>
 
-            {/* Difficulty Selection */}
-            <div>
-              <label className="block text-sm font-medium mb-2">Difficulty</label>
-              <div className="grid grid-cols-2 gap-2">
-                {(Object.keys(DIFFICULTY_LEVELS) as DifficultyLevel[]).map((level) => (
-                  <Button
-                    key={level}
-                    variant={settings.difficulty === level ? 'default' : 'outline'}
-                    onClick={() => setSettings({ ...settings, difficulty: level })}
-                    className="h-auto py-2"
-                  >
-                    <div className="text-center">
-                      <div className="font-medium">{DIFFICULTY_LEVELS[level].name}</div>
-                      <div className="text-xs opacity-80">{DIFFICULTY_LEVELS[level].description}</div>
-                    </div>
-                  </Button>
-                ))}
+            {/* Bot Selection - Persona selector for ranked, difficulty for training */}
+            {settings.botGameMode === 'ranked' ? (
+              <BotPersonaSelector
+                selectedPersonaId={selectedPersona?.id ?? null}
+                onSelect={(persona) => setSelectedPersona(persona)}
+              />
+            ) : (
+              <div>
+                <label className="block text-sm font-medium mb-2">Difficulty</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(Object.keys(DIFFICULTY_LEVELS) as DifficultyLevel[]).map((level) => (
+                    <Button
+                      key={level}
+                      variant={settings.difficulty === level ? 'default' : 'outline'}
+                      onClick={() => setSettings({ ...settings, difficulty: level })}
+                      className="h-auto py-2"
+                    >
+                      <div className="text-center">
+                        <div className="font-medium">{DIFFICULTY_LEVELS[level].name}</div>
+                        <div className="text-xs opacity-80">{DIFFICULTY_LEVELS[level].description}</div>
+                      </div>
+                    </Button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Player Color Selection */}
             <div>
@@ -646,9 +661,18 @@ export default function PlayPage() {
           onClick={handleStartGame}
           size="lg"
           className="w-full"
-          disabled={settings.mode === 'online' && !isAuthenticated}
+          disabled={
+            (settings.mode === 'online' && !isAuthenticated) ||
+            (settings.mode === 'ai' && settings.botGameMode === 'ranked' && !selectedPersona)
+          }
         >
-          {settings.mode === 'online' ? 'Find Match' : 'Start Game'}
+          {settings.mode === 'online'
+            ? 'Find Match'
+            : settings.mode === 'ai' && settings.botGameMode === 'ranked'
+              ? selectedPersona
+                ? `Challenge ${selectedPersona.name}`
+                : 'Select an Opponent'
+              : 'Start Game'}
         </Button>
       </CardContent>
     </Card>
@@ -902,9 +926,12 @@ export default function PlayPage() {
       return 'text-yellow-500'
     }
 
-    const difficultyName = game.botDifficulty
-      ? game.botDifficulty.charAt(0).toUpperCase() + game.botDifficulty.slice(1)
-      : 'Bot'
+    // Use persona name if available, otherwise fall back to difficulty name
+    const botName = game.botPersonaId
+      ? selectedPersona?.name || 'Bot'
+      : game.botDifficulty
+        ? game.botDifficulty.charAt(0).toUpperCase() + game.botDifficulty.slice(1) + ' Bot'
+        : 'Bot'
 
     return (
       <Card>
@@ -922,7 +949,7 @@ export default function PlayPage() {
                 className={`w-4 h-4 rounded-full ${game.playerNumber === 1 ? 'bg-yellow-400' : 'bg-red-500'}`}
               />
               <span className="text-sm font-medium">
-                {difficultyName} Bot ({botColor}) - {game.opponentRating}
+                {botName} ({botColor}) - {game.opponentRating}
               </span>
             </div>
           </div>

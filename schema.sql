@@ -215,3 +215,31 @@ CREATE TABLE IF NOT EXISTS game_messages (
 -- Indexes for game messages
 CREATE INDEX IF NOT EXISTS idx_game_messages_game_id ON game_messages(game_id);
 CREATE INDEX IF NOT EXISTS idx_game_messages_created_at ON game_messages(created_at);
+
+-- Bot personas table - customizable AI opponents with unique personalities
+CREATE TABLE IF NOT EXISTS bot_personas (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  avatar_url TEXT,
+  ai_engine TEXT NOT NULL DEFAULT 'minimax',
+  -- JSON object with engine-specific parameters (searchDepth, errorRate, etc.)
+  ai_config TEXT NOT NULL DEFAULT '{}',
+  -- JSON object with chat personality (style, phrases, reactions)
+  chat_personality TEXT NOT NULL DEFAULT '{}',
+  play_style TEXT NOT NULL DEFAULT 'balanced',
+  base_elo INTEGER NOT NULL DEFAULT 1200,
+  current_elo INTEGER NOT NULL DEFAULT 1200,
+  games_played INTEGER NOT NULL DEFAULT 0,
+  wins INTEGER NOT NULL DEFAULT 0,
+  losses INTEGER NOT NULL DEFAULT 0,
+  draws INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  CHECK (play_style IN ('aggressive', 'defensive', 'balanced', 'tricky', 'adaptive')),
+  CHECK (is_active IN (0, 1))
+);
+
+-- Index for finding active personas
+CREATE INDEX IF NOT EXISTS idx_bot_personas_active ON bot_personas(is_active, current_elo);

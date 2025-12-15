@@ -1,0 +1,182 @@
+/**
+ * Bot Persona Selector Component
+ *
+ * Displays a grid of bot personas for the user to challenge
+ */
+
+import { Button } from './ui/button'
+import { useBotPersonas, type BotPersona } from '../hooks/useBotPersonas'
+
+interface BotPersonaSelectorProps {
+  selectedPersonaId: string | null
+  onSelect: (persona: BotPersona) => void
+}
+
+// Play style badges
+const PLAY_STYLE_COLORS: Record<string, string> = {
+  aggressive: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+  defensive: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+  balanced: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
+  tricky: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+  adaptive: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+}
+
+// Rating tier colors
+function getRatingTierColor(rating: number): string {
+  if (rating < 900) return 'text-gray-500'
+  if (rating < 1200) return 'text-green-600 dark:text-green-400'
+  if (rating < 1500) return 'text-blue-600 dark:text-blue-400'
+  if (rating < 1800) return 'text-purple-600 dark:text-purple-400'
+  return 'text-amber-600 dark:text-amber-400'
+}
+
+function getRatingTierName(rating: number): string {
+  if (rating < 900) return 'Beginner'
+  if (rating < 1200) return 'Intermediate'
+  if (rating < 1500) return 'Advanced'
+  if (rating < 1800) return 'Expert'
+  return 'Master'
+}
+
+function BotPersonaCard({
+  persona,
+  isSelected,
+  onSelect,
+}: {
+  persona: BotPersona
+  isSelected: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      onClick={onSelect}
+      className={`
+        relative w-full p-4 rounded-lg border-2 text-left transition-all
+        hover:shadow-md hover:border-primary/50
+        focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2
+        ${isSelected
+          ? 'border-primary bg-primary/5 shadow-sm'
+          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800'
+        }
+      `}
+    >
+      {/* Header with name and rating */}
+      <div className="flex justify-between items-start mb-2">
+        <div>
+          <h3 className="font-semibold text-lg">{persona.name}</h3>
+          <span
+            className={`text-sm font-medium ${getRatingTierColor(persona.rating)}`}
+          >
+            {persona.rating} - {getRatingTierName(persona.rating)}
+          </span>
+        </div>
+        {/* Play style badge */}
+        <span
+          className={`text-xs px-2 py-1 rounded-full font-medium ${
+            PLAY_STYLE_COLORS[persona.playStyle] || PLAY_STYLE_COLORS.balanced
+          }`}
+        >
+          {persona.playStyle}
+        </span>
+      </div>
+
+      {/* Description */}
+      <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
+        {persona.description}
+      </p>
+
+      {/* Stats */}
+      <div className="flex gap-4 text-xs text-muted-foreground">
+        <span>
+          {persona.gamesPlayed} games
+        </span>
+        {persona.gamesPlayed > 0 && (
+          <span>
+            {persona.winRate}% win rate
+          </span>
+        )}
+      </div>
+
+      {/* Selected indicator */}
+      {isSelected && (
+        <div className="absolute top-2 right-2">
+          <div className="w-4 h-4 rounded-full bg-primary flex items-center justify-center">
+            <svg
+              className="w-3 h-3 text-white"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={3}
+                d="M5 13l4 4L19 7"
+              />
+            </svg>
+          </div>
+        </div>
+      )}
+    </button>
+  )
+}
+
+export default function BotPersonaSelector({
+  selectedPersonaId,
+  onSelect,
+}: BotPersonaSelectorProps) {
+  const { personas, isLoading, error } = useBotPersonas()
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2">
+        <label className="block text-sm font-medium mb-2">Choose Your Opponent</label>
+        <div className="grid grid-cols-1 gap-3">
+          {[1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              className="h-24 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse"
+            />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-2">
+        <label className="block text-sm font-medium mb-2">Choose Your Opponent</label>
+        <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg text-center">
+          <p className="text-sm text-red-600 dark:text-red-400">
+            Failed to load bot personas. Please try again.
+          </p>
+          <Button variant="outline" size="sm" className="mt-2" onClick={() => window.location.reload()}>
+            Retry
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      <label className="block text-sm font-medium mb-2">Choose Your Opponent</label>
+      <div className="grid grid-cols-1 gap-3 max-h-[400px] overflow-y-auto pr-1">
+        {personas.map((persona) => (
+          <BotPersonaCard
+            key={persona.id}
+            persona={persona}
+            isSelected={selectedPersonaId === persona.id}
+            onSelect={() => onSelect(persona)}
+          />
+        ))}
+      </div>
+      {personas.length === 0 && (
+        <p className="text-sm text-muted-foreground text-center py-4">
+          No bot personas available.
+        </p>
+      )}
+    </div>
+  )
+}

@@ -15,7 +15,7 @@ interface Env {
 // Bot user ID (special reserved ID for bot opponent)
 const BOT_USER_ID = 'bot-opponent'
 
-// Bot ratings by difficulty
+// Legacy bot ratings by difficulty (for backward compatibility)
 const BOT_RATINGS: Record<string, number> = {
   beginner: 800,
   intermediate: 1200,
@@ -29,12 +29,25 @@ const DEFAULT_TIME_CONTROL_MS = 300000
 // Supported engine types for validation
 const ENGINE_TYPES = ['minimax', 'heuristic', 'mcts', 'neural', 'hybrid'] as const
 
+// Schema for creating a game - supports both personaId (new) and difficulty (legacy)
 const createGameSchema = z.object({
-  difficulty: z.enum(['beginner', 'intermediate', 'expert', 'perfect']),
+  personaId: z.string().optional(),
+  difficulty: z.enum(['beginner', 'intermediate', 'expert', 'perfect']).optional(),
   playerColor: z.union([z.literal(1), z.literal(2)]).optional().default(1),
   // Optional engine selection - defaults to 'minimax' if not specified
   engine: z.enum(ENGINE_TYPES).optional().default('minimax'),
-})
+}).refine(
+  (data) => data.personaId || data.difficulty,
+  { message: 'Either personaId or difficulty is required' }
+)
+
+// Bot persona row from database
+interface BotPersonaRow {
+  id: string
+  name: string
+  current_elo: number
+  ai_config: string
+}
 
 /**
  * POST /api/bot/game - Create a new ranked bot game
@@ -56,7 +69,39 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse(parseResult.error.errors[0].message, 400)
     }
 
-    const { difficulty, playerColor, engine } = parseResult.data
+    const { personaId, difficulty, playerColor, engine } = parseResult.data
+
+    // Resolve bot rating and configuration
+    let botRating: number
+    let botPersonaId: string | null = null
+    let effectiveDifficulty: string | null = difficulty || null
+
+    if (personaId) {
+      // Look up the persona
+      const persona = await DB.prepare(`
+        SELECT id, name, current_elo, ai_config
+        FROM bot_personas
+        WHERE id = ? AND is_active = 1
+      `)
+        .bind(personaId)
+        .first<BotPersonaRow>()
+
+      if (!persona) {
+        return errorResponse('Bot persona not found', 404)
+      }
+
+      botRating = persona.current_elo
+      botPersonaId = persona.id
+      // Map persona to difficulty based on rating for backward compatibility
+      if (botRating < 900) effectiveDifficulty = 'beginner'
+      else if (botRating < 1300) effectiveDifficulty = 'intermediate'
+      else if (botRating < 1700) effectiveDifficulty = 'expert'
+      else effectiveDifficulty = 'perfect'
+    } else if (difficulty) {
+      botRating = BOT_RATINGS[difficulty]
+    } else {
+      return errorResponse('Either personaId or difficulty is required', 400)
+    }
 
     // Check if user already has an active game
     const existingGame = await DB.prepare(`
@@ -90,8 +135,8 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     // If playerColor is 2, user is player2 (yellow, goes second)
     const player1Id = playerColor === 1 ? session.userId : BOT_USER_ID
     const player2Id = playerColor === 1 ? BOT_USER_ID : session.userId
-    const player1Rating = playerColor === 1 ? user.rating : BOT_RATINGS[difficulty]
-    const player2Rating = playerColor === 1 ? BOT_RATINGS[difficulty] : user.rating
+    const player1Rating = playerColor === 1 ? user.rating : botRating
+    const player2Rating = playerColor === 1 ? botRating : user.rating
     const botPlayer = playerColor === 1 ? 2 : 1
 
     // Create the game
@@ -100,9 +145,9 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         id, player1_id, player2_id, moves, current_turn, status, mode,
         player1_rating, player2_rating, spectatable, spectator_count,
         last_move_at, time_control_ms, player1_time_ms, player2_time_ms,
-        turn_started_at, is_bot_game, bot_difficulty, created_at, updated_at
+        turn_started_at, is_bot_game, bot_difficulty, bot_persona_id, created_at, updated_at
       )
-      VALUES (?, ?, ?, '[]', 1, 'active', 'ranked', ?, ?, 0, 0, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+      VALUES (?, ?, ?, '[]', 1, 'active', 'ranked', ?, ?, 0, 0, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
     `).bind(
       gameId,
       player1Id,
@@ -114,7 +159,8 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       DEFAULT_TIME_CONTROL_MS,
       DEFAULT_TIME_CONTROL_MS,
       now, // turn_started_at
-      difficulty,
+      effectiveDifficulty,
+      botPersonaId,
       now,
       now
     ).run()
@@ -124,12 +170,12 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       // Use engine-based move suggestion
       const { suggestMoveWithEngine, calculateTimeBudget } = await import('../../lib/bot')
 
-      const timeBudget = calculateTimeBudget(DEFAULT_TIME_CONTROL_MS, 0, difficulty)
+      const timeBudget = calculateTimeBudget(DEFAULT_TIME_CONTROL_MS, 0, (effectiveDifficulty || 'intermediate') as 'beginner' | 'intermediate' | 'expert' | 'perfect')
       const startTime = Date.now()
       const moveResult = await suggestMoveWithEngine(
         Array.from({ length: 6 }, () => Array(7).fill(null)), // Empty board
         1, // Bot is player 1
-        { difficulty, engine: engine as EngineType },
+        { difficulty: (effectiveDifficulty || 'intermediate') as 'beginner' | 'intermediate' | 'expert' | 'perfect', engine: engine as EngineType },
         timeBudget
       )
       const elapsedMs = Date.now() - startTime
@@ -154,9 +200,10 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return jsonResponse({
         gameId,
         playerNumber: 2,
-        difficulty,
+        difficulty: effectiveDifficulty,
+        personaId: botPersonaId,
         engine,
-        botRating: BOT_RATINGS[difficulty],
+        botRating,
         botMovedFirst: true,
         botMove: moveResult.column,
         searchInfo: moveResult.searchInfo,
@@ -166,9 +213,10 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     return jsonResponse({
       gameId,
       playerNumber: 1,
-      difficulty,
+      difficulty: effectiveDifficulty,
+      personaId: botPersonaId,
       engine,
-      botRating: BOT_RATINGS[difficulty],
+      botRating,
       botMovedFirst: false,
     })
   } catch (error) {

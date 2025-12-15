@@ -40,6 +40,7 @@ export interface BotGameState {
   // Bot info
   isBotGame: boolean
   botDifficulty: string | null
+  botPersonaId: string | null
 }
 
 interface BotGameHookState {
@@ -47,6 +48,7 @@ interface BotGameHookState {
   error: string | null
   game: BotGameState | null
   difficulty: BotDifficulty
+  personaId: string | null
 }
 
 const GAME_POLL_INTERVAL = 500 // 500ms for responsive gameplay
@@ -58,6 +60,7 @@ export function useBotGame() {
     error: null,
     game: null,
     difficulty: 'intermediate',
+    personaId: null,
   })
 
   const gamePollRef = useRef<NodeJS.Timeout | null>(null)
@@ -75,7 +78,44 @@ export function useBotGame() {
   }, [])
 
   /**
-   * Create a new ranked bot game
+   * Create a new ranked bot game with a specific persona
+   */
+  const createGameWithPersona = useCallback(
+    async (personaId: string, playerColor: 1 | 2) => {
+      setState((prev) => ({ ...prev, status: 'creating', error: null, personaId }))
+
+      try {
+        const response = await apiCall<{
+          gameId: string
+          playerNumber: 1 | 2
+          difficulty: string
+          personaId: string | null
+          botRating: number
+          botMovedFirst: boolean
+          botMove?: number
+        }>('/api/bot/game', {
+          method: 'POST',
+          body: JSON.stringify({ personaId, playerColor }),
+        })
+
+        if (!isMountedRef.current) return
+
+        // Fetch initial game state
+        await fetchGameState(response.gameId)
+      } catch (error) {
+        if (!isMountedRef.current) return
+        setState((prev) => ({
+          ...prev,
+          status: 'error',
+          error: error instanceof Error ? error.message : 'Failed to create game',
+        }))
+      }
+    },
+    [apiCall]
+  )
+
+  /**
+   * Create a new ranked bot game with difficulty (legacy support)
    */
   const createGame = useCallback(
     async (difficulty: BotDifficulty, playerColor: 1 | 2) => {
@@ -86,6 +126,7 @@ export function useBotGame() {
           gameId: string
           playerNumber: 1 | 2
           difficulty: string
+          personaId: string | null
           botRating: number
           botMovedFirst: boolean
           botMove?: number
@@ -254,12 +295,14 @@ export function useBotGame() {
       error: null,
       game: null,
       difficulty: 'intermediate',
+      personaId: null,
     })
   }, [])
 
   return {
     ...state,
     createGame,
+    createGameWithPersona,
     submitMove,
     reset,
   }
