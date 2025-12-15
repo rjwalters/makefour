@@ -12,6 +12,11 @@ database_id = "e97c7189-5136-4901-b60c-d15105b91bfa"
 [ai]
 binding = "AI"
 
+# KV namespace for rate limiting
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "rate-limit-kv"
+
 # Environment variables
 [vars]
 ENVIRONMENT = "production"
