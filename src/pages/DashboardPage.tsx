@@ -23,6 +23,9 @@ export default function DashboardPage() {
             )}
           </div>
           <div className="flex gap-2">
+            <Link to="/stats">
+              <Button variant="ghost" size="sm">Stats</Button>
+            </Link>
             <Link to="/profile">
               <Button variant="ghost" size="sm">Profile</Button>
             </Link>
@@ -127,18 +130,20 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* AI Coach Card (Coming Soon) */}
-          <Card className="hover:shadow-lg transition-shadow opacity-75">
+          {/* Statistics Card */}
+          <Card className="hover:shadow-lg transition-shadow">
             <CardHeader>
-              <CardTitle>AI Coach</CardTitle>
+              <CardTitle>Statistics</CardTitle>
               <CardDescription>
-                Get move suggestions and game analysis
+                View detailed analytics and trends
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button variant="secondary" className="w-full" size="lg" disabled>
-                Coming Soon
-              </Button>
+              <Link to="/stats">
+                <Button variant="outline" className="w-full" size="lg">
+                  View Stats
+                </Button>
+              </Link>
             </CardContent>
           </Card>
         </div>
