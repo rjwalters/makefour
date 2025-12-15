@@ -155,3 +155,28 @@ export const aiUsageStatsSchema = z.object({
 })
 
 export type AIUsageStats = z.infer<typeof aiUsageStatsSchema>
+
+// Password reset schemas
+export const forgotPasswordRequestSchema = z.object({
+  email: z.string().email('Invalid email address'),
+})
+
+export type ForgotPasswordRequest = z.infer<typeof forgotPasswordRequestSchema>
+
+export const resetPasswordRequestSchema = z.object({
+  token: z.string().min(1, 'Reset token is required'),
+  new_password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .max(128, 'Password must be less than 128 characters'),
+})
+
+export type ResetPasswordRequest = z.infer<typeof resetPasswordRequestSchema>
+
+export function validateForgotPasswordRequest(data: unknown): ForgotPasswordRequest {
+  return forgotPasswordRequestSchema.parse(data)
+}
+
+export function validateResetPasswordRequest(data: unknown): ResetPasswordRequest {
+  return resetPasswordRequestSchema.parse(data)
+}
