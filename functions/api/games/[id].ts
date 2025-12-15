@@ -16,6 +16,9 @@ interface GameRow {
   outcome: string
   moves: string
   move_count: number
+  opponent_type: string
+  ai_difficulty: string | null
+  player_number: number
   created_at: number
 }
 
@@ -34,7 +37,7 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
 
     // Fetch the game (only if it belongs to the user)
     const game = await DB.prepare(`
-      SELECT id, outcome, moves, move_count, created_at
+      SELECT id, outcome, moves, move_count, opponent_type, ai_difficulty, player_number, created_at
       FROM games
       WHERE id = ? AND user_id = ?
     `)
@@ -50,6 +53,9 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
       outcome: game.outcome,
       moves: JSON.parse(game.moves),
       moveCount: game.move_count,
+      opponentType: game.opponent_type,
+      aiDifficulty: game.ai_difficulty,
+      playerNumber: game.player_number,
       createdAt: game.created_at,
     })
   } catch (error) {

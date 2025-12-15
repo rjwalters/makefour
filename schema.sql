@@ -52,15 +52,24 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
 CREATE TABLE IF NOT EXISTS games (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  -- Outcome from the perspective of player 1 (the user who started the game)
+  -- Outcome from the perspective of the user
   outcome TEXT NOT NULL,
   -- JSON array of column indices (0-6) representing each move
   moves TEXT NOT NULL,
   -- Total number of moves in the game
   move_count INTEGER NOT NULL,
+  -- Type of opponent: 'human' for hotseat, 'ai' for AI opponent
+  opponent_type TEXT NOT NULL DEFAULT 'ai',
+  -- AI difficulty level (null for human games)
+  ai_difficulty TEXT,
+  -- Which player the user played as (1 = red/first, 2 = yellow/second)
+  player_number INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  CHECK (outcome IN ('win', 'loss', 'draw'))
+  CHECK (outcome IN ('win', 'loss', 'draw')),
+  CHECK (opponent_type IN ('human', 'ai')),
+  CHECK (ai_difficulty IS NULL OR ai_difficulty IN ('beginner', 'intermediate', 'expert', 'perfect')),
+  CHECK (player_number IN (1, 2))
 );
 
 -- Indexes for users
@@ -79,3 +88,5 @@ CREATE INDEX IF NOT EXISTS idx_reset_tokens_user ON password_reset_tokens(user_i
 CREATE INDEX IF NOT EXISTS idx_games_user_id ON games(user_id);
 CREATE INDEX IF NOT EXISTS idx_games_created_at ON games(created_at);
 CREATE INDEX IF NOT EXISTS idx_games_outcome ON games(outcome);
+CREATE INDEX IF NOT EXISTS idx_games_opponent_type ON games(opponent_type);
+CREATE INDEX IF NOT EXISTS idx_games_ai_difficulty ON games(ai_difficulty);

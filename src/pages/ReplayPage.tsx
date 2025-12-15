@@ -21,6 +21,9 @@ interface GameData {
   outcome: 'win' | 'loss' | 'draw'
   moves: number[]
   moveCount: number
+  opponentType: 'human' | 'ai'
+  aiDifficulty: 'beginner' | 'intermediate' | 'expert' | 'perfect' | null
+  playerNumber: number
   createdAt: number
 }
 
@@ -165,6 +168,24 @@ export default function ReplayPage() {
     }
   }
 
+  const getOpponentLabel = (gameData: GameData) => {
+    if (gameData.opponentType === 'human') {
+      return 'Hotseat'
+    }
+    const difficultyLabels: Record<string, string> = {
+      beginner: 'Beginner',
+      intermediate: 'Intermediate',
+      expert: 'Expert',
+      perfect: 'Perfect',
+    }
+    return `vs AI (${difficultyLabels[gameData.aiDifficulty || 'intermediate']})`
+  }
+
+  const getPlayerColorLabel = (gameData: GameData) => {
+    if (gameData.opponentType === 'human') return null
+    return gameData.playerNumber === 1 ? 'Red' : 'Yellow'
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
@@ -223,6 +244,10 @@ export default function ReplayPage() {
             <CardHeader className="text-center">
               <CardTitle className="text-2xl">Game Replay</CardTitle>
               <p className="text-muted-foreground">{formatDate(game.createdAt)}</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {getOpponentLabel(game)}
+                {getPlayerColorLabel(game) && <> · Played as {getPlayerColorLabel(game)}</>}
+              </p>
               <p className="text-lg font-semibold mt-2">{getOutcomeLabel(game.outcome)}</p>
             </CardHeader>
             <CardContent className="flex flex-col items-center gap-6">
