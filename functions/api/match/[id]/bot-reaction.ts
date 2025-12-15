@@ -5,9 +5,12 @@
  *
  * This endpoint analyzes the current game position and may generate
  * a proactive comment from the bot about notable moves.
+ * Uses persona chat_personality for canned responses and LLM generation.
  */
 
 import { validateSession, errorResponse, jsonResponse } from '../../../lib/auth'
+import type { ChatPersonality, ReactionType } from '../../../lib/botPersonas'
+import { getRandomReaction, shouldBotSpeak } from '../../../lib/botPersonas'
 
 interface Env {
   DB: D1Database
@@ -24,6 +27,13 @@ interface ActiveGameRow {
   winner: string | null
   is_bot_game: number
   bot_difficulty: string | null
+  bot_persona_id: string | null
+}
+
+interface BotPersonaRow {
+  id: string
+  name: string
+  chat_personality: string
 }
 
 // Board dimensions
@@ -50,7 +60,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     // Get the game
     const game = await DB.prepare(`
       SELECT id, player1_id, player2_id, moves, current_turn, status, winner,
-             is_bot_game, bot_difficulty
+             is_bot_game, bot_difficulty, bot_persona_id
       FROM active_games
       WHERE id = ?
     `)
@@ -84,15 +94,53 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return jsonResponse({ message: null, reason: 'invalid_game_state' })
     }
 
+    // Load bot persona personality if available
+    let personality: ChatPersonality | null = null
+    if (game.bot_persona_id) {
+      const persona = await DB.prepare(`
+        SELECT id, name, chat_personality
+        FROM bot_personas
+        WHERE id = ?
+      `)
+        .bind(game.bot_persona_id)
+        .first<BotPersonaRow>()
+
+      if (persona) {
+        try {
+          personality = JSON.parse(persona.chat_personality) as ChatPersonality
+        } catch {
+          // Fall back to default personality
+        }
+      }
+    }
+
     const context_analysis = analyzePosition(board, moves)
-    const decision = await shouldComment(DB, context_analysis, gameId, moves.length)
+    const decision = await shouldCommentWithPersonality(DB, context_analysis, gameId, moves.length, personality)
 
     if (!decision.shouldComment) {
       return jsonResponse({ message: null, reason: decision.reason })
     }
 
-    // Generate bot message using LLM
-    const botMessage = await generateReactionMessage(AI, context_analysis, game)
+    // Try to use a canned response first (faster), fall back to LLM
+    let botMessage: string | null = null
+
+    // Map analysis to reaction type for canned responses
+    const reactionType = getReactionTypeForAnalysis(context_analysis)
+    if (personality && reactionType) {
+      // Use chattiness to decide whether to use canned vs LLM
+      // For more interesting situations, prefer LLM
+      const useCanned = context_analysis.moveQuality === 'neutral' ||
+        (Math.random() > 0.3) // 70% chance to use canned for faster response
+
+      if (useCanned) {
+        botMessage = getRandomReaction(personality, reactionType)
+      }
+    }
+
+    // Fall back to LLM if no canned response
+    if (!botMessage) {
+      botMessage = await generateReactionMessage(AI, context_analysis, game, personality)
+    }
 
     if (!botMessage) {
       return jsonResponse({ message: null, reason: 'generation_failed' })
@@ -405,14 +453,45 @@ function analyzePosition(board: Board, moves: number[]): PositionAnalysis {
 }
 
 /**
- * Decide whether bot should comment.
- * Uses database to track bot message count for rate limiting (max 1 per 3 moves).
+ * Map position analysis to reaction type for canned responses
  */
-async function shouldComment(
+function getReactionTypeForAnalysis(analysis: PositionAnalysis): ReactionType | null {
+  // Game end states
+  if (analysis.gameEnded) {
+    if (analysis.winner === 'draw') return 'draw'
+    if (analysis.winner === 1) return 'gameLost' // Player won, bot lost
+    return 'gameWon' // Bot won
+  }
+
+  // Move quality reactions
+  if (analysis.moveQuality === 'brilliant' || analysis.moveQuality === 'good') {
+    return 'playerGoodMove'
+  }
+  if (analysis.moveQuality === 'blunder' || analysis.moveQuality === 'mistake') {
+    return 'playerBlunder'
+  }
+
+  // Position-based reactions
+  if (analysis.isBotWinning || analysis.botThreats > analysis.playerThreats) {
+    return 'botWinning'
+  }
+  if (analysis.isPlayerWinning || analysis.playerThreats > analysis.botThreats) {
+    return 'botLosing'
+  }
+
+  return null
+}
+
+/**
+ * Decide whether bot should comment, using persona chattiness.
+ * Uses database to track bot message count for rate limiting.
+ */
+async function shouldCommentWithPersonality(
   DB: D1Database,
   analysis: PositionAnalysis,
   gameId: string,
-  moveCount: number
+  moveCount: number,
+  personality: ChatPersonality | null
 ): Promise<{ shouldComment: boolean; reason: string }> {
   // Query database for bot reaction message count
   const messageCountResult = await DB.prepare(`
@@ -422,9 +501,14 @@ async function shouldComment(
 
   const botMessageCount = messageCountResult?.count ?? 0
 
-  // Rate limit: max 1 comment per 3 moves (allow if moveCount / 3 > botMessageCount)
-  // This ensures at most ~1 bot reaction per 3 moves across the game
-  const maxAllowedMessages = Math.floor(moveCount / 3)
+  // Get chattiness from persona (default 0.5)
+  const chattiness = personality?.chattiness ?? 0.5
+
+  // Adjust rate limit based on chattiness
+  // Higher chattiness = more frequent comments allowed
+  // chattiness 0.2 = ~1 comment per 5 moves, chattiness 0.8 = ~1 comment per 1.5 moves
+  const movesPerComment = Math.max(1, Math.floor(3 / (chattiness + 0.1)))
+  const maxAllowedMessages = Math.floor(moveCount / movesPerComment)
   const rateLimited = botMessageCount >= maxAllowedMessages
 
   // Game ending always gets a comment (bypass rate limit)
@@ -453,6 +537,10 @@ async function shouldComment(
     if (rateLimited) {
       return { shouldComment: false, reason: 'rate_limited' }
     }
+    // Use chattiness to determine if we comment
+    if (!shouldBotSpeak(chattiness)) {
+      return { shouldComment: false, reason: 'chattiness_skip' }
+    }
     return { shouldComment: true, reason: 'player_threat' }
   }
 
@@ -461,28 +549,31 @@ async function shouldComment(
     if (rateLimited) {
       return { shouldComment: false, reason: 'rate_limited' }
     }
+    if (!shouldBotSpeak(chattiness)) {
+      return { shouldComment: false, reason: 'chattiness_skip' }
+    }
     return { shouldComment: true, reason: 'bot_threat' }
   }
 
-  // Mistakes get 30% chance comment
+  // Mistakes - use chattiness to determine comment probability
   if (analysis.moveQuality === 'mistake') {
-    if (rateLimited || Math.random() > 0.3) {
+    if (rateLimited || !shouldBotSpeak(chattiness * 0.6)) {
       return { shouldComment: false, reason: 'random_skip' }
     }
     return { shouldComment: true, reason: 'mistake' }
   }
 
-  // Good moves in tense situations get 30% chance
+  // Good moves in tense situations
   if (analysis.moveQuality === 'good' && analysis.gameTension !== 'calm') {
-    if (rateLimited || Math.random() > 0.3) {
+    if (rateLimited || !shouldBotSpeak(chattiness * 0.6)) {
       return { shouldComment: false, reason: 'random_skip' }
     }
     return { shouldComment: true, reason: 'good_move' }
   }
 
-  // Endgame gets 10% chance
+  // Endgame - use lower chattiness factor
   if (analysis.gamePhase === 'endgame') {
-    if (rateLimited || Math.random() > 0.1) {
+    if (rateLimited || !shouldBotSpeak(chattiness * 0.3)) {
       return { shouldComment: false, reason: 'random_skip' }
     }
     return { shouldComment: true, reason: 'endgame_tension' }
@@ -492,14 +583,39 @@ async function shouldComment(
 }
 
 /**
- * Generate reaction message using LLM
+ * Default personality for backward compatibility
+ */
+const DEFAULT_REACTION_PERSONALITY: ChatPersonality = {
+  name: 'Bot',
+  systemPrompt: `You are a friendly Connect 4 opponent providing brief, natural commentary during the game. Be competitive but friendly.`,
+  reactions: {
+    gameStart: ["Let's play!"],
+    playerGoodMove: ["Nice move!"],
+    playerBlunder: ["Interesting choice..."],
+    botWinning: ["Looking good for me!"],
+    botLosing: ["You're doing well!"],
+    gameWon: ["GG!"],
+    gameLost: ["Good game!"],
+    draw: ["A draw!"],
+  },
+  chattiness: 0.5,
+  useEmoji: false,
+  maxLength: 100,
+  temperature: 0.7,
+}
+
+/**
+ * Generate reaction message using LLM with persona personality
  */
 async function generateReactionMessage(
   AI: Ai,
   analysis: PositionAnalysis,
-  game: ActiveGameRow
+  game: ActiveGameRow,
+  personality: ChatPersonality | null
 ): Promise<string | null> {
   try {
+    const pers = personality || DEFAULT_REACTION_PERSONALITY
+
     // Build context description
     let situationDesc = ''
 
@@ -534,24 +650,29 @@ async function generateReactionMessage(
       situationDesc += `Game tension: ${analysis.gameTension}.`
     }
 
-    const systemPrompt = `You are a Connect 4 bot opponent providing brief, natural commentary during the game.
+    // Build emoji rule based on personality
+    const emojiRule = pers.useEmoji
+      ? '- You may use 1-2 emojis if it fits your personality'
+      : '- Do NOT use emojis'
+
+    // Get example reactions from personality for guidance
+    const reactionType = getReactionTypeForAnalysis(analysis)
+    const exampleReactions = reactionType ? pers.reactions[reactionType] : []
+    const exampleText = exampleReactions.length > 0
+      ? `\nExamples of responses in your voice:\n${exampleReactions.map(r => `- "${r}"`).join('\n')}`
+      : ''
+
+    const systemPrompt = `${pers.systemPrompt}
 
 SITUATION: ${situationDesc}
 
-Generate ONE brief comment (1 sentence max) reacting to the situation. Be:
+Generate ONE brief comment (1 sentence max, under ${pers.maxLength} characters) reacting to the situation. Stay in character and be:
 - Natural and conversational
-- Competitive but friendly
+- Consistent with your personality
 - Never condescending or mean
 - Never reveal strategic advice
-
-Examples of good responses:
-${analysis.gameEnded && analysis.winner === 1 ? '- "Good game! You got me this time."' : ''}
-${analysis.gameEnded && analysis.winner === 2 ? '- "GG! That was a close one."' : ''}
-${analysis.gameEnded && analysis.winner === 'draw' ? '- "A draw! That was intense."' : ''}
-${analysis.moveQuality === 'blunder' && !analysis.gameEnded ? '- "Hmm, interesting choice..."' : ''}
-${analysis.moveQuality === 'brilliant' && !analysis.gameEnded ? '- "Nice move!"' : ''}
-${analysis.playerThreats > 0 && !analysis.gameEnded ? '- "Uh oh, I need to watch that."' : ''}
-${analysis.botThreats > 0 && !analysis.gameEnded ? '- "Things are looking good for me..."' : ''}
+${emojiRule}
+${exampleText}
 
 Respond with ONLY the comment text.`
 
@@ -560,19 +681,25 @@ Respond with ONLY the comment text.`
         { role: 'system', content: systemPrompt },
         { role: 'user', content: 'Generate a brief reaction.' }
       ],
-      max_tokens: 50,
-      temperature: 0.8,
+      max_tokens: Math.min(50, Math.ceil(pers.maxLength / 3)),
+      temperature: pers.temperature,
     })
 
     if (response && typeof response === 'object' && 'response' in response) {
       const text = (response as { response: string }).response
       // Clean up and limit length
-      return text.trim().replace(/^["']|["']$/g, '').slice(0, 150)
+      return text.trim().replace(/^["']|["']$/g, '').slice(0, pers.maxLength)
     }
 
     return null
   } catch (error) {
     console.error('Bot reaction generation error:', error)
+    // Return a random canned reaction as fallback
+    const pers = personality || DEFAULT_REACTION_PERSONALITY
+    const reactionType = getReactionTypeForAnalysis(analysis)
+    if (reactionType) {
+      return getRandomReaction(pers, reactionType)
+    }
     return null
   }
 }

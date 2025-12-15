@@ -14,6 +14,7 @@ import SpectatorPage from './pages/SpectatorPage'
 import ProfilePage from './pages/ProfilePage'
 import StatsPage from './pages/StatsPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
+import BotProfilePage from './pages/BotProfilePage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -35,6 +36,7 @@ function App() {
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/spectate" element={<SpectatorPage />} />
             <Route path="/verify-email" element={<VerifyEmailPage />} />
+            <Route path="/bot/:id" element={<BotProfilePage />} />
 
             {/* Protected routes - require authentication */}
             <Route

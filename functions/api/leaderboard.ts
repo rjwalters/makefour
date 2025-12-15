@@ -19,6 +19,14 @@ interface LeaderboardRow {
   wins: number
   losses: number
   draws: number
+  is_bot: number
+  bot_persona_id: string | null
+}
+
+// Bot persona info for joining
+interface BotPersonaInfo {
+  name: string
+  description: string
 }
 
 /**
@@ -27,49 +35,88 @@ interface LeaderboardRow {
  * Query params:
  * - limit: number of players to return (default 50, max 100)
  * - offset: pagination offset (default 0)
+ * - includeBots: whether to include bot players (default true)
  */
 export async function onRequestGet(context: EventContext<Env, any, any>) {
   const { DB } = context.env
 
   try {
-    // Get query params for pagination
+    // Get query params for pagination and filtering
     const url = new URL(context.request.url)
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100)
     const offset = parseInt(url.searchParams.get('offset') || '0')
+    const includeBots = url.searchParams.get('includeBots') !== 'false' // default true
 
-    // Fetch top players by rating (only verified users who have played at least 1 game)
+    // Build WHERE clause based on whether to include bots
+    const whereClause = includeBots
+      ? `WHERE games_played > 0 AND (email_verified = 1 OR is_bot = 1)`
+      : `WHERE games_played > 0 AND email_verified = 1 AND is_bot = 0`
+
+    // Fetch top players by rating (verified users and optionally bots who have played at least 1 game)
     const players = await DB.prepare(`
-      SELECT id, email, rating, games_played, wins, losses, draws
-      FROM users
-      WHERE games_played > 0 AND email_verified = 1
-      ORDER BY rating DESC, wins DESC
+      SELECT u.id, u.email, u.rating, u.games_played, u.wins, u.losses, u.draws,
+             u.is_bot, u.bot_persona_id
+      FROM users u
+      ${whereClause}
+      ORDER BY u.rating DESC, u.wins DESC
       LIMIT ? OFFSET ?
     `)
       .bind(limit, offset)
       .all<LeaderboardRow>()
 
-    // Get total count for pagination (only verified users)
+    // Get bot persona info for bots in the results
+    const botPersonaIds = players.results
+      .filter(p => p.is_bot && p.bot_persona_id)
+      .map(p => p.bot_persona_id)
+
+    // Fetch bot persona details if there are bots
+    const botPersonaMap = new Map<string, BotPersonaInfo>()
+    if (botPersonaIds.length > 0) {
+      const placeholders = botPersonaIds.map(() => '?').join(',')
+      const personas = await DB.prepare(`
+        SELECT id, name, description FROM bot_personas WHERE id IN (${placeholders})
+      `)
+        .bind(...botPersonaIds)
+        .all<{ id: string; name: string; description: string }>()
+
+      for (const persona of personas.results) {
+        botPersonaMap.set(persona.id, { name: persona.name, description: persona.description })
+      }
+    }
+
+    // Get total count for pagination
     const countResult = await DB.prepare(`
-      SELECT COUNT(*) as count FROM users WHERE games_played > 0 AND email_verified = 1
+      SELECT COUNT(*) as count FROM users ${whereClause}
     `).first<{ count: number }>()
 
     const total = countResult?.count || 0
 
-    // Map to public leaderboard entries (hide email, show username portion)
-    const leaderboard = players.results.map((player, index) => ({
-      rank: offset + index + 1,
-      userId: player.id,
-      username: player.email.split('@')[0], // Use email prefix as username
-      rating: player.rating,
-      gamesPlayed: player.games_played,
-      wins: player.wins,
-      losses: player.losses,
-      draws: player.draws,
-      winRate:
-        player.games_played > 0
-          ? Math.round((player.wins / player.games_played) * 100)
-          : 0,
-    }))
+    // Map to public leaderboard entries
+    const leaderboard = players.results.map((player, index) => {
+      const isBot = player.is_bot === 1
+      const personaInfo = player.bot_persona_id ? botPersonaMap.get(player.bot_persona_id) : null
+
+      return {
+        rank: offset + index + 1,
+        userId: player.id,
+        username: isBot && personaInfo
+          ? personaInfo.name
+          : player.email.split('@')[0], // Use email prefix as username for humans
+        rating: player.rating,
+        gamesPlayed: player.games_played,
+        wins: player.wins,
+        losses: player.losses,
+        draws: player.draws,
+        winRate:
+          player.games_played > 0
+            ? Math.round((player.wins / player.games_played) * 100)
+            : 0,
+        // Bot-specific fields
+        isBot,
+        botPersonaId: isBot ? player.bot_persona_id : null,
+        botDescription: isBot && personaInfo ? personaInfo.description : null,
+      }
+    })
 
     return jsonResponse({
       leaderboard,

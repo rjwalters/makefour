@@ -12,8 +12,16 @@ interface Env {
   DB: D1Database
 }
 
-// Bot user ID (special reserved ID for bot opponent)
-const BOT_USER_ID = 'bot-opponent'
+/**
+ * Generate bot user ID from persona ID
+ * Format: bot_<persona_id>
+ */
+function getBotUserId(personaId: string): string {
+  return `bot_${personaId}`
+}
+
+// Legacy bot user ID for backward compatibility (used when personaId not specified)
+const LEGACY_BOT_USER_ID = 'bot-opponent'
 
 // Legacy bot ratings by difficulty (for backward compatibility)
 const BOT_RATINGS: Record<string, number> = {
@@ -21,6 +29,14 @@ const BOT_RATINGS: Record<string, number> = {
   intermediate: 1200,
   expert: 1600,
   perfect: 2000,
+}
+
+// Default persona mappings for legacy difficulty levels
+const LEGACY_DIFFICULTY_PERSONAS: Record<string, string> = {
+  beginner: 'rookie',
+  intermediate: 'nova',
+  expert: 'scholar',
+  perfect: 'oracle',
 }
 
 // Default time control: 5 minutes
@@ -74,6 +90,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     // Resolve bot rating and configuration
     let botRating: number
     let botPersonaId: string | null = null
+    let botUserId: string
     let effectiveDifficulty: string | null = difficulty || null
 
     if (personaId) {
@@ -90,15 +107,41 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         return errorResponse('Bot persona not found', 404)
       }
 
-      botRating = persona.current_elo
       botPersonaId = persona.id
+      botUserId = getBotUserId(persona.id)
+
+      // Get the bot's current rating from users table
+      const botUser = await DB.prepare(`
+        SELECT rating FROM users WHERE id = ? AND is_bot = 1
+      `)
+        .bind(botUserId)
+        .first<{ rating: number }>()
+
+      // Use bot user's rating if exists, otherwise fall back to persona's current_elo
+      botRating = botUser?.rating ?? persona.current_elo
+
       // Map persona to difficulty based on rating for backward compatibility
       if (botRating < 900) effectiveDifficulty = 'beginner'
       else if (botRating < 1300) effectiveDifficulty = 'intermediate'
       else if (botRating < 1700) effectiveDifficulty = 'expert'
       else effectiveDifficulty = 'perfect'
     } else if (difficulty) {
-      botRating = BOT_RATINGS[difficulty]
+      // Legacy mode: map difficulty to a default persona
+      botPersonaId = LEGACY_DIFFICULTY_PERSONAS[difficulty] || null
+      if (botPersonaId) {
+        botUserId = getBotUserId(botPersonaId)
+        // Try to get rating from bot user, fall back to legacy rating
+        const botUser = await DB.prepare(`
+          SELECT rating FROM users WHERE id = ? AND is_bot = 1
+        `)
+          .bind(botUserId)
+          .first<{ rating: number }>()
+        botRating = botUser?.rating ?? BOT_RATINGS[difficulty]
+      } else {
+        // Fallback if no persona mapping exists
+        botUserId = LEGACY_BOT_USER_ID
+        botRating = BOT_RATINGS[difficulty]
+      }
     } else {
       return errorResponse('Either personaId or difficulty is required', 400)
     }
@@ -133,8 +176,8 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     // Determine player positions
     // If playerColor is 1, user is player1 (red, goes first)
     // If playerColor is 2, user is player2 (yellow, goes second)
-    const player1Id = playerColor === 1 ? session.userId : BOT_USER_ID
-    const player2Id = playerColor === 1 ? BOT_USER_ID : session.userId
+    const player1Id = playerColor === 1 ? session.userId : botUserId
+    const player2Id = playerColor === 1 ? botUserId : session.userId
     const player1Rating = playerColor === 1 ? user.rating : botRating
     const player2Rating = playerColor === 1 ? botRating : user.rating
     const botPlayer = playerColor === 1 ? 2 : 1

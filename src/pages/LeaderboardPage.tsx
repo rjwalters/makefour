@@ -15,6 +15,9 @@ interface LeaderboardEntry {
   losses: number
   draws: number
   winRate: number
+  isBot: boolean
+  botPersonaId: string | null
+  botDescription: string | null
 }
 
 interface LeaderboardResponse {
@@ -32,6 +35,7 @@ export default function LeaderboardPage() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [includeBots, setIncludeBots] = useState(true)
   const [pagination, setPagination] = useState({
     total: 0,
     limit: 50,
@@ -44,7 +48,7 @@ export default function LeaderboardPage() {
       try {
         setLoading(true)
         const response = await fetch(
-          `/api/leaderboard?limit=${pagination.limit}&offset=${pagination.offset}`
+          `/api/leaderboard?limit=${pagination.limit}&offset=${pagination.offset}&includeBots=${includeBots}`
         )
         if (!response.ok) {
           throw new Error('Failed to fetch leaderboard')
@@ -60,7 +64,13 @@ export default function LeaderboardPage() {
     }
 
     fetchLeaderboard()
-  }, [pagination.offset, pagination.limit])
+  }, [pagination.offset, pagination.limit, includeBots])
+
+  const toggleBots = () => {
+    setIncludeBots(!includeBots)
+    // Reset to first page when toggling
+    setPagination(prev => ({ ...prev, offset: 0 }))
+  }
 
   const loadMore = () => {
     setPagination((prev) => ({
@@ -102,8 +112,17 @@ export default function LeaderboardPage() {
 
       <main className="container mx-auto px-4 py-8">
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle>Rankings</CardTitle>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeBots}
+                onChange={toggleBots}
+                className="rounded border-gray-300 text-primary focus:ring-primary"
+              />
+              <span className="text-muted-foreground">Show bots</span>
+            </label>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -136,7 +155,7 @@ export default function LeaderboardPage() {
                           key={entry.userId}
                           className={`border-b last:border-b-0 hover:bg-muted/50 ${
                             user?.id === entry.userId ? 'bg-primary/10' : ''
-                          }`}
+                          } ${entry.isBot ? 'bg-purple-50/50 dark:bg-purple-900/10' : ''}`}
                         >
                           <td className="py-3 px-2">
                             <span
@@ -154,10 +173,27 @@ export default function LeaderboardPage() {
                             </span>
                           </td>
                           <td className="py-3 px-2 font-medium">
-                            {entry.username}
-                            {user?.id === entry.userId && (
-                              <span className="ml-2 text-xs text-primary">(You)</span>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {entry.isBot && (
+                                <span
+                                  className="inline-flex items-center justify-center w-5 h-5 rounded bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-xs"
+                                  title={entry.botDescription || 'Bot opponent'}
+                                >
+                                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                    <path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7h1a1 1 0 011 1v3a1 1 0 01-1 1h-1v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1H2a1 1 0 01-1-1v-3a1 1 0 011-1h1a7 7 0 017-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 012-2zm-3 13a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm6 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"/>
+                                  </svg>
+                                </span>
+                              )}
+                              <Link
+                                to={entry.isBot ? `/bot/${entry.botPersonaId}` : '#'}
+                                className={entry.isBot ? 'hover:underline text-purple-700 dark:text-purple-300' : ''}
+                              >
+                                {entry.username}
+                              </Link>
+                              {user?.id === entry.userId && (
+                                <span className="text-xs text-primary">(You)</span>
+                              )}
+                            </div>
                           </td>
                           <td className="py-3 px-2 text-right font-bold text-primary">
                             {entry.rating}
