@@ -4,7 +4,19 @@ import { useAuth } from '../contexts/AuthContext'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import ThemeToggle from '../components/ThemeToggle'
+import ExportModal from '../components/ExportModal'
 import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
+
+interface ExportFilters {
+  dateFrom?: string
+  dateTo?: string
+  minMoves?: number
+  maxMoves?: number
+  outcomes?: ('win' | 'loss' | 'draw')[]
+  opponentTypes?: ('human' | 'ai')[]
+  aiDifficulties?: ('beginner' | 'intermediate' | 'expert' | 'perfect')[]
+  limit?: number
+}
 
 interface Game {
   id: string
@@ -40,6 +52,47 @@ export default function GamesPage() {
     offset: 0,
     hasMore: false,
   })
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false)
+
+  const handleExport = async (format: 'json' | 'pgn', filters: ExportFilters) => {
+    try {
+      const response = await apiCall<{ content?: string; filename?: string; games?: unknown[] }>('/api/export/games', {
+        method: 'POST',
+        body: JSON.stringify({ format, filters }),
+      })
+
+      // Determine filename and content based on format
+      let filename: string
+      let content: string
+      let mimeType: string
+
+      if (format === 'pgn') {
+        // PGN response has content and filename fields
+        filename = response.filename || `makefour-games-${new Date().toISOString().split('T')[0]}.pgn`
+        content = response.content || ''
+        mimeType = 'text/plain'
+      } else {
+        // JSON response is the full export data
+        filename = `makefour-games-${new Date().toISOString().split('T')[0]}.json`
+        content = JSON.stringify(response, null, 2)
+        mimeType = 'application/json'
+      }
+
+      // Download the file
+      const blob = new Blob([content], { type: mimeType })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Export failed')
+      throw err // Re-throw so ExportModal knows export failed
+    }
+  }
 
   const fetchGames = async (offset = 0) => {
     setIsLoading(true)
@@ -151,10 +204,19 @@ export default function GamesPage() {
         <div className="max-w-2xl mx-auto">
           <Card>
             <CardHeader>
-              <CardTitle>My Games</CardTitle>
-              <CardDescription>
-                Your game history ({pagination.total} games)
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>My Games</CardTitle>
+                  <CardDescription>
+                    Your game history ({pagination.total} games)
+                  </CardDescription>
+                </div>
+                {pagination.total > 0 && (
+                  <Button variant="outline" size="sm" onClick={() => setIsExportModalOpen(true)}>
+                    Export
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               {isLoading && games.length === 0 ? (
@@ -240,6 +302,13 @@ export default function GamesPage() {
           </Card>
         </div>
       </main>
+
+      <ExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        onExport={handleExport}
+        totalGames={pagination.total}
+      />
     </div>
   )
 }
