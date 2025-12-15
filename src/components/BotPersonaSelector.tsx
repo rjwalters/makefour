@@ -7,6 +7,7 @@
 import { Button } from './ui/button'
 import { useBotPersonas, type BotPersona } from '../hooks/useBotPersonas'
 import BotAvatar from './BotAvatar'
+import { usePlayerBotStats, type BotStatsRecord } from '../hooks/usePlayerBotStats'
 
 interface BotPersonaSelectorProps {
   selectedPersonaId: string | null
@@ -43,10 +44,12 @@ function BotPersonaCard({
   persona,
   isSelected,
   onSelect,
+  playerStats,
 }: {
   persona: BotPersona
   isSelected: boolean
   onSelect: () => void
+  playerStats: BotStatsRecord | null
 }) {
   return (
     <button
@@ -93,7 +96,46 @@ function BotPersonaCard({
         {persona.description}
       </p>
 
-      {/* Stats */}
+      {/* Player's record against this bot */}
+      {playerStats && playerStats.totalGames > 0 ? (
+        <div className="flex items-center justify-between mb-2 px-2 py-1.5 bg-muted/50 rounded">
+          <span className="text-xs font-medium">Your record:</span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold">
+              <span className="text-green-600 dark:text-green-400">{playerStats.wins}</span>
+              <span className="text-muted-foreground">-</span>
+              <span className="text-red-600 dark:text-red-400">{playerStats.losses}</span>
+              {playerStats.draws > 0 && (
+                <>
+                  <span className="text-muted-foreground">-</span>
+                  <span className="text-yellow-600 dark:text-yellow-400">{playerStats.draws}</span>
+                </>
+              )}
+            </span>
+            {playerStats.isMastered && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300">
+                Mastered
+              </span>
+            )}
+            {!playerStats.isMastered && playerStats.isUndefeated && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">
+                Undefeated
+              </span>
+            )}
+            {playerStats.losses > 0 && playerStats.wins === 0 && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
+                Not beaten
+              </span>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between mb-2 px-2 py-1.5 bg-muted/30 rounded">
+          <span className="text-xs text-muted-foreground italic">Not yet challenged</span>
+        </div>
+      )}
+
+      {/* Bot Stats */}
       <div className="flex gap-4 text-xs text-muted-foreground">
         <span>
           {persona.gamesPlayed} games
@@ -134,6 +176,15 @@ export default function BotPersonaSelector({
   onSelect,
 }: BotPersonaSelectorProps) {
   const { personas, isLoading, error } = useBotPersonas()
+  const { data: playerBotStats } = usePlayerBotStats()
+
+  // Create a map of bot ID to player stats for quick lookup
+  const statsMap = new Map<string, BotStatsRecord>()
+  if (playerBotStats) {
+    for (const stat of playerBotStats.stats) {
+      statsMap.set(stat.botId, stat)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -177,6 +228,7 @@ export default function BotPersonaSelector({
             persona={persona}
             isSelected={selectedPersonaId === persona.id}
             onSelect={() => onSelect(persona)}
+            playerStats={statsMap.get(persona.id) || null}
           />
         ))}
       </div>
