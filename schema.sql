@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS users (
   wins INTEGER NOT NULL DEFAULT 0,
   losses INTEGER NOT NULL DEFAULT 0,
   draws INTEGER NOT NULL DEFAULT 0,
+  -- User preferences (JSON)
+  preferences TEXT DEFAULT '{}',
   created_at INTEGER NOT NULL,
   last_login INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,

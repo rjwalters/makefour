@@ -3,45 +3,27 @@
  *
  * Generates sounds programmatically to minimize bundle size.
  * Sounds are designed to be pleasant and unobtrusive.
+ *
+ * Now uses centralized preferences from PreferencesContext for settings.
  */
 
-import { useCallback, useRef, useEffect, useState } from 'react'
+import { useCallback, useRef, useMemo } from 'react'
+import { usePreferencesContext } from '../contexts/PreferencesContext'
 
 export interface SoundSettings {
   enabled: boolean
   volume: number // 0-100
 }
 
-const DEFAULT_SOUND_SETTINGS: SoundSettings = {
-  enabled: true,
-  volume: 50,
-}
-
-const STORAGE_KEY = 'makefour-sound-settings'
-
-function loadSoundSettings(): SoundSettings {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved) {
-      const parsed = JSON.parse(saved)
-      return {
-        enabled: parsed.enabled ?? DEFAULT_SOUND_SETTINGS.enabled,
-        volume: typeof parsed.volume === 'number' ? parsed.volume : DEFAULT_SOUND_SETTINGS.volume,
-      }
-    }
-  } catch {
-    // Ignore parse errors
-  }
-  return DEFAULT_SOUND_SETTINGS
-}
-
-function saveSoundSettings(settings: SoundSettings) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
-}
-
 export function useSounds() {
+  const { preferences, updatePreferences } = usePreferencesContext()
   const audioContextRef = useRef<AudioContext | null>(null)
-  const [settings, setSettings] = useState<SoundSettings>(loadSoundSettings)
+
+  // Map preferences to sound settings
+  const settings: SoundSettings = useMemo(() => ({
+    enabled: preferences.soundEnabled,
+    volume: preferences.soundVolume,
+  }), [preferences.soundEnabled, preferences.soundVolume])
 
   // Initialize AudioContext on first user interaction (required by browsers)
   const getAudioContext = useCallback(() => {
@@ -54,11 +36,6 @@ export function useSounds() {
     }
     return audioContextRef.current
   }, [])
-
-  // Save settings when they change
-  useEffect(() => {
-    saveSoundSettings(settings)
-  }, [settings])
 
   // Get normalized volume (0-1)
   const getVolume = useCallback(() => {
@@ -249,15 +226,22 @@ export function useSounds() {
    * Update sound settings
    */
   const updateSettings = useCallback((newSettings: Partial<SoundSettings>) => {
-    setSettings((prev) => ({ ...prev, ...newSettings }))
-  }, [])
+    const updates: Record<string, unknown> = {}
+    if (typeof newSettings.enabled === 'boolean') {
+      updates.soundEnabled = newSettings.enabled
+    }
+    if (typeof newSettings.volume === 'number') {
+      updates.soundVolume = newSettings.volume
+    }
+    updatePreferences(updates)
+  }, [updatePreferences])
 
   /**
    * Toggle sound on/off
    */
   const toggleSound = useCallback(() => {
-    setSettings((prev) => ({ ...prev, enabled: !prev.enabled }))
-  }, [])
+    updatePreferences({ soundEnabled: !preferences.soundEnabled })
+  }, [updatePreferences, preferences.soundEnabled])
 
   return {
     // Settings
