@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { usePreferencesContext } from '../contexts/PreferencesContext'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import ThemeToggle from '../components/ThemeToggle'
@@ -34,43 +35,9 @@ interface GameSettings {
   botGameMode: BotGameMode // Training (untimed, no ELO) or Ranked (timed, affects ELO)
 }
 
-const DEFAULT_SETTINGS: GameSettings = {
-  mode: 'ai',
-  difficulty: 'intermediate',
-  playerColor: 1,
-  matchmakingMode: 'ranked',
-  allowSpectators: true,
-  botGameMode: 'training',
-}
-
-// Load saved settings from localStorage
-function loadSettings(): GameSettings {
-  try {
-    const saved = localStorage.getItem('makefour-settings')
-    if (saved) {
-      const parsed = JSON.parse(saved)
-      return {
-        mode: parsed.mode || DEFAULT_SETTINGS.mode,
-        difficulty: parsed.difficulty || DEFAULT_SETTINGS.difficulty,
-        playerColor: parsed.playerColor || DEFAULT_SETTINGS.playerColor,
-        matchmakingMode: parsed.matchmakingMode || DEFAULT_SETTINGS.matchmakingMode,
-        allowSpectators: parsed.allowSpectators ?? DEFAULT_SETTINGS.allowSpectators,
-        botGameMode: parsed.botGameMode || DEFAULT_SETTINGS.botGameMode,
-      }
-    }
-  } catch {
-    // Ignore parse errors
-  }
-  return DEFAULT_SETTINGS
-}
-
-// Save settings to localStorage
-function saveSettings(settings: GameSettings) {
-  localStorage.setItem('makefour-settings', JSON.stringify(settings))
-}
-
 export default function PlayPage() {
   const { logout, user, isAuthenticated } = useAuth()
+  const { preferences, updatePreferences } = usePreferencesContext()
   const { apiCall } = useAuthenticatedApi()
   const matchmaking = useMatchmaking()
   const botGame = useBotGame()
@@ -81,8 +48,31 @@ export default function PlayPage() {
   const [gameSaved, setGameSaved] = useState(false)
   const [isBotThinking, setIsBotThinking] = useState(false)
   const [gamePhase, setGamePhase] = useState<GamePhase>('setup')
-  const [settings, setSettings] = useState<GameSettings>(loadSettings)
   const [showAnalysis, setShowAnalysis] = useState(false)
+
+  // Derive settings from preferences (local state for in-session changes before game starts)
+  const [settings, setSettings] = useState<GameSettings>(() => ({
+    mode: preferences.defaultGameMode,
+    difficulty: preferences.defaultDifficulty,
+    playerColor: preferences.defaultPlayerColor,
+    matchmakingMode: preferences.defaultMatchmakingMode,
+    allowSpectators: preferences.allowSpectators,
+    botGameMode: 'training',
+  }))
+
+  // Sync settings with preferences when preferences load/change (only in setup phase)
+  useEffect(() => {
+    if (gamePhase === 'setup') {
+      setSettings((prev) => ({
+        ...prev,
+        mode: preferences.defaultGameMode,
+        difficulty: preferences.defaultDifficulty,
+        playerColor: preferences.defaultPlayerColor,
+        matchmakingMode: preferences.defaultMatchmakingMode,
+        allowSpectators: preferences.allowSpectators,
+      }))
+    }
+  }, [preferences, gamePhase])
 
   // Track previous game state for detecting game over transitions
   const prevWinnerRef = useRef<typeof gameState.winner>(null)
@@ -233,7 +223,15 @@ export default function PlayPage() {
   )
 
   const handleStartGame = useCallback(() => {
-    saveSettings(settings)
+    // Save settings to centralized preferences
+    updatePreferences({
+      defaultGameMode: settings.mode,
+      defaultDifficulty: settings.difficulty,
+      defaultPlayerColor: settings.playerColor,
+      defaultMatchmakingMode: settings.matchmakingMode,
+      allowSpectators: settings.allowSpectators,
+    })
+
     setGameState(createGameState())
     setGameSaved(false)
     setSaveError(null)
@@ -252,7 +250,7 @@ export default function PlayPage() {
       setGamePhase('playing')
       sounds.playGameStart()
     }
-  }, [settings, matchmaking, botGame, sounds])
+  }, [settings, matchmaking, botGame, sounds, updatePreferences])
 
   const handleNewGame = useCallback(() => {
     setGamePhase('setup')

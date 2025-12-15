@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { PreferencesProvider } from './contexts/PreferencesContext'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import PlayPage from './pages/PlayPage'
@@ -20,8 +21,9 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <BrowserRouter>
-          <Routes>
+        <PreferencesProvider>
+          <BrowserRouter>
+            <Routes>
             {/* Public routes */}
             <Route path="/" element={<PlayPage />} />
             <Route path="/play" element={<PlayPage />} />
@@ -77,8 +79,9 @@ function App() {
                 </ProtectedRoute>
               }
             />
-          </Routes>
-        </BrowserRouter>
+            </Routes>
+          </BrowserRouter>
+        </PreferencesProvider>
       </AuthProvider>
     </ThemeProvider>
   )
