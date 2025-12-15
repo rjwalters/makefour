@@ -17,12 +17,17 @@ CREATE TABLE IF NOT EXISTS users (
   draws INTEGER NOT NULL DEFAULT 0,
   -- User preferences (JSON)
   preferences TEXT DEFAULT '{}',
+  -- Bot user fields
+  is_bot INTEGER NOT NULL DEFAULT 0,
+  bot_persona_id TEXT,
   created_at INTEGER NOT NULL,
   last_login INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   CHECK (email_verified IN (0, 1)),
   CHECK (oauth_provider IS NULL OR oauth_provider IN ('google')),
-  CHECK (password_hash IS NOT NULL OR oauth_provider IS NOT NULL)
+  CHECK (is_bot IN (0, 1)),
+  CHECK (password_hash IS NOT NULL OR oauth_provider IS NOT NULL OR is_bot = 1),
+  FOREIGN KEY (bot_persona_id) REFERENCES bot_personas(id)
 );
 
 -- Session tokens for persistent login
@@ -85,6 +90,8 @@ CREATE TABLE IF NOT EXISTS games (
 -- Indexes for users
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_oauth ON users(oauth_provider, oauth_id);
+CREATE INDEX IF NOT EXISTS idx_users_is_bot ON users(is_bot);
+CREATE INDEX IF NOT EXISTS idx_users_bot_persona ON users(bot_persona_id);
 
 -- Indexes for session tokens
 CREATE INDEX IF NOT EXISTS idx_session_tokens_user ON session_tokens(user_id);

@@ -28,7 +28,21 @@ interface Env {
   DB: D1Database
 }
 
-const BOT_USER_ID = 'bot-opponent'
+/**
+ * Check if a user ID is a bot user ID
+ */
+function isBotUserId(userId: string): boolean {
+  return userId.startsWith('bot_')
+}
+
+/**
+ * Get the bot user ID (player1 or player2 that is a bot)
+ */
+function getBotUserId(game: ActiveGameRow): string | null {
+  if (isBotUserId(game.player1_id)) return game.player1_id
+  if (isBotUserId(game.player2_id)) return game.player2_id
+  return null
+}
 
 interface ActiveGameRow {
   id: string
@@ -407,7 +421,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 }
 
 /**
- * Update user's rating after bot game
+ * Update both human and bot ratings after a bot game
  */
 async function updateUserRating(
   DB: D1Database,
@@ -432,12 +446,13 @@ async function updateUserRating(
   const ratingHistoryId = crypto.randomUUID()
   const moves = JSON.parse(game.moves) as number[]
 
-  await DB.batch([
-    // Game record
+  // Prepare statements for both human and bot updates
+  const statements = [
+    // Game record for human
     DB.prepare(`
       INSERT INTO games (id, user_id, outcome, moves, move_count, rating_change,
-                        opponent_type, ai_difficulty, player_number, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'ai', ?, ?, ?)
+                        opponent_type, ai_difficulty, player_number, bot_persona_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'ai', ?, ?, ?, ?)
     `).bind(
       gameId,
       userId,
@@ -447,10 +462,11 @@ async function updateUserRating(
       result.ratingChange,
       game.bot_difficulty,
       isPlayer1 ? 1 : 2,
+      game.bot_persona_id,
       now
     ),
 
-    // Update user stats
+    // Update human user stats
     DB.prepare(`
       UPDATE users SET
         rating = ?,
@@ -469,7 +485,7 @@ async function updateUserRating(
       userId
     ),
 
-    // Rating history
+    // Rating history for human
     DB.prepare(`
       INSERT INTO rating_history (id, user_id, game_id, rating_before, rating_after, rating_change, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -482,7 +498,105 @@ async function updateUserRating(
       result.ratingChange,
       now
     ),
-  ])
+  ]
+
+  // Update bot's rating if this is a real bot user (not legacy bot-opponent)
+  const botUserId = getBotUserId(game)
+  if (botUserId && botUserId !== 'bot-opponent') {
+    // Get bot's current stats for K-factor calculation
+    const botUser = await DB.prepare(`
+      SELECT rating, games_played FROM users WHERE id = ? AND is_bot = 1
+    `).bind(botUserId).first<{ rating: number; games_played: number }>()
+
+    if (botUser) {
+      // Calculate bot's rating change (opposite outcome)
+      const botOutcome: GameOutcome = outcome === 'win' ? 'loss' : outcome === 'loss' ? 'win' : 'draw'
+      const botResult = calculateNewRating(botRating, userRating, botOutcome, botUser.games_played)
+
+      const botGameId = crypto.randomUUID()
+      const botRatingHistoryId = crypto.randomUUID()
+
+      // Game record for bot
+      statements.push(
+        DB.prepare(`
+          INSERT INTO games (id, user_id, outcome, moves, move_count, rating_change,
+                            opponent_type, player_number, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, 'human', ?, ?)
+        `).bind(
+          botGameId,
+          botUserId,
+          botOutcome,
+          JSON.stringify(moves),
+          moves.length,
+          botResult.ratingChange,
+          isPlayer1 ? 2 : 1, // Bot's player number is opposite of human's
+          now
+        )
+      )
+
+      // Update bot user stats
+      statements.push(
+        DB.prepare(`
+          UPDATE users SET
+            rating = ?,
+            games_played = games_played + 1,
+            wins = wins + ?,
+            losses = losses + ?,
+            draws = draws + ?,
+            updated_at = ?
+          WHERE id = ? AND is_bot = 1
+        `).bind(
+          botResult.newRating,
+          botOutcome === 'win' ? 1 : 0,
+          botOutcome === 'loss' ? 1 : 0,
+          botOutcome === 'draw' ? 1 : 0,
+          now,
+          botUserId
+        )
+      )
+
+      // Rating history for bot
+      statements.push(
+        DB.prepare(`
+          INSERT INTO rating_history (id, user_id, game_id, rating_before, rating_after, rating_change, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          botRatingHistoryId,
+          botUserId,
+          botGameId,
+          botRating,
+          botResult.newRating,
+          botResult.ratingChange,
+          now
+        )
+      )
+
+      // Also update bot_personas table to keep it in sync
+      if (game.bot_persona_id) {
+        statements.push(
+          DB.prepare(`
+            UPDATE bot_personas SET
+              current_elo = ?,
+              games_played = games_played + 1,
+              wins = wins + ?,
+              losses = losses + ?,
+              draws = draws + ?,
+              updated_at = ?
+            WHERE id = ?
+          `).bind(
+            botResult.newRating,
+            botOutcome === 'win' ? 1 : 0,
+            botOutcome === 'loss' ? 1 : 0,
+            botOutcome === 'draw' ? 1 : 0,
+            now,
+            game.bot_persona_id
+          )
+        )
+      }
+    }
+  }
+
+  await DB.batch(statements)
 }
 
 export async function onRequestOptions() {
