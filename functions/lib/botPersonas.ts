@@ -50,11 +50,20 @@ export interface BotPersona {
   name: string
   description: string
   avatar_url: string | null
-  ai_engine: 'minimax' | 'neural'
+  ai_engine: 'minimax' | 'aggressive-minimax' | 'deep-minimax' | 'neural'
   ai_config: {
     searchDepth: number
     errorRate: number
     timeMultiplier?: number
+    /** Custom evaluation weights for configurable engines */
+    evalWeights?: {
+      ownThreats?: number
+      opponentThreats?: number
+      centerControl?: number
+      doubleThreats?: number
+    }
+    /** Use transposition table (for deep-minimax) */
+    useTranspositionTable?: boolean
   }
   chat_personality: ChatPersonality
   play_style: 'aggressive' | 'defensive' | 'balanced' | 'tricky' | 'adaptive'
@@ -646,11 +655,12 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
     name: 'Oracle',
     description: 'A mysterious seer who speaks in riddles and plays with perfect foresight.',
     avatar_url: null,
-    ai_engine: 'minimax',
+    ai_engine: 'deep-minimax',
     ai_config: {
       searchDepth: 42,
       errorRate: 0,
       timeMultiplier: 0.95,
+      useTranspositionTable: true,
     },
     chat_personality: {
       name: 'Oracle',

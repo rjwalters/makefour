@@ -278,6 +278,8 @@ export const engineRegistry = new EngineRegistry()
 export type EngineType =
   | 'heuristic' // Simple rule-based (check threats, prefer center)
   | 'minimax' // Minimax with alpha-beta pruning
+  | 'aggressive-minimax' // Aggressive minimax favoring threats (for Blitz)
+  | 'deep-minimax' // Deep minimax with transposition tables (for Oracle)
   | 'mcts' // Monte Carlo Tree Search
   | 'neural' // Neural network inference
   | 'hybrid' // Combines approaches (e.g., NN eval + minimax search)
@@ -289,6 +291,25 @@ export const DEFAULT_ENGINE_CONFIGS: Record<EngineType, Partial<EngineConfig>> =
   {
     heuristic: { searchDepth: 1, errorRate: 0 },
     minimax: { searchDepth: 6, errorRate: 0 },
+    'aggressive-minimax': {
+      searchDepth: 6,
+      errorRate: 0,
+      customParams: {
+        evalWeights: {
+          ownThreats: 150,
+          opponentThreats: 80,
+          centerControl: 5,
+          doubleThreats: 500,
+        },
+      },
+    },
+    'deep-minimax': {
+      searchDepth: 42, // Solve completely when possible
+      errorRate: 0,
+      customParams: {
+        useTranspositionTable: true,
+      },
+    },
     mcts: { searchDepth: 1000, errorRate: 0 }, // depth = simulations for MCTS
     neural: { searchDepth: 1, errorRate: 0 },
     hybrid: { searchDepth: 4, errorRate: 0 },
