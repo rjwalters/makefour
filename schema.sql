@@ -183,3 +183,19 @@ CREATE INDEX IF NOT EXISTS idx_active_games_status ON active_games(status);
 CREATE INDEX IF NOT EXISTS idx_active_games_updated_at ON active_games(updated_at);
 -- Index for spectatable games (for live game browsing)
 CREATE INDEX IF NOT EXISTS idx_active_games_spectatable ON active_games(spectatable, status);
+
+-- Game messages - chat messages during active games
+CREATE TABLE IF NOT EXISTS game_messages (
+  id TEXT PRIMARY KEY,
+  game_id TEXT NOT NULL,
+  sender_id TEXT NOT NULL,  -- user_id or 'bot'
+  sender_type TEXT NOT NULL,  -- 'human' or 'bot'
+  content TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (game_id) REFERENCES active_games(id) ON DELETE CASCADE,
+  CHECK (sender_type IN ('human', 'bot'))
+);
+
+-- Indexes for game messages
+CREATE INDEX IF NOT EXISTS idx_game_messages_game_id ON game_messages(game_id);
+CREATE INDEX IF NOT EXISTS idx_game_messages_created_at ON game_messages(created_at);

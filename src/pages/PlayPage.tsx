@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import ThemeToggle from '../components/ThemeToggle'
 import GameBoard from '../components/GameBoard'
 import AnalysisPanel from '../components/AnalysisPanel'
+import ChatPanel from '../components/ChatPanel'
 import {
   createGameState,
   makeMove,
@@ -749,6 +750,15 @@ export default function PlayPage() {
               Moves: {game.moves.length}
             </p>
           </div>
+
+          {/* Chat panel for online games */}
+          <ChatPanel
+            gameId={game.id}
+            isActive={game.status === 'active'}
+            isBot={false}
+            playerNumber={game.playerNumber}
+            className="w-full mt-4"
+          />
         </CardContent>
       </Card>
     )
