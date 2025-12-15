@@ -1,12 +1,8 @@
 /**
- * Scheduled handler for bot vs bot games
+ * Shared bot vs bot game logic
  *
- * This function is triggered by a cron schedule (every minute) to:
- * 1. Advance active bot vs bot games that are ready for their next move
- * 2. Optionally create new bot vs bot games if below threshold
- *
- * Bot games have a move_delay_ms that controls pacing, so even with
- * 1-minute cron intervals, the games advance at a watchable pace.
+ * This module contains the core game advancement, rating updates, and game creation
+ * logic used by both the tick endpoint and individual game endpoints.
  */
 
 import {
@@ -14,28 +10,29 @@ import {
   makeMove,
   createGameState,
   type Player,
-} from './lib/game'
-import { calculateNewRating, type GameOutcome } from './lib/elo'
+} from './game'
+import { calculateNewRating, type GameOutcome } from './elo'
 import {
   suggestMoveWithEngine,
   calculateTimeBudget,
   type DifficultyLevel,
   type BotPersonaConfig,
-  type AIConfig,
-} from './lib/bot'
-import type { EngineType } from './lib/ai-engine'
+} from './bot'
+import type { EngineType } from './ai-engine'
 import {
   getRandomReaction,
   shouldBotSpeak,
   type ChatPersonality,
   type ReactionType,
-} from './lib/botPersonas'
+} from './botPersonas'
 
-interface Env {
-  DB: D1Database
-}
+// Maximum games to process per tick/run
+export const MAX_GAMES_PER_TICK = 10
 
-interface ActiveGameRow {
+// Target number of active bot games
+export const TARGET_ACTIVE_GAMES = 3
+
+export interface ActiveGameRow {
   id: string
   player1_id: string
   player2_id: string
@@ -54,7 +51,7 @@ interface ActiveGameRow {
   next_move_at: number | null
 }
 
-interface BotPersonaRow {
+export interface BotPersonaRow {
   id: string
   name: string
   current_elo: number
@@ -63,96 +60,50 @@ interface BotPersonaRow {
   chat_personality: string
 }
 
-// Maximum games to process per scheduled run
-const MAX_GAMES_PER_RUN = 20
-
-// Target number of active bot games
-const TARGET_ACTIVE_GAMES = 3
+export interface AdvanceGameResult {
+  gameId: string
+  status: 'advanced' | 'completed' | 'error'
+  move?: number
+  winner?: string | null
+  error?: string
+  chatMessage?: string | null
+}
 
 /**
- * Scheduled event handler
+ * Parse chat personality, handling both old and new formats
  */
-export async function scheduled(
-  event: ScheduledEvent,
-  env: Env,
-  ctx: ExecutionContext
-): Promise<void> {
-  const { DB } = env
-  const now = Date.now()
-
-  console.log(`[Scheduled] Bot game tick starting at ${new Date(now).toISOString()}`)
-
+export function parseChatPersonality(json: string): ChatPersonality | null {
   try {
-    // Find active bot vs bot games that are ready for next move
-    const readyGames = await DB.prepare(`
-      SELECT
-        id, player1_id, player2_id, moves, current_turn,
-        status, winner, player1_rating, player2_rating,
-        player1_time_ms, player2_time_ms, turn_started_at,
-        bot1_persona_id, bot2_persona_id,
-        move_delay_ms, next_move_at
-      FROM active_games
-      WHERE is_bot_vs_bot = 1
-        AND status = 'active'
-        AND (next_move_at IS NULL OR next_move_at <= ?)
-      ORDER BY next_move_at ASC
-      LIMIT ?
-    `)
-      .bind(now, MAX_GAMES_PER_RUN)
-      .all<ActiveGameRow>()
-
-    let processedCount = 0
-    let completedCount = 0
-    let errorCount = 0
-
-    // Process each ready game
-    for (const game of readyGames.results) {
-      try {
-        const completed = await advanceGame(DB, game, now)
-        processedCount++
-        if (completed) completedCount++
-      } catch (error) {
-        console.error(`[Scheduled] Error advancing game ${game.id}:`, error)
-        errorCount++
-      }
+    const parsed = JSON.parse(json)
+    // Check if it has the required fields for ChatPersonality
+    if (parsed.reactions && typeof parsed.chattiness === 'number') {
+      return parsed as ChatPersonality
     }
-
-    // Check if we need to create new games
-    const activeCount = await DB.prepare(`
-      SELECT COUNT(*) as count
-      FROM active_games
-      WHERE is_bot_vs_bot = 1 AND status = 'active'
-    `).first<{ count: number }>()
-
-    const currentActive = activeCount?.count ?? 0
-
-    if (currentActive < TARGET_ACTIVE_GAMES) {
-      const gamesToCreate = Math.min(TARGET_ACTIVE_GAMES - currentActive, 2)
-      const createdIds = await createRandomBotGames(DB, gamesToCreate, now)
-      console.log(`[Scheduled] Created ${createdIds.length} new bot games`)
-    }
-
-    console.log(`[Scheduled] Processed ${processedCount} games, ${completedCount} completed, ${errorCount} errors`)
-  } catch (error) {
-    console.error('[Scheduled] Bot game tick error:', error)
+    return null
+  } catch {
+    return null
   }
 }
 
 /**
- * Advance a single bot vs bot game
+ * Advance a single bot vs bot game by making the next move
  */
-async function advanceGame(
+export async function advanceGame(
   DB: D1Database,
   game: ActiveGameRow,
   now: number
-): Promise<boolean> {
+): Promise<AdvanceGameResult> {
   // Get the current bot's persona
   const currentBotPersonaId = game.current_turn === 1
     ? game.bot1_persona_id
     : game.bot2_persona_id
 
   if (!currentBotPersonaId) {
-    throw new Error('Missing bot persona configuration')
+    return {
+      gameId: game.id,
+      status: 'error',
+      error: 'Missing bot persona configuration',
+    }
   }
 
   const persona = await DB.prepare(`
@@ -164,10 +115,13 @@ async function advanceGame(
     .first<BotPersonaRow>()
 
   if (!persona) {
-    throw new Error('Bot persona not found')
+    return {
+      gameId: game.id,
+      status: 'error',
+      error: 'Bot persona not found',
+    }
   }
 
-  const aiConfig = JSON.parse(persona.ai_config) as AIConfig
   const chatPersonality = parseChatPersonality(persona.chat_personality)
 
   // Reconstruct the current board state
@@ -175,7 +129,11 @@ async function advanceGame(
   const currentState = moves.length > 0 ? replayMoves(moves) : createGameState()
 
   if (!currentState) {
-    throw new Error('Invalid game state')
+    return {
+      gameId: game.id,
+      status: 'error',
+      error: 'Invalid game state',
+    }
   }
 
   // Calculate time budget for the bot
@@ -217,7 +175,11 @@ async function advanceGame(
   // Apply the move
   const afterMove = makeMove(currentState, moveResult.column)
   if (!afterMove) {
-    throw new Error('Invalid move generated by bot')
+    return {
+      gameId: game.id,
+      status: 'error',
+      error: 'Invalid move generated by bot',
+    }
   }
 
   const newMoves = [...moves, moveResult.column]
@@ -257,6 +219,7 @@ async function advanceGame(
   ).run()
 
   // Generate bot chat message if appropriate
+  let chatMessage: string | null = null
   if (chatPersonality && shouldBotSpeak(chatPersonality.chattiness)) {
     let reactionType: ReactionType = 'gameStart'
 
@@ -279,7 +242,7 @@ async function advanceGame(
       }
     }
 
-    const chatMessage = getRandomReaction(chatPersonality, reactionType)
+    chatMessage = getRandomReaction(chatPersonality, reactionType)
 
     if (chatMessage) {
       const messageId = crypto.randomUUID()
@@ -295,121 +258,26 @@ async function advanceGame(
   // Update ratings if game is complete
   if (newStatus === 'completed') {
     await updateBotRatings(DB, game, winner, now)
-    return true
   }
 
-  return false
-}
-
-/**
- * Parse chat personality, handling both old and new formats
- */
-function parseChatPersonality(json: string): ChatPersonality | null {
-  try {
-    const parsed = JSON.parse(json)
-    if (parsed.reactions && typeof parsed.chattiness === 'number') {
-      return parsed as ChatPersonality
-    }
-    return null
-  } catch {
-    return null
+  return {
+    gameId: game.id,
+    status: newStatus === 'completed' ? 'completed' : 'advanced',
+    move: moveResult.column,
+    winner,
+    chatMessage,
   }
-}
-
-/**
- * Create random bot vs bot games for entertainment
- */
-async function createRandomBotGames(
-  DB: D1Database,
-  count: number,
-  now: number
-): Promise<string[]> {
-  const personas = await DB.prepare(`
-    SELECT id, name, current_elo
-    FROM bot_personas
-    WHERE is_active = 1
-    ORDER BY RANDOM()
-    LIMIT ?
-  `).bind(count * 2 + 4).all<{ id: string; name: string; current_elo: number }>()
-
-  if (personas.results.length < 2) {
-    return []
-  }
-
-  const createdGameIds: string[] = []
-  const usedPersonas = new Set<string>()
-
-  for (let i = 0; i < count && usedPersonas.size < personas.results.length - 1; i++) {
-    const availablePersonas = personas.results.filter(p => !usedPersonas.has(p.id))
-    if (availablePersonas.length < 2) break
-
-    availablePersonas.sort((a, b) => a.current_elo - b.current_elo)
-    const idx = Math.floor(Math.random() * (availablePersonas.length - 1))
-    const bot1 = availablePersonas[idx]
-    const bot2 = availablePersonas[idx + 1]
-
-    usedPersonas.add(bot1.id)
-    usedPersonas.add(bot2.id)
-
-    const bot1UserId = `bot_${bot1.id}`
-    const bot2UserId = `bot_${bot2.id}`
-
-    const [bot1User, bot2User] = await Promise.all([
-      DB.prepare('SELECT rating FROM users WHERE id = ? AND is_bot = 1')
-        .bind(bot1UserId)
-        .first<{ rating: number }>(),
-      DB.prepare('SELECT rating FROM users WHERE id = ? AND is_bot = 1')
-        .bind(bot2UserId)
-        .first<{ rating: number }>(),
-    ])
-
-    const bot1Rating = bot1User?.rating ?? bot1.current_elo
-    const bot2Rating = bot2User?.rating ?? bot2.current_elo
-
-    const gameId = crypto.randomUUID()
-    const moveDelayMs = 2000 + Math.floor(Math.random() * 1000)
-
-    await DB.prepare(`
-      INSERT INTO active_games (
-        id, player1_id, player2_id, moves, current_turn, status, mode,
-        player1_rating, player2_rating, spectatable, spectator_count,
-        last_move_at, time_control_ms, player1_time_ms, player2_time_ms,
-        turn_started_at, is_bot_game, is_bot_vs_bot,
-        bot1_persona_id, bot2_persona_id, move_delay_ms, next_move_at,
-        created_at, updated_at
-      )
-      VALUES (?, ?, ?, '[]', 1, 'active', 'ranked', ?, ?, 1, 0, ?, 120000, 120000, 120000, ?, 1, 1, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      gameId,
-      bot1UserId,
-      bot2UserId,
-      bot1Rating,
-      bot2Rating,
-      now,
-      now,
-      bot1.id,
-      bot2.id,
-      moveDelayMs,
-      now + moveDelayMs,
-      now,
-      now
-    ).run()
-
-    createdGameIds.push(gameId)
-  }
-
-  return createdGameIds
 }
 
 /**
  * Update both bots' ratings after a bot vs bot game
  */
-async function updateBotRatings(
+export async function updateBotRatings(
   DB: D1Database,
   game: ActiveGameRow,
   winner: string | null,
   now: number
-) {
+): Promise<void> {
   const moves = JSON.parse(game.moves) as number[]
 
   let bot1Outcome: GameOutcome
@@ -588,6 +456,135 @@ async function updateBotRatings(
   }
 }
 
-export default {
-  scheduled,
+/**
+ * Create random bot vs bot games for entertainment
+ */
+export async function createRandomBotGames(
+  DB: D1Database,
+  count: number,
+  now: number
+): Promise<string[]> {
+  // Get active bot personas
+  const personas = await DB.prepare(`
+    SELECT id, name, current_elo
+    FROM bot_personas
+    WHERE is_active = 1
+    ORDER BY RANDOM()
+    LIMIT ?
+  `).bind(count * 2 + 4).all<{ id: string; name: string; current_elo: number }>()
+
+  if (personas.results.length < 2) {
+    return []
+  }
+
+  const createdGameIds: string[] = []
+  const usedPersonas = new Set<string>()
+
+  for (let i = 0; i < count && usedPersonas.size < personas.results.length - 1; i++) {
+    // Find two personas that haven't been used and have similar ratings
+    const availablePersonas = personas.results.filter(p => !usedPersonas.has(p.id))
+
+    if (availablePersonas.length < 2) break
+
+    // Sort by rating and pick adjacent ones for more interesting matches
+    availablePersonas.sort((a, b) => a.current_elo - b.current_elo)
+
+    // Pick a random index and get that persona and the next one
+    const idx = Math.floor(Math.random() * (availablePersonas.length - 1))
+    const bot1 = availablePersonas[idx]
+    const bot2 = availablePersonas[idx + 1]
+
+    usedPersonas.add(bot1.id)
+    usedPersonas.add(bot2.id)
+
+    const bot1UserId = `bot_${bot1.id}`
+    const bot2UserId = `bot_${bot2.id}`
+
+    // Get actual ratings from users table
+    const [bot1User, bot2User] = await Promise.all([
+      DB.prepare('SELECT rating FROM users WHERE id = ? AND is_bot = 1')
+        .bind(bot1UserId)
+        .first<{ rating: number }>(),
+      DB.prepare('SELECT rating FROM users WHERE id = ? AND is_bot = 1')
+        .bind(bot2UserId)
+        .first<{ rating: number }>(),
+    ])
+
+    const bot1Rating = bot1User?.rating ?? bot1.current_elo
+    const bot2Rating = bot2User?.rating ?? bot2.current_elo
+
+    const gameId = crypto.randomUUID()
+    const moveDelayMs = 2000 + Math.floor(Math.random() * 1000) // 2-3 seconds
+
+    await DB.prepare(`
+      INSERT INTO active_games (
+        id, player1_id, player2_id, moves, current_turn, status, mode,
+        player1_rating, player2_rating, spectatable, spectator_count,
+        last_move_at, time_control_ms, player1_time_ms, player2_time_ms,
+        turn_started_at, is_bot_game, is_bot_vs_bot,
+        bot1_persona_id, bot2_persona_id, move_delay_ms, next_move_at,
+        created_at, updated_at
+      )
+      VALUES (?, ?, ?, '[]', 1, 'active', 'ranked', ?, ?, 1, 0, ?, 120000, 120000, 120000, ?, 1, 1, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      gameId,
+      bot1UserId,
+      bot2UserId,
+      bot1Rating,
+      bot2Rating,
+      now,
+      now,
+      bot1.id,
+      bot2.id,
+      moveDelayMs,
+      now + moveDelayMs,
+      now,
+      now
+    ).run()
+
+    createdGameIds.push(gameId)
+  }
+
+  return createdGameIds
+}
+
+/**
+ * Find active bot vs bot games ready for their next move
+ */
+export async function findReadyGames(
+  DB: D1Database,
+  now: number,
+  limit: number = MAX_GAMES_PER_TICK
+): Promise<ActiveGameRow[]> {
+  const readyGames = await DB.prepare(`
+    SELECT
+      id, player1_id, player2_id, moves, current_turn,
+      status, winner, player1_rating, player2_rating,
+      player1_time_ms, player2_time_ms, turn_started_at,
+      bot1_persona_id, bot2_persona_id,
+      move_delay_ms, next_move_at
+    FROM active_games
+    WHERE is_bot_vs_bot = 1
+      AND status = 'active'
+      AND (next_move_at IS NULL OR next_move_at <= ?)
+    ORDER BY next_move_at ASC
+    LIMIT ?
+  `)
+    .bind(now, limit)
+    .all<ActiveGameRow>()
+
+  return readyGames.results
+}
+
+/**
+ * Get count of active bot vs bot games
+ */
+export async function getActiveBotGameCount(DB: D1Database): Promise<number> {
+  const result = await DB.prepare(`
+    SELECT COUNT(*) as count
+    FROM active_games
+    WHERE is_bot_vs_bot = 1 AND status = 'active'
+  `).first<{ count: number }>()
+
+  return result?.count ?? 0
 }
