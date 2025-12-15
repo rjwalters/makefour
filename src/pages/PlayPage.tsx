@@ -183,11 +183,14 @@ export default function PlayPage() {
     if (settings.mode !== 'ai') return
     if (gameState.currentPlayer !== aiPlayerNumber || gameState.winner !== null) return
 
+    let cancelled = false
     setIsBotThinking(true)
 
     const makeBotMove = async () => {
       // Small delay for UX - makes it feel like the bot is "thinking"
       await new Promise((resolve) => setTimeout(resolve, 500))
+
+      if (cancelled) return
 
       const botMove = await suggestMove(
         {
@@ -198,6 +201,8 @@ export default function PlayPage() {
         settings.difficulty
       )
 
+      if (cancelled) return
+
       const newState = makeMove(gameState, botMove)
       if (newState) {
         setGameState(newState)
@@ -207,6 +212,10 @@ export default function PlayPage() {
     }
 
     makeBotMove()
+
+    return () => {
+      cancelled = true
+    }
   }, [gameState, gamePhase, settings.mode, settings.difficulty, aiPlayerNumber, sounds])
 
   const handleColumnClick = useCallback(
