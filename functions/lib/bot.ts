@@ -1,8 +1,11 @@
 /**
  * Server-side Bot AI for MakeFour
  *
- * Implements minimax with alpha-beta pruning and time budgeting.
- * Used for ranked bot games where the bot must manage its time like a human player.
+ * Provides a unified interface for bot move selection with pluggable AI engines.
+ * Supports multiple engine types: minimax (default), neural, MCTS, etc.
+ *
+ * For backward compatibility, the legacy minimax implementation is preserved
+ * and used when no engine is specified.
  */
 
 import {
@@ -14,6 +17,10 @@ import {
   COLUMNS,
   WIN_LENGTH,
 } from './game'
+import type { EngineConfig, MoveResult, AIEngine, EngineType } from './ai-engine'
+import { engineRegistry, DEFAULT_ENGINE_CONFIGS } from './ai-engine'
+// Import engines to register them
+import './engines'
 
 // ============================================================================
 // TYPES
@@ -24,6 +31,15 @@ export type DifficultyLevel = 'beginner' | 'intermediate' | 'expert' | 'perfect'
 interface DifficultyConfig {
   searchDepth: number
   errorRate: number
+}
+
+/**
+ * Extended configuration for bot persona with engine selection.
+ */
+export interface BotPersonaConfig {
+  difficulty: DifficultyLevel
+  engine?: EngineType
+  customEngineParams?: Record<string, unknown>
 }
 
 const DIFFICULTY_CONFIGS: Record<DifficultyLevel, DifficultyConfig> = {
@@ -457,3 +473,72 @@ export function measureMoveTime<T>(fn: () => T): { result: T; elapsedMs: number 
   const elapsedMs = Date.now() - start
   return { result, elapsedMs }
 }
+
+// ============================================================================
+// ENGINE-BASED MOVE SUGGESTION
+// ============================================================================
+
+/**
+ * Convert difficulty level to engine configuration.
+ */
+export function difficultyToEngineConfig(
+  difficulty: DifficultyLevel,
+  engineType: EngineType = 'minimax',
+  customParams?: Record<string, unknown>
+): EngineConfig {
+  const diffConfig = DIFFICULTY_CONFIGS[difficulty]
+  const defaultConfig = DEFAULT_ENGINE_CONFIGS[engineType]
+
+  return {
+    searchDepth: diffConfig.searchDepth,
+    errorRate: diffConfig.errorRate,
+    ...defaultConfig,
+    customParams,
+  }
+}
+
+/**
+ * Suggest a move using the specified AI engine.
+ *
+ * This is the preferred API for new code. It supports pluggable engines
+ * and returns detailed move information including confidence and search stats.
+ *
+ * @param board - Current board state
+ * @param currentPlayer - Player to move (the bot)
+ * @param config - Bot persona configuration with engine selection
+ * @param timeBudgetMs - Time budget in milliseconds
+ * @returns Promise resolving to move result with metadata
+ */
+export async function suggestMoveWithEngine(
+  board: Board,
+  currentPlayer: Player,
+  config: BotPersonaConfig,
+  timeBudgetMs: number
+): Promise<MoveResult> {
+  const engineType = config.engine ?? 'minimax'
+  const engine = engineRegistry.getWithFallback(engineType)
+  const engineConfig = difficultyToEngineConfig(
+    config.difficulty,
+    engineType,
+    config.customEngineParams
+  )
+
+  return engine.selectMove(board, currentPlayer, engineConfig, timeBudgetMs)
+}
+
+/**
+ * Get the engine registry for managing AI engines.
+ */
+export function getEngineRegistry() {
+  return engineRegistry
+}
+
+/**
+ * List available AI engines.
+ */
+export function listEngines() {
+  return engineRegistry.list()
+}
+
+// Re-export types for convenience
+export type { EngineConfig, MoveResult, AIEngine, EngineType }

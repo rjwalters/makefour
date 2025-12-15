@@ -6,6 +6,7 @@
 
 import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
 import { z } from 'zod'
+import type { EngineType } from '../../lib/ai-engine'
 
 interface Env {
   DB: D1Database
@@ -25,11 +26,16 @@ const BOT_RATINGS: Record<string, number> = {
 // Default time control: 5 minutes
 const DEFAULT_TIME_CONTROL_MS = 300000
 
+// Supported engine types for validation
+const ENGINE_TYPES = ['minimax', 'heuristic', 'mcts', 'neural', 'hybrid'] as const
+
 // Schema for creating a game - supports both personaId (new) and difficulty (legacy)
 const createGameSchema = z.object({
   personaId: z.string().optional(),
   difficulty: z.enum(['beginner', 'intermediate', 'expert', 'perfect']).optional(),
   playerColor: z.union([z.literal(1), z.literal(2)]).optional().default(1),
+  // Optional engine selection - defaults to 'minimax' if not specified
+  engine: z.enum(ENGINE_TYPES).optional().default('minimax'),
 }).refine(
   (data) => data.personaId || data.difficulty,
   { message: 'Either personaId or difficulty is required' }
@@ -63,12 +69,11 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse(parseResult.error.errors[0].message, 400)
     }
 
-    const { personaId, difficulty, playerColor } = parseResult.data
+    const { personaId, difficulty, playerColor, engine } = parseResult.data
 
     // Resolve bot rating and configuration
     let botRating: number
     let botPersonaId: string | null = null
-    let aiConfig: { searchDepth: number; errorRate: number; timeMultiplier?: number } | null = null
     let effectiveDifficulty: string | null = difficulty || null
 
     if (personaId) {
@@ -87,7 +92,6 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
       botRating = persona.current_elo
       botPersonaId = persona.id
-      aiConfig = JSON.parse(persona.ai_config)
       // Map persona to difficulty based on rating for backward compatibility
       if (botRating < 900) effectiveDifficulty = 'beginner'
       else if (botRating < 1300) effectiveDifficulty = 'intermediate'
@@ -163,30 +167,18 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     // If bot goes first (player is yellow), make bot's first move
     if (botPlayer === 1) {
-      // Import bot module and make move
-      const { suggestMove, suggestMoveWithConfig, calculateTimeBudget, measureMoveTime } = await import('../../lib/bot')
+      // Use engine-based move suggestion
+      const { suggestMoveWithEngine, calculateTimeBudget } = await import('../../lib/bot')
 
-      const timeBudget = calculateTimeBudget(DEFAULT_TIME_CONTROL_MS, 0, effectiveDifficulty || 'intermediate')
-      const emptyBoard = Array.from({ length: 6 }, () => Array(7).fill(null))
-
-      let botMove: number
-      let elapsedMs: number
-
-      if (aiConfig) {
-        // Use persona's AI config
-        const result = measureMoveTime(() =>
-          suggestMoveWithConfig(emptyBoard, 1, aiConfig, timeBudget)
-        )
-        botMove = result.result
-        elapsedMs = result.elapsedMs
-      } else {
-        // Use legacy difficulty-based AI
-        const result = measureMoveTime(() =>
-          suggestMove(emptyBoard, 1, effectiveDifficulty || 'intermediate', timeBudget)
-        )
-        botMove = result.result
-        elapsedMs = result.elapsedMs
-      }
+      const timeBudget = calculateTimeBudget(DEFAULT_TIME_CONTROL_MS, 0, (effectiveDifficulty || 'intermediate') as 'beginner' | 'intermediate' | 'expert' | 'perfect')
+      const startTime = Date.now()
+      const moveResult = await suggestMoveWithEngine(
+        Array.from({ length: 6 }, () => Array(7).fill(null)), // Empty board
+        1, // Bot is player 1
+        { difficulty: (effectiveDifficulty || 'intermediate') as 'beginner' | 'intermediate' | 'expert' | 'perfect', engine: engine as EngineType },
+        timeBudget
+      )
+      const elapsedMs = Date.now() - startTime
 
       // Update game with bot's first move
       const newPlayer1Time = DEFAULT_TIME_CONTROL_MS - elapsedMs
@@ -197,7 +189,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
             player1_time_ms = ?, turn_started_at = ?, updated_at = ?
         WHERE id = ?
       `).bind(
-        JSON.stringify([botMove]),
+        JSON.stringify([moveResult.column]),
         now,
         newPlayer1Time,
         now,
@@ -210,9 +202,11 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         playerNumber: 2,
         difficulty: effectiveDifficulty,
         personaId: botPersonaId,
+        engine,
         botRating,
         botMovedFirst: true,
-        botMove,
+        botMove: moveResult.column,
+        searchInfo: moveResult.searchInfo,
       })
     }
 
@@ -221,6 +215,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       playerNumber: 1,
       difficulty: effectiveDifficulty,
       personaId: botPersonaId,
+      engine,
       botRating,
       botMovedFirst: false,
     })

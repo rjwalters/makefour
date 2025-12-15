@@ -15,7 +15,13 @@ import {
   type Player,
 } from '../../../lib/game'
 import { calculateNewRating, type GameOutcome } from '../../../lib/elo'
-import { suggestMove, suggestMoveWithConfig, calculateTimeBudget, type DifficultyLevel, type AIConfig } from '../../../lib/bot'
+import {
+  suggestMoveWithEngine,
+  calculateTimeBudget,
+  type DifficultyLevel,
+  type BotPersonaConfig,
+  type AIConfig,
+} from '../../../lib/bot'
 import { z } from 'zod'
 
 interface Env {
@@ -292,7 +298,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       newStatus = 'completed'
       winner = afterHumanMove.winner === 'draw' ? 'draw' : String(afterHumanMove.winner)
     } else {
-      // Bot makes its move
+      // Bot makes its move using engine-based API
       const difficulty = (game.bot_difficulty || 'intermediate') as DifficultyLevel
       const botTimeRemaining = botPlayerNumber === 1 ? player1Time : player2Time
 
@@ -300,20 +306,18 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         const timeBudget = calculateTimeBudget(botTimeRemaining, newMoves.length, difficulty)
         const startTime = Date.now()
 
-        // Use persona AI config if available, otherwise use legacy difficulty
-        const botMove = personaAIConfig
-          ? suggestMoveWithConfig(
-              afterHumanMove.board,
-              botPlayerNumber as Player,
-              personaAIConfig,
-              timeBudget
-            )
-          : suggestMove(
-              afterHumanMove.board,
-              botPlayerNumber as Player,
-              difficulty,
-              timeBudget
-            )
+        // Use engine-based move suggestion (defaults to minimax)
+        const botPersonaConfig: BotPersonaConfig = {
+          difficulty,
+          engine: 'minimax', // Default engine, can be extended to use stored engine preference
+        }
+
+        const moveResult = await suggestMoveWithEngine(
+          afterHumanMove.board,
+          botPlayerNumber as Player,
+          botPersonaConfig,
+          timeBudget
+        )
 
         const botElapsed = Date.now() - startTime
 
@@ -332,9 +336,9 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
           winner = String(playerNumber)
         } else {
           // Apply bot's move
-          const afterBotMove = makeMove(afterHumanMove, botMove)
+          const afterBotMove = makeMove(afterHumanMove, moveResult.column)
           if (afterBotMove) {
-            newMoves = [...newMoves, botMove]
+            newMoves = [...newMoves, moveResult.column]
             board = afterBotMove.board
 
             if (afterBotMove.winner !== null) {

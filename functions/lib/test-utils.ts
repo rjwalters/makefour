@@ -49,6 +49,14 @@ export interface GameRow {
   created_at: number
 }
 
+export interface VerificationTokenRow {
+  id: string
+  user_id: string
+  expires_at: number
+  used: number
+  created_at: number
+}
+
 /**
  * In-memory mock implementation of D1Database
  */
@@ -56,6 +64,7 @@ export class MockD1Database implements D1Database {
   private users: Map<string, UserRow> = new Map()
   private sessions: Map<string, SessionRow> = new Map()
   private games: Map<string, GameRow> = new Map()
+  private verificationTokens: Map<string, VerificationTokenRow> = new Map()
 
   // Track prepared statements for verification
   private preparedStatements: string[] = []
@@ -102,10 +111,19 @@ export class MockD1Database implements D1Database {
     this.games.set(game.id, game)
   }
 
+  _getVerificationTokens(): Map<string, VerificationTokenRow> {
+    return this.verificationTokens
+  }
+
+  _addVerificationToken(token: VerificationTokenRow): void {
+    this.verificationTokens.set(token.id, token)
+  }
+
   _reset(): void {
     this.users.clear()
     this.sessions.clear()
     this.games.clear()
+    this.verificationTokens.clear()
     this.preparedStatements = []
   }
 
@@ -289,6 +307,19 @@ class MockD1PreparedStatement implements D1PreparedStatement {
       return []
     }
 
+    // Email verification tokens table
+    if (q.includes('from email_verification_tokens')) {
+      const tokens = this.db._getVerificationTokens()
+
+      if (q.includes('where id =')) {
+        const id = this.boundParams[0] as string
+        const token = tokens.get(id)
+        return token ? [token as unknown as T] : []
+      }
+
+      return []
+    }
+
     return []
   }
 
@@ -343,6 +374,18 @@ class MockD1PreparedStatement implements D1PreparedStatement {
         created_at,
       })
     }
+
+    // Insert into email_verification_tokens
+    if (q.includes('into email_verification_tokens')) {
+      const [id, user_id, expires_at, used, created_at] = this.boundParams as [string, string, number, number, number]
+      this.db._addVerificationToken({
+        id,
+        user_id,
+        expires_at,
+        used,
+        created_at,
+      })
+    }
   }
 
   private handleUpdate(): void {
@@ -384,6 +427,28 @@ class MockD1PreparedStatement implements D1PreparedStatement {
           user.updated_at = updated_at
         }
       }
+
+      // Update email_verified
+      if (q.includes('email_verified =')) {
+        const userId = this.boundParams[this.boundParams.length - 1] as string
+        const user = users.get(userId)
+        if (user) {
+          user.email_verified = 1
+          user.updated_at = this.boundParams[0] as number
+        }
+      }
+    }
+
+    // Update email_verification_tokens
+    if (q.includes('update email_verification_tokens')) {
+      if (q.includes('used =')) {
+        const tokenId = this.boundParams[this.boundParams.length - 1] as string
+        const tokens = this.db._getVerificationTokens()
+        const token = tokens.get(tokenId)
+        if (token) {
+          token.used = 1
+        }
+      }
     }
   }
 
@@ -395,6 +460,18 @@ class MockD1PreparedStatement implements D1PreparedStatement {
       const sessions = this.db._getSessions()
       const id = this.boundParams[0] as string
       sessions.delete(id)
+    }
+
+    // Delete from email_verification_tokens
+    if (q.includes('from email_verification_tokens')) {
+      const tokens = this.db._getVerificationTokens()
+      const userId = this.boundParams[0] as string
+      // Delete all unused tokens for user
+      for (const [tokenId, token] of tokens) {
+        if (token.user_id === userId && token.used === 0) {
+          tokens.delete(tokenId)
+        }
+      }
     }
   }
 }
@@ -575,4 +652,48 @@ export async function expectResponse<T>(response: Response, expectedStatus: numb
     throw new Error(`Expected status ${expectedStatus}, got ${response.status}. Body: ${body}`)
   }
   return parseResponse<T>(response)
+}
+
+/**
+ * Creates a test verification token in the mock database
+ */
+export function createTestVerificationToken(
+  db: MockD1Database,
+  userId: string,
+  overrides: Partial<VerificationTokenRow> = {}
+): VerificationTokenRow {
+  const now = Date.now()
+  const token: VerificationTokenRow = {
+    id: crypto.randomUUID(),
+    user_id: userId,
+    expires_at: now + 24 * 60 * 60 * 1000, // 24 hours
+    used: 0,
+    created_at: now,
+    ...overrides,
+  }
+
+  db._addVerificationToken(token)
+  return token
+}
+
+/**
+ * Creates an expired verification token for testing
+ */
+export function createExpiredVerificationToken(
+  db: MockD1Database,
+  userId: string
+): VerificationTokenRow {
+  return createTestVerificationToken(db, userId, {
+    expires_at: Date.now() - 1000, // Already expired
+  })
+}
+
+/**
+ * Creates an unverified test user
+ */
+export async function createUnverifiedTestUser(
+  db: MockD1Database,
+  overrides: Partial<UserRow> = {}
+): Promise<{ user: UserRow; password: string }> {
+  return createTestUser(db, { email_verified: 0, ...overrides })
 }

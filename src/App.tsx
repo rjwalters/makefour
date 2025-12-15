@@ -3,6 +3,8 @@ import { ThemeProvider } from './contexts/ThemeContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { PreferencesProvider } from './contexts/PreferencesContext'
 import LoginPage from './pages/LoginPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
 import DashboardPage from './pages/DashboardPage'
 import PlayPage from './pages/PlayPage'
 import GamesPage from './pages/GamesPage'
@@ -11,6 +13,7 @@ import LeaderboardPage from './pages/LeaderboardPage'
 import SpectatorPage from './pages/SpectatorPage'
 import ProfilePage from './pages/ProfilePage'
 import StatsPage from './pages/StatsPage'
+import VerifyEmailPage from './pages/VerifyEmailPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -28,7 +31,10 @@ function App() {
             <Route path="/" element={<PlayPage />} />
             <Route path="/play" element={<PlayPage />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/spectate" element={<SpectatorPage />} />
+            <Route path="/verify-email" element={<VerifyEmailPage />} />
 
             {/* Protected routes - require authentication */}
             <Route

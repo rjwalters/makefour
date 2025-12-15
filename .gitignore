@@ -40,3 +40,8 @@ backups/
 .loom/worktrees/
 .loom/*.log
 .loom/*.sock
+
+# Playwright
+playwright-report/
+playwright/.cache/
+test-results/

@@ -9,6 +9,8 @@ interface AuthContextType {
   register: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
   loginWithGoogle: () => void
   logout: () => Promise<void>
+  resendVerification: () => Promise<{ success: boolean; error?: string }>
+  refreshUser: () => Promise<void>
   encryptionKey: CryptoKey | null
 }
 
@@ -237,8 +239,70 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.location.href = '/api/auth/google'
   }
 
+  const resendVerification = async (): Promise<{ success: boolean; error?: string }> => {
+    const sessionToken = localStorage.getItem('makefour_session_token')
+
+    if (!sessionToken) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
+    try {
+      const response = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionToken}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        return { success: false, error: data.error || 'Failed to resend verification email' }
+      }
+
+      return { success: true }
+    } catch (error) {
+      console.error('Resend verification failed:', error)
+      return { success: false, error: 'An unexpected error occurred' }
+    }
+  }
+
+  const refreshUser = async (): Promise<void> => {
+    const sessionToken = localStorage.getItem('makefour_session_token')
+
+    if (!sessionToken) {
+      return
+    }
+
+    try {
+      const response = await fetch('/api/auth/me', {
+        headers: { 'Authorization': `Bearer ${sessionToken}` },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setUser(data.user)
+      }
+    } catch (error) {
+      console.error('Failed to refresh user:', error)
+    }
+  }
+
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, login, register, loginWithGoogle, logout, encryptionKey }}>
+    <AuthContext.Provider
+      value={{
+        isAuthenticated,
+        user,
+        login,
+        register,
+        loginWithGoogle,
+        logout,
+        resendVerification,
+        refreshUser,
+        encryptionKey,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )
