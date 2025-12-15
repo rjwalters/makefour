@@ -6,6 +6,7 @@
  * - Sending messages
  * - Bot response handling
  * - Mute/unmute functionality
+ * - Proactive bot reactions to game moves
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react'
@@ -27,6 +28,7 @@ interface ChatState {
   error: string | null
   isMuted: boolean
   unreadCount: number
+  isRequestingReaction: boolean
 }
 
 const CHAT_POLL_INTERVAL = 1000 // 1 second for responsive chat
@@ -40,12 +42,14 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
     error: null,
     isMuted: false,
     unreadCount: 0,
+    isRequestingReaction: false,
   })
 
   const pollRef = useRef<NodeJS.Timeout | null>(null)
   const isMountedRef = useRef(true)
   const lastMessageTimeRef = useRef(0)
   const isVisibleRef = useRef(true) // Track if chat panel is visible
+  const lastMoveCountRef = useRef(0) // Track move count for bot reactions
 
   // Cleanup on unmount
   useEffect(() => {
@@ -248,6 +252,61 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
     return sendMessage(reaction)
   }, [sendMessage])
 
+  /**
+   * Trigger a proactive bot reaction after a player move.
+   * Should be called after the player makes a move in a bot game.
+   * The bot may or may not respond based on game analysis.
+   *
+   * @param moveCount - Current total move count in the game
+   * @param isVsBot - Whether this is a bot game
+   */
+  const triggerBotReaction = useCallback(async (moveCount: number, isVsBot: boolean) => {
+    // Skip if not a bot game, muted, or no new moves
+    if (!gameId || !isVsBot || state.isMuted) return
+
+    // Only trigger for new moves (avoid duplicate calls)
+    if (moveCount <= lastMoveCountRef.current) return
+    lastMoveCountRef.current = moveCount
+
+    // Don't trigger if already requesting
+    if (state.isRequestingReaction) return
+
+    setState(prev => ({ ...prev, isRequestingReaction: true }))
+
+    try {
+      const response = await apiCall<{
+        message: string | null
+        messageId?: string
+        reason: string
+      }>(`/api/match/${gameId}/bot-reaction`, {
+        method: 'POST',
+      })
+
+      if (!isMountedRef.current) return
+
+      // If bot generated a message, poll to get it
+      if (response.message) {
+        // Small delay then poll to pick up the new message
+        setTimeout(fetchMessages, 200)
+      }
+
+      setState(prev => ({ ...prev, isRequestingReaction: false }))
+    } catch (error) {
+      // Silently fail - bot reactions are nice-to-have, not critical
+      console.error('Bot reaction error:', error)
+      if (isMountedRef.current) {
+        setState(prev => ({ ...prev, isRequestingReaction: false }))
+      }
+    }
+  }, [apiCall, gameId, state.isMuted, state.isRequestingReaction, fetchMessages])
+
+  /**
+   * Reset move count tracking (for new games)
+   */
+  const resetMoveTracking = useCallback(() => {
+    lastMoveCountRef.current = 0
+  }, [])
+
   return {
     ...state,
     sendMessage,
@@ -256,6 +315,8 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
     markAsRead,
     markAsHidden,
     clearMessages,
+    triggerBotReaction,
+    resetMoveTracking,
   }
 }
 

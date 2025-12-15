@@ -22,6 +22,8 @@ interface ChatPanelProps {
   isBot?: boolean
   playerNumber?: 1 | 2
   className?: string
+  /** Current move count - used to trigger bot reactions after player moves */
+  moveCount?: number
 }
 
 export default function ChatPanel({
@@ -30,6 +32,7 @@ export default function ChatPanel({
   isBot = false,
   playerNumber = 1,
   className,
+  moveCount = 0,
 }: ChatPanelProps) {
   const {
     messages,
@@ -42,6 +45,8 @@ export default function ChatPanel({
     toggleMute,
     markAsRead,
     markAsHidden,
+    triggerBotReaction,
+    resetMoveTracking,
   } = useGameChat(gameId, isActive)
 
   const [inputValue, setInputValue] = useState('')
@@ -55,6 +60,18 @@ export default function ChatPanel({
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
   }, [messages, isCollapsed])
+
+  // Trigger bot reactions when move count changes (for bot games only)
+  useEffect(() => {
+    if (isBot && moveCount > 0) {
+      triggerBotReaction(moveCount, true)
+    }
+  }, [isBot, moveCount, triggerBotReaction])
+
+  // Reset move tracking when game changes
+  useEffect(() => {
+    resetMoveTracking()
+  }, [gameId, resetMoveTracking])
 
   // Mark as read when panel is expanded
   useEffect(() => {

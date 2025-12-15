@@ -928,6 +928,16 @@ export default function PlayPage() {
               Moves: {game.moves.length}
             </p>
           </div>
+
+          {/* Chat panel for ranked bot games */}
+          <ChatPanel
+            gameId={game.id}
+            isActive={game.status === 'active' || game.status === 'completed'}
+            isBot={true}
+            playerNumber={game.playerNumber}
+            moveCount={game.moves.length}
+            className="w-full mt-4"
+          />
         </CardContent>
       </Card>
     )
