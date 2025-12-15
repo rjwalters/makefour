@@ -4,7 +4,7 @@
  * GET /api/leaderboard - Get top players by ELO rating
  */
 
-import { jsonResponse, errorResponse } from '../lib/auth'
+import { jsonResponse, errorResponse, validateSession } from '../lib/auth'
 
 interface Env {
   DB: D1Database
@@ -118,6 +118,78 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       }
     })
 
+    // Check if user is authenticated (optional - don't require auth for leaderboard)
+    let currentUser: {
+      rank: number
+      entry: typeof leaderboard[0]
+    } | null = null
+
+    const sessionResult = await validateSession(context.request, DB)
+    if (sessionResult.valid) {
+      const userId = sessionResult.userId
+
+      // Check if user is already in the top 50 (on first page only)
+      const userInList = offset === 0 && leaderboard.some((e) => e.userId === userId)
+
+      if (!userInList) {
+        // Get user's data and calculate global rank (always includes bots)
+        const userRow = await DB.prepare(`
+          SELECT u.id, u.email, u.rating, u.games_played, u.wins, u.losses, u.draws,
+                 u.is_bot, u.bot_persona_id
+          FROM users u
+          WHERE u.id = ? AND u.games_played > 0 AND (u.email_verified = 1 OR u.is_bot = 1)
+        `)
+          .bind(userId)
+          .first<LeaderboardRow>()
+
+        if (userRow) {
+          // Calculate global rank (always includes bots for consistent ranking)
+          const rankResult = await DB.prepare(`
+            SELECT COUNT(*) + 1 as rank
+            FROM users
+            WHERE rating > ?
+              AND games_played > 0
+              AND (email_verified = 1 OR is_bot = 1)
+          `)
+            .bind(userRow.rating)
+            .first<{ rank: number }>()
+
+          const userRank = rankResult?.rank || 1
+
+          // Only include currentUser if they're outside the displayed range
+          if (userRank > 50) {
+            const isBot = userRow.is_bot === 1
+            const personaInfo = userRow.bot_persona_id
+              ? botPersonaMap.get(userRow.bot_persona_id)
+              : null
+
+            currentUser = {
+              rank: userRank,
+              entry: {
+                rank: userRank,
+                userId: userRow.id,
+                username: isBot && personaInfo
+                  ? personaInfo.name
+                  : userRow.email.split('@')[0],
+                rating: userRow.rating,
+                gamesPlayed: userRow.games_played,
+                wins: userRow.wins,
+                losses: userRow.losses,
+                draws: userRow.draws,
+                winRate:
+                  userRow.games_played > 0
+                    ? Math.round((userRow.wins / userRow.games_played) * 100)
+                    : 0,
+                isBot,
+                botPersonaId: isBot ? userRow.bot_persona_id : null,
+                botDescription: isBot && personaInfo ? personaInfo.description : null,
+              },
+            }
+          }
+        }
+      }
+    }
+
     return jsonResponse({
       leaderboard,
       pagination: {
@@ -126,6 +198,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
         offset,
         hasMore: offset + limit < total,
       },
+      currentUser,
     })
   } catch (error) {
     console.error('GET /api/leaderboard error:', error)

@@ -20,6 +20,11 @@ interface LeaderboardEntry {
   botDescription: string | null
 }
 
+interface CurrentUserPosition {
+  rank: number
+  entry: LeaderboardEntry
+}
+
 interface LeaderboardResponse {
   leaderboard: LeaderboardEntry[]
   pagination: {
@@ -28,11 +33,13 @@ interface LeaderboardResponse {
     offset: number
     hasMore: boolean
   }
+  currentUser: CurrentUserPosition | null
 }
 
 export default function LeaderboardPage() {
   const { logout, user } = useAuth()
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
+  const [currentUserPosition, setCurrentUserPosition] = useState<CurrentUserPosition | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [includeBots, setIncludeBots] = useState(true)
@@ -47,8 +54,14 @@ export default function LeaderboardPage() {
     async function fetchLeaderboard() {
       try {
         setLoading(true)
+        const sessionToken = localStorage.getItem('makefour_session_token')
+        const headers: HeadersInit = {}
+        if (sessionToken) {
+          headers['Authorization'] = `Bearer ${sessionToken}`
+        }
         const response = await fetch(
-          `/api/leaderboard?limit=${pagination.limit}&offset=${pagination.offset}&includeBots=${includeBots}`
+          `/api/leaderboard?limit=${pagination.limit}&offset=${pagination.offset}&includeBots=${includeBots}`,
+          { headers }
         )
         if (!response.ok) {
           throw new Error('Failed to fetch leaderboard')
@@ -56,6 +69,7 @@ export default function LeaderboardPage() {
         const data: LeaderboardResponse = await response.json()
         setLeaderboard(data.leaderboard)
         setPagination(data.pagination)
+        setCurrentUserPosition(data.currentUser)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred')
       } finally {
@@ -211,6 +225,57 @@ export default function LeaderboardPage() {
                           <td className="py-3 px-2 text-right">{entry.winRate}%</td>
                         </tr>
                       ))}
+                      {/* Divider and current user position (when outside top 50) */}
+                      {currentUserPosition && pagination.offset === 0 && (
+                        <>
+                          <tr className="border-b-0">
+                            <td colSpan={6} className="py-2 px-2">
+                              <div className="flex items-center gap-2 text-muted-foreground">
+                                <div className="flex-1 border-t border-dashed border-muted-foreground/30"></div>
+                                <span className="text-xs">Your position</span>
+                                <div className="flex-1 border-t border-dashed border-muted-foreground/30"></div>
+                              </div>
+                            </td>
+                          </tr>
+                          <tr className="bg-primary/10 hover:bg-primary/15">
+                            <td className="py-3 px-2">
+                              <span className="inline-flex items-center justify-center w-8 h-8 rounded-full text-muted-foreground">
+                                #{currentUserPosition.rank}
+                              </span>
+                            </td>
+                            <td className="py-3 px-2 font-medium">
+                              <div className="flex items-center gap-2">
+                                {currentUserPosition.entry.isBot && (
+                                  <span
+                                    className="inline-flex items-center justify-center w-5 h-5 rounded bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-xs"
+                                    title={currentUserPosition.entry.botDescription || 'Bot opponent'}
+                                  >
+                                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                      <path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7h1a1 1 0 011 1v3a1 1 0 01-1 1h-1v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1H2a1 1 0 01-1-1v-3a1 1 0 011-1h1a7 7 0 017-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 012-2zm-3 13a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm6 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"/>
+                                    </svg>
+                                  </span>
+                                )}
+                                <span>{currentUserPosition.entry.username}</span>
+                                <span className="text-xs text-primary">(You)</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-2 text-right font-bold text-primary">
+                              {currentUserPosition.entry.rating}
+                            </td>
+                            <td className="py-3 px-2 text-right text-muted-foreground hidden sm:table-cell">
+                              {currentUserPosition.entry.gamesPlayed}
+                            </td>
+                            <td className="py-3 px-2 text-right hidden md:table-cell">
+                              <span className="text-green-600 dark:text-green-400">{currentUserPosition.entry.wins}</span>
+                              <span className="text-muted-foreground">/</span>
+                              <span className="text-red-600 dark:text-red-400">{currentUserPosition.entry.losses}</span>
+                              <span className="text-muted-foreground">/</span>
+                              <span className="text-yellow-600 dark:text-yellow-400">{currentUserPosition.entry.draws}</span>
+                            </td>
+                            <td className="py-3 px-2 text-right">{currentUserPosition.entry.winRate}%</td>
+                          </tr>
+                        </>
+                      )}
                     </tbody>
                   </table>
                 </div>
