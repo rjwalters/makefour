@@ -127,10 +127,13 @@ CREATE TABLE IF NOT EXISTS matchmaking_queue (
   mode TEXT NOT NULL DEFAULT 'ranked',
   -- Rating tolerance expands over time
   initial_tolerance INTEGER NOT NULL DEFAULT 100,
+  -- Whether the resulting game should be spectatable
+  spectatable INTEGER NOT NULL DEFAULT 1,
   -- When the user joined the queue
   joined_at INTEGER NOT NULL,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  CHECK (mode IN ('ranked', 'casual'))
+  CHECK (mode IN ('ranked', 'casual')),
+  CHECK (spectatable IN (0, 1))
 );
 
 -- Indexes for matchmaking queue
@@ -156,6 +159,10 @@ CREATE TABLE IF NOT EXISTS active_games (
   -- Rating snapshots at game start (for ELO calculation)
   player1_rating INTEGER NOT NULL,
   player2_rating INTEGER NOT NULL,
+  -- Whether spectators can watch this game
+  spectatable INTEGER NOT NULL DEFAULT 1,
+  -- Count of current spectators (for display purposes)
+  spectator_count INTEGER NOT NULL DEFAULT 0,
   -- Last activity timestamp (for abandonment detection)
   last_move_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
@@ -165,7 +172,8 @@ CREATE TABLE IF NOT EXISTS active_games (
   CHECK (current_turn IN (1, 2)),
   CHECK (status IN ('active', 'completed', 'abandoned')),
   CHECK (mode IN ('ranked', 'casual')),
-  CHECK (winner IS NULL OR winner IN ('1', '2', 'draw'))
+  CHECK (winner IS NULL OR winner IN ('1', '2', 'draw')),
+  CHECK (spectatable IN (0, 1))
 );
 
 -- Indexes for active games
@@ -173,3 +181,5 @@ CREATE INDEX IF NOT EXISTS idx_active_games_player1 ON active_games(player1_id);
 CREATE INDEX IF NOT EXISTS idx_active_games_player2 ON active_games(player2_id);
 CREATE INDEX IF NOT EXISTS idx_active_games_status ON active_games(status);
 CREATE INDEX IF NOT EXISTS idx_active_games_updated_at ON active_games(updated_at);
+-- Index for spectatable games (for live game browsing)
+CREATE INDEX IF NOT EXISTS idx_active_games_spectatable ON active_games(spectatable, status);

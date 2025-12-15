@@ -19,6 +19,7 @@ interface QueueEntry {
   rating: number
   mode: string
   initial_tolerance: number
+  spectatable: number
   joined_at: number
 }
 
@@ -70,7 +71,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 
     // Check if user is in queue
     const queueEntry = await DB.prepare(`
-      SELECT id, user_id, rating, mode, initial_tolerance, joined_at
+      SELECT id, user_id, rating, mode, initial_tolerance, spectatable, joined_at
       FROM matchmaking_queue
       WHERE user_id = ?
     `)
@@ -97,7 +98,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     // Look for other players in the same mode within rating tolerance
     // Exclude self, order by closest rating then longest wait
     const potentialMatches = await DB.prepare(`
-      SELECT id, user_id, rating, mode, initial_tolerance, joined_at
+      SELECT id, user_id, rating, mode, initial_tolerance, spectatable, joined_at
       FROM matchmaking_queue
       WHERE user_id != ?
       AND mode = ?
@@ -153,6 +154,8 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     const player2Id = player1IsUser ? matchedOpponent.user_id : session.userId
     const player1Rating = player1IsUser ? queueEntry.rating : matchedOpponent.rating
     const player2Rating = player1IsUser ? matchedOpponent.rating : queueEntry.rating
+    // Game is spectatable only if both players allow it
+    const gameSpectatable = queueEntry.spectatable === 1 && matchedOpponent.spectatable === 1 ? 1 : 0
 
     // Get opponent info for response
     const opponent = await DB.prepare(`
@@ -168,9 +171,10 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
         DB.prepare(`
           INSERT INTO active_games (
             id, player1_id, player2_id, moves, current_turn, status, mode,
-            player1_rating, player2_rating, last_move_at, created_at, updated_at
+            player1_rating, player2_rating, spectatable, spectator_count,
+            last_move_at, created_at, updated_at
           )
-          VALUES (?, ?, ?, '[]', 1, 'active', ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, '[]', 1, 'active', ?, ?, ?, ?, 0, ?, ?, ?)
         `).bind(
           gameId,
           player1Id,
@@ -178,6 +182,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
           queueEntry.mode,
           player1Rating,
           player2Rating,
+          gameSpectatable,
           now,
           now,
           now

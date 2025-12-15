@@ -83,13 +83,13 @@ export function useMatchmaking() {
    * Join the matchmaking queue
    */
   const joinQueue = useCallback(
-    async (mode: MatchmakingMode = 'ranked') => {
+    async (mode: MatchmakingMode = 'ranked', spectatable: boolean = true) => {
       setState((prev) => ({ ...prev, status: 'joining', error: null, mode }))
 
       try {
         await apiCall('/api/matchmaking/join', {
           method: 'POST',
-          body: JSON.stringify({ mode }),
+          body: JSON.stringify({ mode, spectatable }),
         })
 
         if (!isMountedRef.current) return

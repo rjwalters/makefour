@@ -7,6 +7,7 @@ import PlayPage from './pages/PlayPage'
 import GamesPage from './pages/GamesPage'
 import ReplayPage from './pages/ReplayPage'
 import LeaderboardPage from './pages/LeaderboardPage'
+import SpectatorPage from './pages/SpectatorPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -23,6 +24,7 @@ function App() {
             <Route path="/" element={<PlayPage />} />
             <Route path="/play" element={<PlayPage />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/spectate" element={<SpectatorPage />} />
 
             {/* Protected routes - require authentication */}
             <Route
