@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Link, useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
-import ThemeToggle from '../components/ThemeToggle'
+import Navbar from '../components/Navbar'
 import BotAvatar from '../components/BotAvatar'
 
 interface RecentGame {
@@ -96,29 +96,7 @@ export default function BotProfilePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-      <header className="border-b bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-4">
-            <Link to="/leaderboard">
-              <Button variant="ghost" size="sm">
-                &larr; Back to Leaderboard
-              </Button>
-            </Link>
-            <div>
-              <h1 className="text-2xl font-bold">Bot Profile</h1>
-              <p className="text-xs text-muted-foreground">AI Opponent</p>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <ThemeToggle />
-            {isAuthenticated && (
-              <Link to="/dashboard">
-                <Button variant="outline" size="sm">Dashboard</Button>
-              </Link>
-            )}
-          </div>
-        </div>
-      </header>
+      <Navbar />
 
       <main className="container mx-auto px-4 py-8">
         {loading && (

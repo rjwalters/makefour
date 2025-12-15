@@ -1,11 +1,10 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { usePreferencesContext } from '../contexts/PreferencesContext'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
-import ThemeToggle from '../components/ThemeToggle'
-import SoundToggle from '../components/SoundToggle'
+import Navbar from '../components/Navbar'
 import GameBoard from '../components/GameBoard'
 import AnalysisPanel from '../components/AnalysisPanel'
 import ChatPanel from '../components/ChatPanel'
@@ -40,12 +39,13 @@ interface GameSettings {
 }
 
 export default function PlayPage() {
-  const { logout, user, isAuthenticated } = useAuth()
+  const { isAuthenticated } = useAuth()
   const { preferences, updatePreferences } = usePreferencesContext()
   const { apiCall } = useAuthenticatedApi()
   const matchmaking = useMatchmaking()
   const botGame = useBotGame()
   const sounds = useSounds()
+  const [searchParams] = useSearchParams()
   const [gameState, setGameState] = useState<GameState>(createGameState)
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -53,7 +53,6 @@ export default function PlayPage() {
   const [isBotThinking, setIsBotThinking] = useState(false)
   const [gamePhase, setGamePhase] = useState<GamePhase>('setup')
   const [showAnalysis, setShowAnalysis] = useState(false)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [hint, setHint] = useState<Analysis | null>(null)
   const [isGettingHint, setIsGettingHint] = useState(false)
   const [selectedPersona, setSelectedPersona] = useState<BotPersona | null>(null)
@@ -85,6 +84,29 @@ export default function PlayPage() {
       }))
     }
   }, [preferences, gamePhase])
+
+  // Handle mode query parameter from navbar navigation
+  useEffect(() => {
+    if (gamePhase !== 'setup') return
+
+    const mode = searchParams.get('mode')
+    if (mode === 'training') {
+      // Coach mode: AI training with hints/analysis
+      setSettings((prev) => ({
+        ...prev,
+        mode: 'ai',
+        botGameMode: 'training',
+      }))
+    } else if (mode === 'compete') {
+      // Compete mode: Show ranked options (AI ranked or Online)
+      // Default to AI ranked if authenticated, otherwise show online option
+      setSettings((prev) => ({
+        ...prev,
+        mode: 'ai',
+        botGameMode: 'ranked',
+      }))
+    }
+  }, [searchParams, gamePhase])
 
   // Track previous game state for detecting game over transitions
   const prevWinnerRef = useRef<typeof gameState.winner>(null)
@@ -1264,141 +1286,7 @@ export default function PlayPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-      <header className="border-b bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-3 sm:py-4 flex justify-between items-center">
-          <div className="min-w-0 flex-shrink">
-            <Link to="/" className="text-xl sm:text-2xl font-bold hover:opacity-80">
-              MakeFour
-            </Link>
-            {user && <p className="text-xs text-muted-foreground truncate max-w-[150px] sm:max-w-none">{user.email}</p>}
-          </div>
-
-          {/* Desktop navigation */}
-          <div className="hidden sm:flex gap-2 items-center">
-            {isAuthenticated ? (
-              <>
-                <Link to="/dashboard">
-                  <Button variant="outline" size="sm">
-                    Dashboard
-                  </Button>
-                </Link>
-                <SoundToggle
-                  settings={sounds.settings}
-                  onToggle={sounds.toggleSound}
-                  onVolumeChange={(volume) => sounds.updateSettings({ volume })}
-                />
-                <ThemeToggle />
-                <Button variant="outline" onClick={logout} size="sm">
-                  Logout
-                </Button>
-              </>
-            ) : (
-              <>
-                <SoundToggle
-                  settings={sounds.settings}
-                  onToggle={sounds.toggleSound}
-                  onVolumeChange={(volume) => sounds.updateSettings({ volume })}
-                />
-                <ThemeToggle />
-                <Link to="/login">
-                  <Button variant="outline" size="sm">
-                    Login
-                  </Button>
-                </Link>
-              </>
-            )}
-          </div>
-
-          {/* Mobile navigation */}
-          <div className="flex sm:hidden gap-2 items-center">
-            <SoundToggle
-              settings={sounds.settings}
-              onToggle={sounds.toggleSound}
-              onVolumeChange={(volume) => sounds.updateSettings({ volume })}
-            />
-            <ThemeToggle />
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 touch-manipulation"
-              aria-label="Toggle menu"
-              aria-expanded={mobileMenuOpen}
-            >
-              {mobileMenuOpen ? (
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              ) : (
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Mobile menu dropdown */}
-        {mobileMenuOpen && (
-          <div className="sm:hidden border-t bg-white dark:bg-gray-800 px-4 py-3 space-y-2">
-            {isAuthenticated ? (
-              <>
-                <Link
-                  to="/dashboard"
-                  className="block"
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  <Button variant="outline" className="w-full justify-start h-12 touch-manipulation">
-                    Dashboard
-                  </Button>
-                </Link>
-                <Link
-                  to="/games"
-                  className="block"
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  <Button variant="outline" className="w-full justify-start h-12 touch-manipulation">
-                    My Games
-                  </Button>
-                </Link>
-                <Link
-                  to="/leaderboard"
-                  className="block"
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  <Button variant="outline" className="w-full justify-start h-12 touch-manipulation">
-                    Leaderboard
-                  </Button>
-                </Link>
-                <Link
-                  to="/profile"
-                  className="block"
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  <Button variant="outline" className="w-full justify-start h-12 touch-manipulation">
-                    Profile
-                  </Button>
-                </Link>
-                <Button
-                  variant="outline"
-                  onClick={() => { logout(); setMobileMenuOpen(false); }}
-                  className="w-full justify-start h-12 touch-manipulation"
-                >
-                  Logout
-                </Button>
-              </>
-            ) : (
-              <Link
-                to="/login"
-                className="block"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <Button variant="outline" className="w-full justify-start h-12 touch-manipulation">
-                  Login
-                </Button>
-              </Link>
-            )}
-          </div>
-        )}
-      </header>
+      <Navbar />
 
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-lg mx-auto">

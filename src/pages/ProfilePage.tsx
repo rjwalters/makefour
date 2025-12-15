@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
 import { usePlayerBotStats, getRecordIndicator } from '../hooks/usePlayerBotStats'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input'
-import ThemeToggle from '../components/ThemeToggle'
+import Navbar from '../components/Navbar'
 
 interface UserStats {
   user: {
@@ -46,7 +46,7 @@ interface UserStats {
 type TabType = 'overview' | 'statistics' | 'bot-records' | 'security' | 'settings'
 
 export default function ProfilePage() {
-  const { logout, user } = useAuth()
+  const { user, logout } = useAuth()
   const { apiCall } = useAuthenticatedApi()
   const navigate = useNavigate()
   const { data: botStatsData, loading: botStatsLoading } = usePlayerBotStats()
@@ -170,25 +170,7 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-      <header className="border-b bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold">Profile</h1>
-            {user && (
-              <p className="text-xs text-muted-foreground">{user.email}</p>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Link to="/dashboard">
-              <Button variant="outline" size="sm">Dashboard</Button>
-            </Link>
-            <ThemeToggle />
-            <Button variant="outline" onClick={logout} size="sm">
-              Logout
-            </Button>
-          </div>
-        </div>
-      </header>
+      <Navbar />
 
       <main className="container mx-auto px-4 py-8">
         {/* Tab Navigation */}

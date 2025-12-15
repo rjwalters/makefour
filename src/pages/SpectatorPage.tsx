@@ -1,16 +1,14 @@
 import { useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
-import ThemeToggle from '../components/ThemeToggle'
+import Navbar from '../components/Navbar'
 import GameBoard from '../components/GameBoard'
 import { SpectatorTimers } from '../components/GameTimer'
 import { useSpectate, type LiveGame } from '../hooks/useSpectate'
 import { useSpectatorChat } from '../hooks/useSpectatorChat'
 
 export default function SpectatorPage() {
-  const { logout, user, isAuthenticated } = useAuth()
   const spectator = useSpectate()
   const chat = useSpectatorChat(
     spectator.currentGame?.id || null,
@@ -310,40 +308,7 @@ export default function SpectatorPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-      <header className="border-b bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div>
-            <Link to="/" className="text-2xl font-bold hover:opacity-80">
-              MakeFour
-            </Link>
-            {user && <p className="text-xs text-muted-foreground">{user.email}</p>}
-          </div>
-          <div className="flex gap-2">
-            {isAuthenticated ? (
-              <>
-                <Link to="/dashboard">
-                  <Button variant="outline" size="sm">
-                    Dashboard
-                  </Button>
-                </Link>
-                <ThemeToggle />
-                <Button variant="outline" onClick={logout} size="sm">
-                  Logout
-                </Button>
-              </>
-            ) : (
-              <>
-                <ThemeToggle />
-                <Link to="/login">
-                  <Button variant="outline" size="sm">
-                    Login
-                  </Button>
-                </Link>
-              </>
-            )}
-          </div>
-        </div>
-      </header>
+      <Navbar />
 
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-lg mx-auto">{renderContent()}</div>

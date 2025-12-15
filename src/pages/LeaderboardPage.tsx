@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
-import ThemeToggle from '../components/ThemeToggle'
+import Navbar from '../components/Navbar'
 import BotAvatar from '../components/BotAvatar'
 
 interface LeaderboardEntry {
@@ -39,7 +39,7 @@ interface LeaderboardResponse {
 }
 
 export default function LeaderboardPage() {
-  const { logout, user } = useAuth()
+  const { user } = useAuth()
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
   const [currentUserPosition, setCurrentUserPosition] = useState<CurrentUserPosition | null>(null)
   const [loading, setLoading] = useState(true)
@@ -104,27 +104,7 @@ export default function LeaderboardPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-      <header className="border-b bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-4">
-            <Link to="/dashboard">
-              <Button variant="ghost" size="sm">
-                &larr; Back
-              </Button>
-            </Link>
-            <div>
-              <h1 className="text-2xl font-bold">Leaderboard</h1>
-              <p className="text-xs text-muted-foreground">Top Players</p>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <ThemeToggle />
-            <Button variant="outline" onClick={logout} size="sm">
-              Logout
-            </Button>
-          </div>
-        </div>
-      </header>
+      <Navbar />
 
       <main className="container mx-auto px-4 py-8">
         <Card>

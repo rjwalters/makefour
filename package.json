@@ -48,7 +48,7 @@
     "zod": "^4.1.12"
   },
   "optionalDependencies": {
-    "onnxruntime-web": "^1.19.0"
+    "onnxruntime-web": "^1.23.2"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.0",

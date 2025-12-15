@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
-import ThemeToggle from '../components/ThemeToggle'
+import Navbar from '../components/Navbar'
 import {
   LineChart,
   Line,
@@ -115,7 +115,7 @@ const COLORS = {
 const COLUMN_NAMES = ['Far Left', 'Left', 'Mid-Left', 'Center', 'Mid-Right', 'Right', 'Far Right']
 
 export default function StatsPage() {
-  const { logout, user } = useAuth()
+  const { user } = useAuth()
   const { apiCall } = useAuthenticatedApi()
 
   const [stats, setStats] = useState<UserStats | null>(null)
@@ -206,30 +206,7 @@ export default function StatsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-      <header className="border-b bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold">Statistics</h1>
-            {user && <p className="text-xs text-muted-foreground">{user.email}</p>}
-          </div>
-          <div className="flex gap-2">
-            <Link to="/dashboard">
-              <Button variant="outline" size="sm">
-                Dashboard
-              </Button>
-            </Link>
-            <Link to="/profile">
-              <Button variant="outline" size="sm">
-                Profile
-              </Button>
-            </Link>
-            <ThemeToggle />
-            <Button variant="outline" onClick={logout} size="sm">
-              Logout
-            </Button>
-          </div>
-        </div>
-      </header>
+      <Navbar />
 
       <main className="container mx-auto px-4 py-8">
         {/* Date Range Filter */}
