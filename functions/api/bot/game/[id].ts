@@ -446,8 +446,77 @@ async function updateUserRating(
   const ratingHistoryId = crypto.randomUUID()
   const moves = JSON.parse(game.moves) as number[]
 
+  // Build player_bot_stats update if we have a persona
+  let playerBotStatsStatement: D1PreparedStatement | null = null
+  if (game.bot_persona_id) {
+    // Get existing stats to calculate streaks
+    const existingStats = await DB.prepare(`
+      SELECT wins, losses, draws, current_streak, best_win_streak, first_win_at
+      FROM player_bot_stats
+      WHERE user_id = ? AND bot_persona_id = ?
+    `).bind(userId, game.bot_persona_id).first<{
+      wins: number
+      losses: number
+      draws: number
+      current_streak: number
+      best_win_streak: number
+      first_win_at: number | null
+    }>()
+
+    if (existingStats) {
+      // Update existing record
+      let newStreak = existingStats.current_streak
+      if (outcome === 'win') {
+        newStreak = newStreak >= 0 ? newStreak + 1 : 1
+      } else if (outcome === 'loss') {
+        newStreak = newStreak <= 0 ? newStreak - 1 : -1
+      } else {
+        newStreak = 0 // Draw resets streak
+      }
+
+      const newBestWinStreak = Math.max(existingStats.best_win_streak, newStreak > 0 ? newStreak : 0)
+      const firstWinAt = outcome === 'win' && !existingStats.first_win_at ? now : existingStats.first_win_at
+
+      playerBotStatsStatement = DB.prepare(`
+        UPDATE player_bot_stats
+        SET wins = wins + ?, losses = losses + ?, draws = draws + ?,
+            current_streak = ?, best_win_streak = ?, first_win_at = ?, last_played_at = ?
+        WHERE user_id = ? AND bot_persona_id = ?
+      `).bind(
+        outcome === 'win' ? 1 : 0,
+        outcome === 'loss' ? 1 : 0,
+        outcome === 'draw' ? 1 : 0,
+        newStreak,
+        newBestWinStreak,
+        firstWinAt,
+        now,
+        userId,
+        game.bot_persona_id
+      )
+    } else {
+      // Insert new record
+      const initialStreak = outcome === 'win' ? 1 : outcome === 'loss' ? -1 : 0
+      const firstWinAt = outcome === 'win' ? now : null
+
+      playerBotStatsStatement = DB.prepare(`
+        INSERT INTO player_bot_stats (user_id, bot_persona_id, wins, losses, draws, current_streak, best_win_streak, first_win_at, last_played_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        userId,
+        game.bot_persona_id,
+        outcome === 'win' ? 1 : 0,
+        outcome === 'loss' ? 1 : 0,
+        outcome === 'draw' ? 1 : 0,
+        initialStreak,
+        outcome === 'win' ? 1 : 0,
+        firstWinAt,
+        now
+      )
+    }
+  }
+
   // Prepare statements for both human and bot updates
-  const statements = [
+  const statements: D1PreparedStatement[] = [
     // Game record for human
     DB.prepare(`
       INSERT INTO games (id, user_id, outcome, moves, move_count, rating_change,
@@ -594,6 +663,11 @@ async function updateUserRating(
         )
       }
     }
+  }
+
+  // Add player_bot_stats update if we have one
+  if (playerBotStatsStatement) {
+    statements.push(playerBotStatsStatement)
   }
 
   await DB.batch(statements)

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
+import { usePlayerBotStats, getRecordIndicator } from '../hooks/usePlayerBotStats'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input'
@@ -42,12 +43,13 @@ interface UserStats {
   }>
 }
 
-type TabType = 'overview' | 'statistics' | 'security' | 'settings'
+type TabType = 'overview' | 'statistics' | 'bot-records' | 'security' | 'settings'
 
 export default function ProfilePage() {
   const { logout, user } = useAuth()
   const { apiCall } = useAuthenticatedApi()
   const navigate = useNavigate()
+  const { data: botStatsData, loading: botStatsLoading } = usePlayerBotStats()
 
   const [activeTab, setActiveTab] = useState<TabType>('overview')
   const [stats, setStats] = useState<UserStats | null>(null)
@@ -161,6 +163,7 @@ export default function ProfilePage() {
   const tabs: Array<{ id: TabType; label: string }> = [
     { id: 'overview', label: 'Overview' },
     { id: 'statistics', label: 'Statistics' },
+    { id: 'bot-records', label: 'Bot Records' },
     { id: 'security', label: 'Security' },
     { id: 'settings', label: 'Settings' },
   ]
@@ -445,6 +448,149 @@ export default function ProfilePage() {
                         <span>Oldest</span>
                         <span>Most Recent</span>
                       </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
+
+            {/* Bot Records Tab */}
+            {activeTab === 'bot-records' && (
+              <div className="space-y-6">
+                {/* Summary Card */}
+                {botStatsLoading ? (
+                  <Card>
+                    <CardContent className="py-8 text-center">
+                      <div className="animate-pulse">Loading bot records...</div>
+                    </CardContent>
+                  </Card>
+                ) : botStatsData ? (
+                  <>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Bot Challenge Progress</CardTitle>
+                        <CardDescription>Your overall performance against AI opponents</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className="text-center p-4 bg-muted/50 rounded-lg">
+                            <div className="text-2xl font-bold">{botStatsData.summary.totalGames}</div>
+                            <div className="text-sm text-muted-foreground">Total Bot Games</div>
+                          </div>
+                          <div className="text-center p-4 bg-muted/50 rounded-lg">
+                            <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                              {botStatsData.summary.overallWinRate}%
+                            </div>
+                            <div className="text-sm text-muted-foreground">Win Rate</div>
+                          </div>
+                          <div className="text-center p-4 bg-muted/50 rounded-lg">
+                            <div className="text-2xl font-bold text-primary">
+                              {botStatsData.summary.botsDefeated}/{botStatsData.summary.botsPlayed + botStatsData.summary.botsRemaining}
+                            </div>
+                            <div className="text-sm text-muted-foreground">Bots Defeated</div>
+                          </div>
+                          <div className="text-center p-4 bg-muted/50 rounded-lg">
+                            <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+                              {botStatsData.summary.botsMastered}
+                            </div>
+                            <div className="text-sm text-muted-foreground">Bots Mastered</div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Bot Records Grid */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Individual Bot Records</CardTitle>
+                        <CardDescription>
+                          Your win/loss record against each bot opponent
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {/* Played bots first */}
+                          {botStatsData.stats.map((bot) => (
+                            <div
+                              key={bot.botId}
+                              className="p-4 border rounded-lg hover:bg-muted/30 transition-colors"
+                            >
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-lg">{getRecordIndicator(bot.wins, bot.losses)}</span>
+                                  <span className="font-medium">{bot.botName}</span>
+                                </div>
+                                <span className="text-sm text-muted-foreground">
+                                  {bot.botRating} ELO
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <div className="text-lg font-bold">
+                                  <span className="text-green-600 dark:text-green-400">{bot.wins}</span>
+                                  <span className="text-muted-foreground">-</span>
+                                  <span className="text-red-600 dark:text-red-400">{bot.losses}</span>
+                                  {bot.draws > 0 && (
+                                    <>
+                                      <span className="text-muted-foreground">-</span>
+                                      <span className="text-yellow-600 dark:text-yellow-400">{bot.draws}</span>
+                                    </>
+                                  )}
+                                </div>
+                                <span className="text-sm text-muted-foreground">
+                                  {bot.winRate}% WR
+                                </span>
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {bot.currentStreak !== 0 && (
+                                  <span className={`text-xs px-2 py-0.5 rounded ${
+                                    bot.currentStreak > 0
+                                      ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                                      : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                                  }`}>
+                                    {bot.currentStreak > 0 ? `${bot.currentStreak}W streak` : `${Math.abs(bot.currentStreak)}L streak`}
+                                  </span>
+                                )}
+                                {bot.isMastered && (
+                                  <span className="text-xs px-2 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300">
+                                    Mastered
+                                  </span>
+                                )}
+                                {bot.isUndefeated && (
+                                  <span className="text-xs px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">
+                                    Undefeated
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                          {/* Unplayed bots */}
+                          {botStatsData.unplayed.map((bot) => (
+                            <div
+                              key={bot.botId}
+                              className="p-4 border rounded-lg opacity-60 hover:opacity-100 transition-opacity"
+                            >
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-lg">❓</span>
+                                  <span className="font-medium">{bot.botName}</span>
+                                </div>
+                                <span className="text-sm text-muted-foreground">
+                                  {bot.botRating} ELO
+                                </span>
+                              </div>
+                              <div className="text-sm text-muted-foreground italic">
+                                Not yet challenged
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </>
+                ) : (
+                  <Card>
+                    <CardContent className="py-8 text-center text-muted-foreground">
+                      No bot records found. Play some ranked bot games to start tracking your progress!
                     </CardContent>
                   </Card>
                 )}

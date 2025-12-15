@@ -23,6 +23,7 @@ import { useMatchmaking, type MatchmakingMode } from '../hooks/useMatchmaking'
 import { useBotGame, type BotDifficulty } from '../hooks/useBotGame'
 import { useSounds } from '../hooks/useSounds'
 import type { BotPersona } from '../hooks/useBotPersonas'
+import { useSingleBotStats } from '../hooks/usePlayerBotStats'
 import { suggestMove, analyzeThreats, analyzePosition, DIFFICULTY_LEVELS, type DifficultyLevel, type Analysis } from '../ai/coach'
 
 type GameMode = 'ai' | 'hotseat' | 'online'
@@ -56,6 +57,10 @@ export default function PlayPage() {
   const [hint, setHint] = useState<Analysis | null>(null)
   const [isGettingHint, setIsGettingHint] = useState(false)
   const [selectedPersona, setSelectedPersona] = useState<BotPersona | null>(null)
+
+  // Get the current bot persona ID (from active game or selected persona)
+  const currentBotPersonaId = botGame.game?.botPersonaId ?? selectedPersona?.id ?? null
+  const { data: currentBotStats } = useSingleBotStats(currentBotPersonaId)
 
   // Derive settings from preferences (local state for in-session changes before game starts)
   const [settings, setSettings] = useState<GameSettings>(() => ({
@@ -968,6 +973,59 @@ export default function PlayPage() {
           <p className="text-xs text-muted-foreground mt-1">
             Ranked Bot Match - 5 min clock
           </p>
+
+          {/* Post-game stats display */}
+          {isGameOver && currentBotStats && currentBotStats.hasPlayed && (
+            <div className="mt-4 p-3 bg-muted/50 rounded-lg space-y-2">
+              <div className="flex items-center justify-center gap-2">
+                <span className="text-sm font-medium">Your record vs {botName}:</span>
+                <span className="text-lg font-bold">
+                  <span className="text-green-600 dark:text-green-400">{currentBotStats.wins}</span>
+                  <span className="text-muted-foreground">-</span>
+                  <span className="text-red-600 dark:text-red-400">{currentBotStats.losses}</span>
+                  {currentBotStats.draws > 0 && (
+                    <>
+                      <span className="text-muted-foreground">-</span>
+                      <span className="text-yellow-600 dark:text-yellow-400">{currentBotStats.draws}</span>
+                    </>
+                  )}
+                </span>
+              </div>
+
+              {/* Streak notification */}
+              {currentBotStats.currentStreak !== 0 && (
+                <div className="text-center">
+                  <span className={`text-sm px-2 py-1 rounded ${
+                    currentBotStats.currentStreak > 0
+                      ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                      : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                  }`}>
+                    {currentBotStats.currentStreak > 0
+                      ? `${currentBotStats.currentStreak}-game win streak against ${botName}!`
+                      : `${Math.abs(currentBotStats.currentStreak)}-game loss streak`}
+                  </span>
+                </div>
+              )}
+
+              {/* First win celebration */}
+              {game.winner === String(game.playerNumber) && currentBotStats.wins === 1 && currentBotStats.firstWinAt && (
+                <div className="text-center">
+                  <span className="text-sm px-2 py-1 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">
+                    First win against {botName}!
+                  </span>
+                </div>
+              )}
+
+              {/* Mastery notification */}
+              {currentBotStats.isMastered && (
+                <div className="text-center">
+                  <span className="text-sm px-2 py-1 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300">
+                    You&apos;ve mastered {botName}!
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
         </CardHeader>
         <CardContent className="flex flex-col items-center gap-6">
           {/* Game Timers */}
