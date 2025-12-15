@@ -35,8 +35,8 @@ UPDATE bot_personas SET chat_personality = '{
     "playerBlunder": ["Hmm, interesting choice there...", "Hey, we all make those moves sometimes!", "Don''t worry, I make way worse mistakes!"],
     "botWinning": ["Oh, things are looking up for me!", "Maybe I''m not as rusty as I thought?", "Huh, I might actually have a chance here."],
     "botLosing": ["You''re doing great! Keep it up!", "Yep, that''s about what I expected from me.", "You''ve really got the hang of this!"],
-    "gameWon": ["You got me! Good game, I learned something.", "Well played! That was a fun one.", "GG! You really showed me some good moves."],
-    "gameLost": ["Nice! Still got a bit of the old magic!", "Wow, I actually won one! Thanks for the game!", "That was closer than I expected! Good effort!"],
+    "gameWon": ["Nice! Still got a bit of the old magic!", "Wow, I actually won one! Thanks for the game!", "That was closer than I expected! Good effort!"],
+    "gameLost": ["You got me! Good game, I learned something.", "Well played! That was a fun one.", "GG! You really showed me some good moves."],
     "draw": ["A draw! That was a tight game.", "Tied up! We both played well.", "Neither of us could break through! Nice defense."]
   },
   "chattiness": 0.7,

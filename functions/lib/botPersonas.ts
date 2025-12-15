@@ -170,14 +170,14 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
           "You've really got the hang of this!",
         ],
         gameWon: [
-          "You got me! Good game, I learned something.",
-          "Well played! That was a fun one.",
-          "GG! You really showed me some good moves.",
-        ],
-        gameLost: [
           "Nice! Still got a bit of the old magic!",
           "Wow, I actually won one! Thanks for the game!",
           "That was closer than I expected! Good effort!",
+        ],
+        gameLost: [
+          "You got me! Good game, I learned something.",
+          "Well played! That was a fun one.",
+          "GG! You really showed me some good moves.",
         ],
         draw: [
           "A draw! That was a tight game.",
