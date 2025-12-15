@@ -20,3 +20,9 @@ id = "rate-limit-kv"
 # Environment variables
 [vars]
 ENVIRONMENT = "production"
+
+# Scheduled trigger for bot vs bot games
+# Runs every minute to advance bot games (minimum Cloudflare cron interval)
+# The tick endpoint handles multiple moves per invocation
+[triggers]
+crons = ["* * * * *"]

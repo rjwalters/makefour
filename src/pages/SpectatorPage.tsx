@@ -7,10 +7,15 @@ import ThemeToggle from '../components/ThemeToggle'
 import GameBoard from '../components/GameBoard'
 import { SpectatorTimers } from '../components/GameTimer'
 import { useSpectate, type LiveGame } from '../hooks/useSpectate'
+import { useSpectatorChat } from '../hooks/useSpectatorChat'
 
 export default function SpectatorPage() {
   const { logout, user, isAuthenticated } = useAuth()
   const spectator = useSpectate()
+  const chat = useSpectatorChat(
+    spectator.currentGame?.id || null,
+    spectator.status === 'watching' && (spectator.currentGame?.isBotVsBot ?? false)
+  )
 
   // Start browsing when page loads (if not already)
   const handleStartBrowsing = useCallback(() => {
@@ -43,14 +48,28 @@ export default function SpectatorPage() {
   const renderGameCard = (game: LiveGame) => {
     const avgRating = Math.round((game.player1.rating + game.player2.rating) / 2)
     const duration = Math.floor((Date.now() - game.createdAt) / 60000)
+    const isBotVsBot = game.isBotVsBot ?? false
 
     return (
       <Card
         key={game.id}
-        className="cursor-pointer hover:border-primary transition-colors"
+        className={`cursor-pointer hover:border-primary transition-colors ${
+          isBotVsBot ? 'border-purple-500/50 bg-purple-50/30 dark:bg-purple-950/20' : ''
+        }`}
         onClick={() => spectator.watchGame(game.id)}
       >
         <CardContent className="p-4">
+          {/* Bot vs Bot Badge */}
+          {isBotVsBot && (
+            <div className="flex items-center gap-1 mb-2">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M10 2a1 1 0 011 1v1.323l3.954 1.582 1.599-.8a1 1 0 01.894 1.79l-1.233.616 1.738 5.42a1 1 0 01-.285 1.05A3.989 3.989 0 0115 15a3.989 3.989 0 01-2.667-1.019 1 1 0 01-.285-1.05l1.715-5.349L11 6.477V16h2a1 1 0 110 2H7a1 1 0 110-2h2V6.477L6.237 7.582l1.715 5.349a1 1 0 01-.285 1.05A3.989 3.989 0 015 15a3.989 3.989 0 01-2.667-1.019 1 1 0 01-.285-1.05l1.738-5.42-1.233-.617a1 1 0 01.894-1.788l1.599.799L9 4.323V3a1 1 0 011-1zm-5 8.274l-.818 2.552c.25.112.526.174.818.174.292 0 .569-.062.818-.174L5 10.274zm10 0l-.818 2.552c.25.112.526.174.818.174.292 0 .569-.062.818-.174L15 10.274z" />
+                </svg>
+                Bot Battle
+              </span>
+            </div>
+          )}
           <div className="flex justify-between items-center mb-2">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full bg-red-500" />
@@ -79,7 +98,7 @@ export default function SpectatorPage() {
               }`}
             />
             <span className="text-xs">
-              {game.currentTurn === 1 ? 'Red' : 'Yellow'}'s turn
+              {game.currentTurn === 1 ? game.player1.displayName : game.player2.displayName}'s turn
             </span>
           </div>
         </CardContent>
@@ -133,6 +152,7 @@ export default function SpectatorPage() {
     if (!game) return null
 
     const isGameOver = game.status !== 'active'
+    const isBotVsBot = game.isBotVsBot ?? false
 
     const getStatusMessage = (): string => {
       if (game.winner === 'draw') return "It's a draw!"
@@ -149,8 +169,19 @@ export default function SpectatorPage() {
     }
 
     return (
-      <Card>
+      <Card className={isBotVsBot ? 'border-purple-500/50' : ''}>
         <CardHeader className="text-center pb-2">
+          {/* Bot vs Bot Badge */}
+          {isBotVsBot && (
+            <div className="flex justify-center mb-2">
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M10 2a1 1 0 011 1v1.323l3.954 1.582 1.599-.8a1 1 0 01.894 1.79l-1.233.616 1.738 5.42a1 1 0 01-.285 1.05A3.989 3.989 0 0115 15a3.989 3.989 0 01-2.667-1.019 1 1 0 01-.285-1.05l1.715-5.349L11 6.477V16h2a1 1 0 110 2H7a1 1 0 110-2h2V6.477L6.237 7.582l1.715 5.349a1 1 0 01-.285 1.05A3.989 3.989 0 015 15a3.989 3.989 0 01-2.667-1.019 1 1 0 01-.285-1.05l1.738-5.42-1.233-.617a1 1 0 01.894-1.788l1.599.799L9 4.323V3a1 1 0 011-1zm-5 8.274l-.818 2.552c.25.112.526.174.818.174.292 0 .569-.062.818-.174L5 10.274zm10 0l-.818 2.552c.25.112.526.174.818.174.292 0 .569-.062.818-.174L15 10.274z" />
+                </svg>
+                Bot Battle
+              </span>
+            </div>
+          )}
           <div className="flex justify-center items-center gap-4 mb-2">
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 rounded-full bg-red-500" />
@@ -213,6 +244,23 @@ export default function SpectatorPage() {
             <p className="text-center text-sm text-muted-foreground">
               Moves: {game.moves.length}
             </p>
+
+            {/* Chat messages for bot vs bot games */}
+            {isBotVsBot && chat.messages.length > 0 && (
+              <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg max-h-32 overflow-y-auto">
+                <p className="text-xs font-medium text-muted-foreground mb-2">Bot Chat</p>
+                <div className="space-y-2">
+                  {chat.messages.slice(-5).map((msg) => (
+                    <div key={msg.id} className="text-sm">
+                      <span className="font-medium text-purple-600 dark:text-purple-400">
+                        {msg.senderName}:
+                      </span>{' '}
+                      <span className="text-muted-foreground">{msg.content}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="flex gap-2 justify-center">
               <Button onClick={spectator.leaveGame} variant="outline">
