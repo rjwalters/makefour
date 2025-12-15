@@ -9,6 +9,7 @@ import ReplayPage from './pages/ReplayPage'
 import LeaderboardPage from './pages/LeaderboardPage'
 import SpectatorPage from './pages/SpectatorPage'
 import ProfilePage from './pages/ProfilePage'
+import StatsPage from './pages/StatsPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -65,6 +66,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <ProfilePage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/stats"
+              element={
+                <ProtectedRoute>
+                  <StatsPage />
                 </ProtectedRoute>
               }
             />
