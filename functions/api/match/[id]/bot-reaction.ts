@@ -26,12 +26,6 @@ interface ActiveGameRow {
   bot_difficulty: string | null
 }
 
-interface GameMessageRow {
-  id: string
-  game_id: string
-  created_at: number
-}
-
 // Board dimensions
 const ROWS = 6
 const COLUMNS = 7
@@ -39,9 +33,6 @@ const WIN_LENGTH = 4
 
 type Board = (1 | 2 | null)[][]
 type Player = 1 | 2
-
-// Rate limiting: track last proactive comment per game
-const reactionRateLimits = new Map<string, { lastMoveCount: number; commentCount: number }>()
 
 /**
  * POST /api/match/:id/bot-reaction - Request bot reaction after player move
@@ -94,7 +85,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     const context_analysis = analyzePosition(board, moves)
-    const decision = shouldComment(context_analysis, gameId, moves.length)
+    const decision = await shouldComment(DB, context_analysis, gameId, moves.length)
 
     if (!decision.shouldComment) {
       return jsonResponse({ message: null, reason: decision.reason })
@@ -414,26 +405,30 @@ function analyzePosition(board: Board, moves: number[]): PositionAnalysis {
 }
 
 /**
- * Decide whether bot should comment
+ * Decide whether bot should comment.
+ * Uses database to track bot message count for rate limiting (max 1 per 3 moves).
  */
-function shouldComment(
+async function shouldComment(
+  DB: D1Database,
   analysis: PositionAnalysis,
   gameId: string,
   moveCount: number
-): { shouldComment: boolean; reason: string } {
-  // Initialize rate limit state if needed
-  if (!reactionRateLimits.has(gameId)) {
-    reactionRateLimits.set(gameId, { lastMoveCount: 0, commentCount: 0 })
-  }
-  const rateState = reactionRateLimits.get(gameId)!
+): Promise<{ shouldComment: boolean; reason: string }> {
+  // Query database for bot reaction message count
+  const messageCountResult = await DB.prepare(`
+    SELECT COUNT(*) as count FROM game_messages
+    WHERE game_id = ? AND sender_type = 'bot'
+  `).bind(gameId).first<{ count: number }>()
 
-  // Rate limit: max 1 comment per 3 moves
-  const movesSinceLastComment = moveCount - rateState.lastMoveCount
-  const rateLimited = movesSinceLastComment < 3 && rateState.commentCount > 0
+  const botMessageCount = messageCountResult?.count ?? 0
 
-  // Game ending always gets a comment
+  // Rate limit: max 1 comment per 3 moves (allow if moveCount / 3 > botMessageCount)
+  // This ensures at most ~1 bot reaction per 3 moves across the game
+  const maxAllowedMessages = Math.floor(moveCount / 3)
+  const rateLimited = botMessageCount >= maxAllowedMessages
+
+  // Game ending always gets a comment (bypass rate limit)
   if (analysis.gameEnded) {
-    updateRateLimit(gameId, moveCount)
     return { shouldComment: true, reason: 'game_ended' }
   }
 
@@ -442,7 +437,6 @@ function shouldComment(
     if (rateLimited) {
       return { shouldComment: false, reason: 'rate_limited' }
     }
-    updateRateLimit(gameId, moveCount)
     return { shouldComment: true, reason: 'blunder' }
   }
 
@@ -451,7 +445,6 @@ function shouldComment(
     if (rateLimited) {
       return { shouldComment: false, reason: 'rate_limited' }
     }
-    updateRateLimit(gameId, moveCount)
     return { shouldComment: true, reason: 'brilliant_move' }
   }
 
@@ -460,7 +453,6 @@ function shouldComment(
     if (rateLimited) {
       return { shouldComment: false, reason: 'rate_limited' }
     }
-    updateRateLimit(gameId, moveCount)
     return { shouldComment: true, reason: 'player_threat' }
   }
 
@@ -469,7 +461,6 @@ function shouldComment(
     if (rateLimited) {
       return { shouldComment: false, reason: 'rate_limited' }
     }
-    updateRateLimit(gameId, moveCount)
     return { shouldComment: true, reason: 'bot_threat' }
   }
 
@@ -478,7 +469,6 @@ function shouldComment(
     if (rateLimited || Math.random() > 0.3) {
       return { shouldComment: false, reason: 'random_skip' }
     }
-    updateRateLimit(gameId, moveCount)
     return { shouldComment: true, reason: 'mistake' }
   }
 
@@ -487,7 +477,6 @@ function shouldComment(
     if (rateLimited || Math.random() > 0.3) {
       return { shouldComment: false, reason: 'random_skip' }
     }
-    updateRateLimit(gameId, moveCount)
     return { shouldComment: true, reason: 'good_move' }
   }
 
@@ -496,19 +485,10 @@ function shouldComment(
     if (rateLimited || Math.random() > 0.1) {
       return { shouldComment: false, reason: 'random_skip' }
     }
-    updateRateLimit(gameId, moveCount)
     return { shouldComment: true, reason: 'endgame_tension' }
   }
 
   return { shouldComment: false, reason: 'not_notable' }
-}
-
-function updateRateLimit(gameId: string, moveCount: number): void {
-  const state = reactionRateLimits.get(gameId)
-  if (state) {
-    state.lastMoveCount = moveCount
-    state.commentCount++
-  }
 }
 
 /**
