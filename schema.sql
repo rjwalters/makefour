@@ -118,3 +118,58 @@ CREATE INDEX IF NOT EXISTS idx_rating_history_created_at ON rating_history(creat
 
 -- Index for leaderboard queries (descending by rating)
 CREATE INDEX IF NOT EXISTS idx_users_rating ON users(rating DESC);
+
+-- Matchmaking queue - players waiting for an opponent
+CREATE TABLE IF NOT EXISTS matchmaking_queue (
+  id TEXT PRIMARY KEY,
+  user_id TEXT UNIQUE NOT NULL,
+  rating INTEGER NOT NULL,
+  mode TEXT NOT NULL DEFAULT 'ranked',
+  -- Rating tolerance expands over time
+  initial_tolerance INTEGER NOT NULL DEFAULT 100,
+  -- When the user joined the queue
+  joined_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CHECK (mode IN ('ranked', 'casual'))
+);
+
+-- Indexes for matchmaking queue
+CREATE INDEX IF NOT EXISTS idx_matchmaking_queue_rating ON matchmaking_queue(rating);
+CREATE INDEX IF NOT EXISTS idx_matchmaking_queue_mode ON matchmaking_queue(mode);
+CREATE INDEX IF NOT EXISTS idx_matchmaking_queue_joined_at ON matchmaking_queue(joined_at);
+
+-- Active games - games currently in progress
+CREATE TABLE IF NOT EXISTS active_games (
+  id TEXT PRIMARY KEY,
+  player1_id TEXT NOT NULL,
+  player2_id TEXT NOT NULL,
+  -- JSON array of column indices (0-6) representing each move
+  moves TEXT NOT NULL DEFAULT '[]',
+  -- Current turn: 1 or 2
+  current_turn INTEGER NOT NULL DEFAULT 1,
+  -- Game status
+  status TEXT NOT NULL DEFAULT 'active',
+  -- Game mode (affects ELO)
+  mode TEXT NOT NULL DEFAULT 'ranked',
+  -- Winner (null if ongoing, 1, 2, or 'draw')
+  winner TEXT,
+  -- Rating snapshots at game start (for ELO calculation)
+  player1_rating INTEGER NOT NULL,
+  player2_rating INTEGER NOT NULL,
+  -- Last activity timestamp (for abandonment detection)
+  last_move_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (player1_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (player2_id) REFERENCES users(id) ON DELETE CASCADE,
+  CHECK (current_turn IN (1, 2)),
+  CHECK (status IN ('active', 'completed', 'abandoned')),
+  CHECK (mode IN ('ranked', 'casual')),
+  CHECK (winner IS NULL OR winner IN ('1', '2', 'draw'))
+);
+
+-- Indexes for active games
+CREATE INDEX IF NOT EXISTS idx_active_games_player1 ON active_games(player1_id);
+CREATE INDEX IF NOT EXISTS idx_active_games_player2 ON active_games(player2_id);
+CREATE INDEX IF NOT EXISTS idx_active_games_status ON active_games(status);
+CREATE INDEX IF NOT EXISTS idx_active_games_updated_at ON active_games(updated_at);

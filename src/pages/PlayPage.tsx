@@ -13,21 +13,24 @@ import {
   type Player,
 } from '../game/makefour'
 import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
+import { useMatchmaking, type MatchmakingMode } from '../hooks/useMatchmaking'
 import { suggestMove, analyzeThreats, DIFFICULTY_LEVELS, type DifficultyLevel } from '../ai/coach'
 
-type GameMode = 'ai' | 'hotseat'
-type GamePhase = 'setup' | 'playing'
+type GameMode = 'ai' | 'hotseat' | 'online'
+type GamePhase = 'setup' | 'playing' | 'matchmaking' | 'online'
 
 interface GameSettings {
   mode: GameMode
   difficulty: DifficultyLevel
   playerColor: Player // Which player the user plays as (1 = red/first, 2 = yellow/second)
+  matchmakingMode: MatchmakingMode
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
   mode: 'ai',
   difficulty: 'intermediate',
   playerColor: 1,
+  matchmakingMode: 'ranked',
 }
 
 // Load saved settings from localStorage
@@ -40,6 +43,7 @@ function loadSettings(): GameSettings {
         mode: parsed.mode || DEFAULT_SETTINGS.mode,
         difficulty: parsed.difficulty || DEFAULT_SETTINGS.difficulty,
         playerColor: parsed.playerColor || DEFAULT_SETTINGS.playerColor,
+        matchmakingMode: parsed.matchmakingMode || DEFAULT_SETTINGS.matchmakingMode,
       }
     }
   } catch {
@@ -56,6 +60,7 @@ function saveSettings(settings: GameSettings) {
 export default function PlayPage() {
   const { logout, user, isAuthenticated } = useAuth()
   const { apiCall } = useAuthenticatedApi()
+  const matchmaking = useMatchmaking()
   const [gameState, setGameState] = useState<GameState>(createGameState)
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -69,6 +74,13 @@ export default function PlayPage() {
   const userPlayerNumber = settings.playerColor
   const aiPlayerNumber: Player = settings.playerColor === 1 ? 2 : 1
   const isGameOver = gameState.winner !== null
+
+  // Handle matchmaking state changes
+  useEffect(() => {
+    if (matchmaking.status === 'playing' || matchmaking.status === 'completed') {
+      setGamePhase('online')
+    }
+  }, [matchmaking.status])
 
   // Compute threats for highlighting (memoized for performance)
   const threats = useMemo(() => {
@@ -134,8 +146,15 @@ export default function PlayPage() {
     setGameSaved(false)
     setSaveError(null)
     setIsBotThinking(false)
-    setGamePhase('playing')
-  }, [settings])
+
+    if (settings.mode === 'online') {
+      // Start matchmaking
+      setGamePhase('matchmaking')
+      matchmaking.joinQueue(settings.matchmakingMode)
+    } else {
+      setGamePhase('playing')
+    }
+  }, [settings, matchmaking])
 
   const handleNewGame = useCallback(() => {
     setGamePhase('setup')
@@ -143,7 +162,8 @@ export default function PlayPage() {
     setGameSaved(false)
     setSaveError(null)
     setIsBotThinking(false)
-  }, [])
+    matchmaking.reset()
+  }, [matchmaking])
 
   const handlePlayAgain = useCallback(() => {
     setGameState(createGameState())
@@ -190,6 +210,29 @@ export default function PlayPage() {
       setIsSaving(false)
     }
   }, [gameState, gameSaved, apiCall, settings, userPlayerNumber])
+
+  // Handle online game column click
+  const handleOnlineColumnClick = useCallback(
+    async (column: number) => {
+      if (!matchmaking.game) return
+      if (matchmaking.game.status !== 'active') return
+      if (!matchmaking.game.isYourTurn) return
+
+      await matchmaking.submitMove(column)
+    },
+    [matchmaking]
+  )
+
+  // Cancel matchmaking
+  const handleCancelMatchmaking = useCallback(() => {
+    matchmaking.leaveQueue()
+    setGamePhase('setup')
+  }, [matchmaking])
+
+  // Resign from online game
+  const handleResign = useCallback(() => {
+    matchmaking.resign()
+  }, [matchmaking])
 
   const getStatusMessage = (): string => {
     if (gameState.winner === 'draw') {
@@ -246,7 +289,7 @@ export default function PlayPage() {
         {/* Game Mode Selection */}
         <div>
           <label className="block text-sm font-medium mb-2">Game Mode</label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <Button
               variant={settings.mode === 'ai' ? 'default' : 'outline'}
               onClick={() => setSettings({ ...settings, mode: 'ai' })}
@@ -254,7 +297,17 @@ export default function PlayPage() {
             >
               <div className="text-center">
                 <div className="font-medium">vs AI</div>
-                <div className="text-xs opacity-80">Play against the computer</div>
+                <div className="text-xs opacity-80">Computer</div>
+              </div>
+            </Button>
+            <Button
+              variant={settings.mode === 'online' ? 'default' : 'outline'}
+              onClick={() => setSettings({ ...settings, mode: 'online' })}
+              className="h-auto py-3"
+            >
+              <div className="text-center">
+                <div className="font-medium">Online</div>
+                <div className="text-xs opacity-80">Real player</div>
               </div>
             </Button>
             <Button
@@ -264,7 +317,7 @@ export default function PlayPage() {
             >
               <div className="text-center">
                 <div className="font-medium">Hotseat</div>
-                <div className="text-xs opacity-80">Two players, one device</div>
+                <div className="text-xs opacity-80">Same device</div>
               </div>
             </Button>
           </div>
@@ -328,9 +381,57 @@ export default function PlayPage() {
           </>
         )}
 
+        {/* Online-specific settings */}
+        {settings.mode === 'online' && (
+          <div>
+            <label className="block text-sm font-medium mb-2">Match Type</label>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant={settings.matchmakingMode === 'ranked' ? 'default' : 'outline'}
+                onClick={() => setSettings({ ...settings, matchmakingMode: 'ranked' })}
+                className="h-auto py-3"
+              >
+                <div className="text-center">
+                  <div className="font-medium">Ranked</div>
+                  <div className="text-xs opacity-80">Affects your rating</div>
+                </div>
+              </Button>
+              <Button
+                variant={settings.matchmakingMode === 'casual' ? 'default' : 'outline'}
+                onClick={() => setSettings({ ...settings, matchmakingMode: 'casual' })}
+                className="h-auto py-3"
+              >
+                <div className="text-center">
+                  <div className="font-medium">Casual</div>
+                  <div className="text-xs opacity-80">Just for fun</div>
+                </div>
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Login prompt for online mode */}
+        {settings.mode === 'online' && !isAuthenticated && (
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 text-center">
+            <p className="text-sm text-yellow-800 dark:text-yellow-200 mb-2">
+              Sign in to play online matches
+            </p>
+            <Link to="/login">
+              <Button variant="outline" size="sm">
+                Sign In
+              </Button>
+            </Link>
+          </div>
+        )}
+
         {/* Start Button */}
-        <Button onClick={handleStartGame} size="lg" className="w-full">
-          Start Game
+        <Button
+          onClick={handleStartGame}
+          size="lg"
+          className="w-full"
+          disabled={settings.mode === 'online' && !isAuthenticated}
+        >
+          {settings.mode === 'online' ? 'Find Match' : 'Start Game'}
         </Button>
       </CardContent>
     </Card>
@@ -465,6 +566,179 @@ export default function PlayPage() {
     </Card>
   )
 
+  const renderMatchmakingScreen = () => {
+    const waitSeconds = Math.floor(matchmaking.waitTime / 1000)
+    const waitMinutes = Math.floor(waitSeconds / 60)
+    const waitDisplay = waitMinutes > 0
+      ? `${waitMinutes}:${String(waitSeconds % 60).padStart(2, '0')}`
+      : `${waitSeconds}s`
+
+    return (
+      <Card>
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl">Finding Opponent</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Loading animation */}
+          <div className="flex justify-center">
+            <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          </div>
+
+          {/* Status info */}
+          <div className="text-center space-y-2">
+            <p className="text-lg font-medium">
+              {settings.matchmakingMode === 'ranked' ? 'Ranked Match' : 'Casual Match'}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Searching for players with similar rating...
+            </p>
+            <div className="flex justify-center gap-4 text-sm text-muted-foreground">
+              <span>Wait time: {waitDisplay}</span>
+              <span>Rating range: ±{matchmaking.currentTolerance}</span>
+            </div>
+          </div>
+
+          {/* Error message */}
+          {matchmaking.error && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 text-center">
+              <p className="text-sm text-red-800 dark:text-red-200">{matchmaking.error}</p>
+            </div>
+          )}
+
+          {/* Cancel button */}
+          <Button
+            onClick={handleCancelMatchmaking}
+            variant="outline"
+            size="lg"
+            className="w-full"
+          >
+            Cancel
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const renderOnlineGameScreen = () => {
+    const game = matchmaking.game
+    if (!game) return null
+
+    const isGameOver = game.status === 'completed'
+    const playerColor = game.playerNumber === 1 ? 'Red' : 'Yellow'
+    const opponentColor = game.playerNumber === 1 ? 'Yellow' : 'Red'
+
+    const getOnlineStatusMessage = (): string => {
+      if (game.winner === 'draw') return "It's a draw!"
+      if (game.winner === String(game.playerNumber)) return 'You win!'
+      if (game.winner) return 'Opponent wins!'
+      if (game.isYourTurn) return 'Your turn'
+      return "Opponent's turn..."
+    }
+
+    const getOnlineStatusColor = (): string => {
+      if (game.winner === 'draw') return 'text-muted-foreground'
+      if (game.winner === String(game.playerNumber)) return 'text-green-600 dark:text-green-400'
+      if (game.winner) return 'text-red-500'
+      if (game.isYourTurn) {
+        return game.playerNumber === 1 ? 'text-red-500' : 'text-yellow-500'
+      }
+      return 'text-muted-foreground'
+    }
+
+    return (
+      <Card>
+        <CardHeader className="text-center pb-2">
+          <div className="flex justify-center items-center gap-4 mb-2">
+            <div className="flex items-center gap-2">
+              <div
+                className={`w-4 h-4 rounded-full ${game.playerNumber === 1 ? 'bg-red-500' : 'bg-yellow-400'}`}
+              />
+              <span className="text-sm font-medium">You ({playerColor})</span>
+            </div>
+            <span className="text-muted-foreground">vs</span>
+            <div className="flex items-center gap-2">
+              <div
+                className={`w-4 h-4 rounded-full ${game.playerNumber === 1 ? 'bg-yellow-400' : 'bg-red-500'}`}
+              />
+              <span className="text-sm font-medium">
+                Opponent ({opponentColor}) - {game.opponentRating}
+              </span>
+            </div>
+          </div>
+          <CardTitle className={`text-2xl ${getOnlineStatusColor()}`}>
+            {getOnlineStatusMessage()}
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            {game.mode === 'ranked' ? 'Ranked Match' : 'Casual Match'}
+          </p>
+        </CardHeader>
+        <CardContent className="flex flex-col items-center gap-6">
+          {game.board && (
+            <GameBoard
+              board={game.board}
+              currentPlayer={game.currentTurn as 1 | 2}
+              winner={
+                game.winner === 'draw'
+                  ? 'draw'
+                  : game.winner === '1'
+                    ? 1
+                    : game.winner === '2'
+                      ? 2
+                      : null
+              }
+              onColumnClick={handleOnlineColumnClick}
+              disabled={!game.isYourTurn || isGameOver}
+              threats={[]}
+              showThreats={false}
+            />
+          )}
+
+          <div className="flex flex-col gap-3 w-full">
+            {/* Game over actions */}
+            {isGameOver && (
+              <div className="flex flex-col gap-2">
+                <div className="flex gap-2 justify-center">
+                  <Button onClick={handleNewGame} size="lg">
+                    New Game
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Mid-game actions */}
+            {!isGameOver && (
+              <div className="flex gap-2 justify-center">
+                <Button onClick={handleResign} variant="outline" size="sm">
+                  Resign
+                </Button>
+              </div>
+            )}
+
+            {/* Move counter */}
+            <p className="text-center text-sm text-muted-foreground">
+              Moves: {game.moves.length}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const renderContent = () => {
+    switch (gamePhase) {
+      case 'setup':
+        return renderSetupScreen()
+      case 'playing':
+        return renderGameScreen()
+      case 'matchmaking':
+        return renderMatchmakingScreen()
+      case 'online':
+        return renderOnlineGameScreen()
+      default:
+        return renderSetupScreen()
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
       <header className="border-b bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
@@ -504,7 +778,7 @@ export default function PlayPage() {
 
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-lg mx-auto">
-          {gamePhase === 'setup' ? renderSetupScreen() : renderGameScreen()}
+          {renderContent()}
         </div>
       </main>
     </div>
