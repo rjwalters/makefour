@@ -1,9 +1,10 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import ThemeToggle from '../components/ThemeToggle'
+import SoundToggle from '../components/SoundToggle'
 import GameBoard from '../components/GameBoard'
 import AnalysisPanel from '../components/AnalysisPanel'
 import {
@@ -14,6 +15,7 @@ import {
 } from '../game/makefour'
 import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
 import { useMatchmaking, type MatchmakingMode } from '../hooks/useMatchmaking'
+import { useSounds } from '../hooks/useSounds'
 import { suggestMove, analyzeThreats, DIFFICULTY_LEVELS, type DifficultyLevel } from '../ai/coach'
 
 type GameMode = 'ai' | 'hotseat' | 'online'
@@ -64,6 +66,7 @@ export default function PlayPage() {
   const { logout, user, isAuthenticated } = useAuth()
   const { apiCall } = useAuthenticatedApi()
   const matchmaking = useMatchmaking()
+  const sounds = useSounds()
   const [gameState, setGameState] = useState<GameState>(createGameState)
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -73,17 +76,65 @@ export default function PlayPage() {
   const [settings, setSettings] = useState<GameSettings>(loadSettings)
   const [showAnalysis, setShowAnalysis] = useState(false)
 
+  // Track previous game state for detecting game over transitions
+  const prevWinnerRef = useRef<typeof gameState.winner>(null)
+
   // Determine player numbers based on settings
   const userPlayerNumber = settings.playerColor
   const aiPlayerNumber: Player = settings.playerColor === 1 ? 2 : 1
   const isGameOver = gameState.winner !== null
 
+  // Track previous matchmaking status for detecting match found
+  const prevMatchmakingStatusRef = useRef(matchmaking.status)
+
   // Handle matchmaking state changes
   useEffect(() => {
+    const prevStatus = prevMatchmakingStatusRef.current
+    prevMatchmakingStatusRef.current = matchmaking.status
+
     if (matchmaking.status === 'playing' || matchmaking.status === 'completed') {
       setGamePhase('online')
+      // Play match found sound when transitioning from queued/matched to playing
+      if ((prevStatus === 'queued' || prevStatus === 'matched') && matchmaking.status === 'playing') {
+        sounds.playMatchFound()
+      }
     }
-  }, [matchmaking.status])
+  }, [matchmaking.status, sounds])
+
+  // Track online game state for sounds
+  const prevOnlineGameRef = useRef<{ winner: string | null; moveCount: number }>({
+    winner: null,
+    moveCount: 0,
+  })
+
+  // Play sounds for online game events
+  useEffect(() => {
+    if (!matchmaking.game) return
+
+    const prevState = prevOnlineGameRef.current
+    const currentMoveCount = matchmaking.game.moves.length
+
+    // Play piece drop when opponent makes a move
+    if (currentMoveCount > prevState.moveCount && !matchmaking.game.isYourTurn) {
+      sounds.playPieceDrop()
+    }
+
+    // Play game over sounds
+    if (matchmaking.game.winner && matchmaking.game.winner !== prevState.winner) {
+      if (matchmaking.game.winner === 'draw') {
+        sounds.playDraw()
+      } else if (matchmaking.game.winner === String(matchmaking.game.playerNumber)) {
+        sounds.playWin()
+      } else {
+        sounds.playLose()
+      }
+    }
+
+    prevOnlineGameRef.current = {
+      winner: matchmaking.game.winner,
+      moveCount: currentMoveCount,
+    }
+  }, [matchmaking.game, sounds])
 
   // Compute threats for highlighting (memoized for performance)
   const threats = useMemo(() => {
@@ -91,6 +142,25 @@ export default function PlayPage() {
     const analysis = analyzeThreats(gameState.board, gameState.currentPlayer)
     return analysis.threats
   }, [gameState.board, gameState.currentPlayer, showAnalysis, isGameOver])
+
+  // Play game over sounds when winner changes
+  useEffect(() => {
+    if (prevWinnerRef.current === gameState.winner) return
+    prevWinnerRef.current = gameState.winner
+
+    if (gameState.winner === null) return
+
+    if (gameState.winner === 'draw') {
+      sounds.playDraw()
+    } else if (settings.mode === 'hotseat') {
+      // In hotseat, just play a generic win sound
+      sounds.playWin()
+    } else if (gameState.winner === userPlayerNumber) {
+      sounds.playWin()
+    } else {
+      sounds.playLose()
+    }
+  }, [gameState.winner, settings.mode, userPlayerNumber, sounds])
 
   // AI makes a move when it's the AI's turn in AI mode
   useEffect(() => {
@@ -116,12 +186,13 @@ export default function PlayPage() {
       const newState = makeMove(gameState, botMove)
       if (newState) {
         setGameState(newState)
+        sounds.playPieceDrop()
       }
       setIsBotThinking(false)
     }
 
     makeBotMove()
-  }, [gameState, gamePhase, settings.mode, settings.difficulty, aiPlayerNumber])
+  }, [gameState, gamePhase, settings.mode, settings.difficulty, aiPlayerNumber, sounds])
 
   const handleColumnClick = useCallback(
     (column: number) => {
@@ -138,9 +209,12 @@ export default function PlayPage() {
         setGameState(newState)
         setGameSaved(false)
         setSaveError(null)
+        sounds.playPieceDrop()
+      } else {
+        sounds.playInvalidMove()
       }
     },
-    [gameState, gamePhase, settings.mode, userPlayerNumber, isBotThinking]
+    [gameState, gamePhase, settings.mode, userPlayerNumber, isBotThinking, sounds]
   )
 
   const handleStartGame = useCallback(() => {
@@ -156,8 +230,9 @@ export default function PlayPage() {
       matchmaking.joinQueue(settings.matchmakingMode, settings.allowSpectators)
     } else {
       setGamePhase('playing')
+      sounds.playGameStart()
     }
-  }, [settings, matchmaking])
+  }, [settings, matchmaking, sounds])
 
   const handleNewGame = useCallback(() => {
     setGamePhase('setup')
@@ -222,8 +297,9 @@ export default function PlayPage() {
       if (!matchmaking.game.isYourTurn) return
 
       await matchmaking.submitMove(column)
+      sounds.playPieceDrop()
     },
-    [matchmaking]
+    [matchmaking, sounds]
   )
 
   // Cancel matchmaking
@@ -787,6 +863,11 @@ export default function PlayPage() {
                     Dashboard
                   </Button>
                 </Link>
+                <SoundToggle
+                  settings={sounds.settings}
+                  onToggle={sounds.toggleSound}
+                  onVolumeChange={(volume) => sounds.updateSettings({ volume })}
+                />
                 <ThemeToggle />
                 <Button variant="outline" onClick={logout} size="sm">
                   Logout
@@ -794,6 +875,11 @@ export default function PlayPage() {
               </>
             ) : (
               <>
+                <SoundToggle
+                  settings={sounds.settings}
+                  onToggle={sounds.toggleSound}
+                  onVolumeChange={(volume) => sounds.updateSettings({ volume })}
+                />
                 <ThemeToggle />
                 <Link to="/login">
                   <Button variant="outline" size="sm">
