@@ -23,6 +23,9 @@ export default function DashboardPage() {
             )}
           </div>
           <div className="flex gap-2">
+            <Link to="/profile">
+              <Button variant="ghost" size="sm">Profile</Button>
+            </Link>
             <ThemeToggle />
             <Button variant="outline" onClick={logout} size="sm">
               Logout
