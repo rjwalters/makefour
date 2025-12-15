@@ -135,7 +135,10 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     const parseResult = createGameSchema.safeParse(body)
 
     if (!parseResult.success) {
-      return errorResponse(parseResult.error.errors[0].message, 400)
+      // Zod v4 uses `issues` instead of `errors`
+      const issues = parseResult.error.issues || (parseResult.error as unknown as { errors: unknown[] }).errors || []
+      const message = (issues[0] as { message?: string })?.message || 'Invalid request data'
+      return errorResponse(message, 400)
     }
 
     const { outcome, moves, opponentType, aiDifficulty, playerNumber } = parseResult.data

@@ -101,9 +101,11 @@ export function validateLoginRequest(data: unknown): LoginRequest {
 
 // Helper to format validation errors
 export function formatZodError(error: z.ZodError): ErrorResponse {
+  // Zod v4 uses `issues` instead of `errors`
+  const issues = error.issues || (error as unknown as { errors: z.ZodIssue[] }).errors || []
   return {
     error: 'Validation error',
-    details: error.errors[0].message,
+    details: issues[0]?.message || 'Unknown validation error',
   }
 }
 
