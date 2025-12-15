@@ -15,6 +15,7 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { cn } from '@/lib/utils'
 import { useGameChat, QUICK_REACTIONS, type ChatMessage } from '../hooks/useGameChat'
+import BotAvatar from './BotAvatar'
 
 interface ChatPanelProps {
   gameId: string | null
@@ -24,6 +25,10 @@ interface ChatPanelProps {
   className?: string
   /** Current move count - used to trigger bot reactions after player moves */
   moveCount?: number
+  /** Bot avatar URL (emoji or image URL) for displaying next to bot messages */
+  botAvatarUrl?: string | null
+  /** Bot name for display in chat */
+  botName?: string
 }
 
 export default function ChatPanel({
@@ -33,6 +38,8 @@ export default function ChatPanel({
   playerNumber = 1,
   className,
   moveCount = 0,
+  botAvatarUrl,
+  botName = 'Bot',
 }: ChatPanelProps) {
   const {
     messages,
@@ -103,7 +110,7 @@ export default function ChatPanel({
 
   const getSenderName = (message: ChatMessage) => {
     if (message.sender_type === 'bot') {
-      return 'Bot'
+      return botName
     }
     // Check if this is the current player's message
     if (message.sender_id === 'self') {
@@ -203,25 +210,37 @@ export default function ChatPanel({
                 <div
                   key={message.id}
                   className={cn(
-                    'flex flex-col max-w-[85%]',
-                    isOwnMessage(message) ? 'ml-auto items-end' : 'items-start'
+                    'flex max-w-[85%]',
+                    isOwnMessage(message) ? 'ml-auto flex-row-reverse' : 'flex-row',
+                    'gap-2'
                   )}
                 >
-                  <div
-                    className={cn(
-                      'rounded-lg px-3 py-1.5 text-sm',
-                      message.sender_type === 'bot'
-                        ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-900 dark:text-purple-100'
-                        : isOwnMessage(message)
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted'
-                    )}
-                  >
-                    {message.content}
+                  {/* Bot avatar */}
+                  {message.sender_type === 'bot' && (
+                    <BotAvatar
+                      avatarUrl={botAvatarUrl ?? null}
+                      name={botName}
+                      size="xs"
+                      className="flex-shrink-0 mt-0.5"
+                    />
+                  )}
+                  <div className="flex flex-col">
+                    <div
+                      className={cn(
+                        'rounded-lg px-3 py-1.5 text-sm',
+                        message.sender_type === 'bot'
+                          ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-900 dark:text-purple-100'
+                          : isOwnMessage(message)
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted'
+                      )}
+                    >
+                      {message.content}
+                    </div>
+                    <span className="text-xs text-muted-foreground mt-0.5">
+                      {getSenderName(message)} · {formatTime(message.created_at)}
+                    </span>
                   </div>
-                  <span className="text-xs text-muted-foreground mt-0.5">
-                    {getSenderName(message)} · {formatTime(message.created_at)}
-                  </span>
                 </div>
               ))
             )}

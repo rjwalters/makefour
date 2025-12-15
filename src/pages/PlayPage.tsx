@@ -10,6 +10,7 @@ import GameBoard from '../components/GameBoard'
 import AnalysisPanel from '../components/AnalysisPanel'
 import ChatPanel from '../components/ChatPanel'
 import BotPersonaSelector from '../components/BotPersonaSelector'
+import BotAvatar from '../components/BotAvatar'
 import { GameTimers } from '../components/GameTimer'
 import {
   createGameState,
@@ -945,9 +946,17 @@ export default function PlayPage() {
             </div>
             <span className="text-muted-foreground">vs</span>
             <div className="flex items-center gap-2">
-              <div
-                className={`w-4 h-4 rounded-full ${game.playerNumber === 1 ? 'bg-yellow-400' : 'bg-red-500'}`}
-              />
+              {selectedPersona?.avatarUrl ? (
+                <BotAvatar
+                  avatarUrl={selectedPersona.avatarUrl}
+                  name={botName}
+                  size="xs"
+                />
+              ) : (
+                <div
+                  className={`w-4 h-4 rounded-full ${game.playerNumber === 1 ? 'bg-yellow-400' : 'bg-red-500'}`}
+                />
+              )}
               <span className="text-sm font-medium">
                 {botName} ({botColor}) - {game.opponentRating}
               </span>
@@ -1029,6 +1038,8 @@ export default function PlayPage() {
             playerNumber={game.playerNumber}
             moveCount={game.moves.length}
             className="w-full mt-4"
+            botAvatarUrl={selectedPersona?.avatarUrl}
+            botName={selectedPersona?.name || botName}
           />
         </CardContent>
       </Card>
