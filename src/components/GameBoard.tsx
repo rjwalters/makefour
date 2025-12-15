@@ -6,6 +6,7 @@ import {
   type GameResult,
   getWinningCells,
 } from '../game/makefour'
+import type { Threat } from '../ai/coach'
 
 interface GameBoardProps {
   board: Board
@@ -13,6 +14,10 @@ interface GameBoardProps {
   winner: GameResult
   onColumnClick?: (column: number) => void
   disabled?: boolean
+  /** Optional threats to highlight on the board */
+  threats?: Threat[]
+  /** Whether to show threat highlighting */
+  showThreats?: boolean
 }
 
 /**
@@ -25,9 +30,30 @@ export default function GameBoard({
   winner,
   onColumnClick,
   disabled = false,
+  threats = [],
+  showThreats = false,
 }: GameBoardProps) {
   const winningCells = winner && winner !== 'draw' ? getWinningCells(board) : null
   const winningSet = new Set(winningCells?.map(([r, c]) => `${r},${c}`) ?? [])
+
+  // Create threat lookup sets for highlighting
+  const winThreatCells = new Set(
+    showThreats
+      ? threats
+          .filter((t) => t.type === 'win')
+          .map((t) => `${t.row},${t.column}`)
+      : []
+  )
+  const blockThreatCells = new Set(
+    showThreats
+      ? threats
+          .filter((t) => t.type === 'block')
+          .map((t) => `${t.row},${t.column}`)
+      : []
+  )
+  const threatColumns = new Set(
+    showThreats ? threats.map((t) => t.column) : []
+  )
 
   const isInteractive = !disabled && winner === null && onColumnClick
 
@@ -41,30 +67,48 @@ export default function GameBoard({
     <div className="flex flex-col items-center gap-4">
       {/* Column click targets - invisible buttons above each column */}
       <div className="flex gap-1">
-        {Array.from({ length: COLUMNS }, (_, col) => (
-          <button
-            key={`col-${col}`}
-            onClick={() => handleColumnClick(col)}
-            disabled={!isInteractive}
-            className={cn(
-              'w-12 h-8 sm:w-14 sm:h-10 rounded-t-lg transition-colors',
-              isInteractive
-                ? 'hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer'
-                : 'cursor-default'
-            )}
-            aria-label={`Drop piece in column ${col + 1}`}
-          >
-            {/* Drop indicator */}
-            {isInteractive && (
-              <div
-                className={cn(
-                  'w-8 h-8 sm:w-10 sm:h-10 mx-auto rounded-full opacity-0 hover:opacity-50 transition-opacity',
-                  currentPlayer === 1 ? 'bg-red-500' : 'bg-yellow-500'
-                )}
-              />
-            )}
-          </button>
-        ))}
+        {Array.from({ length: COLUMNS }, (_, col) => {
+          const hasThreat = threatColumns.has(col)
+          const isWinColumn = showThreats && threats.some((t) => t.column === col && t.type === 'win')
+          const isBlockColumn = showThreats && threats.some((t) => t.column === col && t.type === 'block')
+
+          return (
+            <button
+              key={`col-${col}`}
+              onClick={() => handleColumnClick(col)}
+              disabled={!isInteractive}
+              className={cn(
+                'w-12 h-8 sm:w-14 sm:h-10 rounded-t-lg transition-colors relative',
+                isInteractive
+                  ? 'hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer'
+                  : 'cursor-default',
+                // Threat highlighting for column headers
+                hasThreat && isWinColumn && 'bg-green-100 dark:bg-green-900/30',
+                hasThreat && isBlockColumn && !isWinColumn && 'bg-red-100 dark:bg-red-900/30'
+              )}
+              aria-label={`Drop piece in column ${col + 1}`}
+            >
+              {/* Threat indicator dot */}
+              {hasThreat && (
+                <div
+                  className={cn(
+                    'absolute top-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full',
+                    isWinColumn ? 'bg-green-500' : 'bg-red-500'
+                  )}
+                />
+              )}
+              {/* Drop indicator */}
+              {isInteractive && (
+                <div
+                  className={cn(
+                    'w-8 h-8 sm:w-10 sm:h-10 mx-auto rounded-full opacity-0 hover:opacity-50 transition-opacity',
+                    currentPlayer === 1 ? 'bg-red-500' : 'bg-yellow-500'
+                  )}
+                />
+              )}
+            </button>
+          )
+        })}
       </div>
 
       {/* Game board */}
@@ -73,6 +117,10 @@ export default function GameBoard({
           {board.map((row, rowIndex) =>
             row.map((cell, colIndex) => {
               const isWinningCell = winningSet.has(`${rowIndex},${colIndex}`)
+              const isWinThreat = winThreatCells.has(`${rowIndex},${colIndex}`)
+              const isBlockThreat = blockThreatCells.has(`${rowIndex},${colIndex}`)
+              const isThreatCell = isWinThreat || isBlockThreat
+
               return (
                 <button
                   key={`${rowIndex}-${colIndex}`}
@@ -83,14 +131,27 @@ export default function GameBoard({
                     'flex items-center justify-center',
                     isInteractive ? 'cursor-pointer' : 'cursor-default',
                     // Cell background (the "hole" in the board)
-                    'bg-gray-100 dark:bg-gray-900'
+                    'bg-gray-100 dark:bg-gray-900',
+                    // Threat highlighting for empty cells where piece would land
+                    isThreatCell && cell === null && 'ring-2 ring-inset',
+                    isWinThreat && cell === null && 'ring-green-500',
+                    isBlockThreat && !isWinThreat && cell === null && 'ring-red-500'
                   )}
                   aria-label={
                     cell === null
-                      ? `Empty cell, column ${colIndex + 1}`
+                      ? `Empty cell, column ${colIndex + 1}${isThreatCell ? ' (threat)' : ''}`
                       : `Player ${cell} piece, column ${colIndex + 1}`
                   }
                 >
+                  {/* Threat indicator for empty cells */}
+                  {cell === null && isThreatCell && (
+                    <div
+                      className={cn(
+                        'w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 border-dashed',
+                        isWinThreat ? 'border-green-500' : 'border-red-500'
+                      )}
+                    />
+                  )}
                   {/* Piece */}
                   {cell !== null && (
                     <div
