@@ -1,17 +1,18 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import ThemeToggle from '../components/ThemeToggle'
 import GameBoard from '../components/GameBoard'
+import AnalysisPanel from '../components/AnalysisPanel'
 import {
   createGameState,
   makeMove,
   type GameState,
 } from '../game/makefour'
 import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
-import { suggestMove } from '../ai/coach'
+import { suggestMove, analyzeThreats } from '../ai/coach'
 
 export default function PlayPage() {
   const { logout, user, isAuthenticated } = useAuth()
@@ -21,11 +22,20 @@ export default function PlayPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [gameSaved, setGameSaved] = useState(false)
   const [isBotThinking, setIsBotThinking] = useState(false)
+  const [showAnalysis, setShowAnalysis] = useState(false)
 
   // Player is always Player 1 (red), Bot is Player 2 (yellow)
   const playerNumber = 1
   const botNumber = 2
   const isPlayerTurn = gameState.currentPlayer === playerNumber && gameState.winner === null
+  const isGameOver = gameState.winner !== null
+
+  // Compute threats for highlighting (memoized for performance)
+  const threats = useMemo(() => {
+    if (!showAnalysis || isGameOver) return []
+    const analysis = analyzeThreats(gameState.board, gameState.currentPlayer)
+    return analysis.threats
+  }, [gameState.board, gameState.currentPlayer, showAnalysis, isGameOver])
 
   // Bot makes a move when it's the bot's turn
   useEffect(() => {
@@ -204,7 +214,30 @@ export default function PlayPage() {
                 winner={gameState.winner}
                 onColumnClick={handleColumnClick}
                 disabled={!isPlayerTurn || isBotThinking}
+                threats={threats}
+                showThreats={showAnalysis}
               />
+
+              {/* Analysis toggle and panel */}
+              <div className="w-full space-y-3">
+                <label className="flex items-center gap-2 cursor-pointer justify-center">
+                  <input
+                    type="checkbox"
+                    checked={showAnalysis}
+                    onChange={(e) => setShowAnalysis(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-muted-foreground">Show analysis</span>
+                </label>
+
+                {showAnalysis && (
+                  <AnalysisPanel
+                    board={gameState.board}
+                    currentPlayer={gameState.currentPlayer}
+                    isGameOver={isGameOver}
+                  />
+                )}
+              </div>
 
               <div className="flex flex-col gap-3 w-full">
                 {/* Game over actions */}

@@ -624,6 +624,145 @@ export const DIFFICULTY_LEVELS = {
 export type DifficultyLevel = keyof typeof DIFFICULTY_LEVELS
 
 // ============================================================================
+// THREAT DETECTION
+// ============================================================================
+
+/**
+ * Represents a threat on the board.
+ */
+export interface Threat {
+  /** Column that completes the threat (0-6) */
+  column: number
+  /** Row where the piece would land (0-5) */
+  row: number
+  /** Player who benefits from this threat */
+  player: Player
+  /** Type of threat */
+  type: 'win' | 'block'
+}
+
+/**
+ * Result of threat analysis.
+ */
+export interface ThreatAnalysis {
+  /** Columns where current player can win immediately */
+  winningMoves: number[]
+  /** Columns where opponent would win (must block) */
+  blockingMoves: number[]
+  /** All threats on the board */
+  threats: Threat[]
+}
+
+/**
+ * Gets the row where a piece would land in a column.
+ * @param board - Current board state
+ * @param column - Column to check
+ * @returns Row index (0-5) or -1 if column is full
+ */
+function getDropRow(board: Board, column: number): number {
+  for (let row = ROWS - 1; row >= 0; row--) {
+    if (board[row][column] === null) {
+      return row
+    }
+  }
+  return -1
+}
+
+/**
+ * Checks if playing in a column would result in a win for the given player.
+ * @param board - Current board state
+ * @param column - Column to check
+ * @param player - Player to check for
+ * @returns true if playing here wins
+ */
+function wouldWin(board: Board, column: number, player: Player): boolean {
+  const row = getDropRow(board, column)
+  if (row === -1) return false
+
+  const result = applyMove(board, column, player)
+  if (!result.success || !result.board) return false
+
+  const winner = checkWinner(result.board)
+  return winner === player
+}
+
+/**
+ * Analyzes the current position for threats.
+ * Identifies winning moves for current player and blocking moves needed.
+ *
+ * @param board - Current board state
+ * @param currentPlayer - The player whose turn it is
+ * @returns ThreatAnalysis with winning and blocking moves
+ */
+export function analyzeThreats(board: Board, currentPlayer: Player): ThreatAnalysis {
+  const opponent: Player = currentPlayer === 1 ? 2 : 1
+  const winningMoves: number[] = []
+  const blockingMoves: number[] = []
+  const threats: Threat[] = []
+
+  for (let col = 0; col < COLUMNS; col++) {
+    const row = getDropRow(board, col)
+    if (row === -1) continue
+
+    // Check if current player can win
+    if (wouldWin(board, col, currentPlayer)) {
+      winningMoves.push(col)
+      threats.push({ column: col, row, player: currentPlayer, type: 'win' })
+    }
+
+    // Check if opponent would win (need to block)
+    if (wouldWin(board, col, opponent)) {
+      blockingMoves.push(col)
+      threats.push({ column: col, row, player: opponent, type: 'block' })
+    }
+  }
+
+  return { winningMoves, blockingMoves, threats }
+}
+
+/**
+ * Gets a quick position evaluation for display purposes.
+ * Uses a shallow search for speed.
+ *
+ * @param board - Current board state
+ * @param currentPlayer - The player whose turn it is
+ * @returns Evaluation score and description
+ */
+export function getQuickEvaluation(
+  board: Board,
+  currentPlayer: Player
+): { score: number; description: string; result: 'win' | 'loss' | 'draw' | 'unknown' } {
+  // Check for immediate wins/losses
+  const threats = analyzeThreats(board, currentPlayer)
+
+  if (threats.winningMoves.length > 0) {
+    return {
+      score: EVAL_WEIGHTS.WIN,
+      description: 'Winning position - can win this move',
+      result: 'win',
+    }
+  }
+
+  // If opponent has multiple threats and we can only block one, we're losing
+  if (threats.blockingMoves.length > 1) {
+    return {
+      score: -EVAL_WEIGHTS.WIN,
+      description: 'Losing position - opponent has multiple threats',
+      result: 'loss',
+    }
+  }
+
+  // Use shallow evaluation for quick feedback
+  const score = evaluatePosition(board, currentPlayer)
+
+  return {
+    score,
+    description: getEvaluationDescription(score),
+    result: getTheoreticalResult(score),
+  }
+}
+
+// ============================================================================
 // PERFECT PLAY ANALYSIS
 // ============================================================================
 
