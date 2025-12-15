@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -96,12 +96,22 @@ export default function LoginPage() {
                 minLength={8}
                 autoComplete={isNewUser ? 'new-password' : 'current-password'}
               />
-              <p className="text-xs text-muted-foreground">
-                {isNewUser
-                  ? 'Choose a strong password (min 8 characters)'
-                  : 'Enter your password to access your account'
-                }
-              </p>
+              <div className="flex justify-between items-center">
+                <p className="text-xs text-muted-foreground">
+                  {isNewUser
+                    ? 'Choose a strong password (min 8 characters)'
+                    : 'Enter your password to access your account'
+                  }
+                </p>
+                {!isNewUser && (
+                  <Link
+                    to="/forgot-password"
+                    className="text-xs text-muted-foreground hover:text-foreground underline"
+                  >
+                    Forgot Password?
+                  </Link>
+                )}
+              </div>
             </div>
             {error && (
               <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md">
