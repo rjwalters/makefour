@@ -24,6 +24,7 @@ interface ExportModalProps {
 export default function ExportModal({ isOpen, onClose, onExport, totalGames }: ExportModalProps) {
   const [format, setFormat] = useState<'json' | 'pgn'>('json')
   const [isExporting, setIsExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
   const [filters, setFilters] = useState<ExportFilters>({
     outcomes: [],
     opponentTypes: [],
@@ -33,9 +34,12 @@ export default function ExportModal({ isOpen, onClose, onExport, totalGames }: E
 
   const handleExport = async () => {
     setIsExporting(true)
+    setExportError(null)
     try {
       await onExport(format, filters)
       onClose()
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Export failed')
     } finally {
       setIsExporting(false)
     }
@@ -237,6 +241,13 @@ export default function ExportModal({ isOpen, onClose, onExport, totalGames }: E
             />
             <p className="text-xs text-muted-foreground mt-1">Maximum 10,000 games per export</p>
           </div>
+
+          {/* Error Display */}
+          {exportError && (
+            <div className="p-3 rounded-md bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm">
+              {exportError}
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex gap-2 justify-end pt-4 border-t">

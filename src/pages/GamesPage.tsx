@@ -55,23 +55,43 @@ export default function GamesPage() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
 
   const handleExport = async (format: 'json' | 'pgn', filters: ExportFilters) => {
-    const response = await apiCall<unknown>('/api/export/games', {
-      method: 'POST',
-      body: JSON.stringify({ format, filters }),
-    })
+    try {
+      const response = await apiCall<{ content?: string; filename?: string; games?: unknown[] }>('/api/export/games', {
+        method: 'POST',
+        body: JSON.stringify({ format, filters }),
+      })
 
-    // Download the file
-    const filename = `makefour-games-${new Date().toISOString().split('T')[0]}.${format}`
-    const content = format === 'json' ? JSON.stringify(response, null, 2) : response as string
-    const blob = new Blob([content], { type: format === 'json' ? 'application/json' : 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+      // Determine filename and content based on format
+      let filename: string
+      let content: string
+      let mimeType: string
+
+      if (format === 'pgn') {
+        // PGN response has content and filename fields
+        filename = response.filename || `makefour-games-${new Date().toISOString().split('T')[0]}.pgn`
+        content = response.content || ''
+        mimeType = 'text/plain'
+      } else {
+        // JSON response is the full export data
+        filename = `makefour-games-${new Date().toISOString().split('T')[0]}.json`
+        content = JSON.stringify(response, null, 2)
+        mimeType = 'application/json'
+      }
+
+      // Download the file
+      const blob = new Blob([content], { type: mimeType })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Export failed')
+      throw err // Re-throw so ExportModal knows export failed
+    }
   }
 
   const fetchGames = async (offset = 0) => {

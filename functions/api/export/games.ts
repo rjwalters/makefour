@@ -290,12 +290,10 @@ export async function onRequestPost(context: EventContext<Env, unknown, unknown>
 
     if (format === 'pgn') {
       const pgnData = exportAsPgn(games.results, user.rating)
-      return new Response(pgnData, {
-        status: 200,
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'Content-Disposition': `attachment; filename="makefour-games-${formatIsoDate(Date.now())}.pgn"`,
-        },
+      return jsonResponse({
+        content: pgnData,
+        format: 'pgn',
+        filename: `makefour-games-${formatIsoDate(Date.now())}.pgn`,
       })
     }
 
