@@ -1,0 +1,5 @@
+export { DashboardPage } from './dashboard.page'
+export { GamesPage } from './games.page'
+export { LoginPage } from './login.page'
+export { PlayPage } from './play.page'
+export { ReplayPage } from './replay.page'
