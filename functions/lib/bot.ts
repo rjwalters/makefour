@@ -375,6 +375,80 @@ export function suggestMove(
 }
 
 /**
+ * Custom AI configuration for bot personas
+ */
+export interface AIConfig {
+  searchDepth: number
+  errorRate: number
+  timeMultiplier?: number
+}
+
+/**
+ * Suggest the best move using a custom AI configuration.
+ *
+ * @param board - Current board state
+ * @param currentPlayer - Player to move (the bot)
+ * @param config - Custom AI configuration
+ * @param timeBudgetMs - Time budget in milliseconds
+ * @returns Best move column (0-6)
+ */
+export function suggestMoveWithConfig(
+  board: Board,
+  currentPlayer: Player,
+  config: AIConfig,
+  timeBudgetMs: number
+): number {
+  const validMoves = getValidMoves(board)
+
+  if (validMoves.length === 0) {
+    throw new Error('No valid moves available')
+  }
+
+  // If only one move, return it immediately
+  if (validMoves.length === 1) {
+    return validMoves[0]
+  }
+
+  // Apply time multiplier if specified
+  const effectiveTimeBudget = timeBudgetMs * (config.timeMultiplier ?? 0.5)
+  const deadline = Date.now() + effectiveTimeBudget * 0.9 // Leave 10% buffer
+  let bestMove = validMoves[Math.floor(validMoves.length / 2)] // Start with center-ish
+  let bestScore = -Infinity
+
+  // Iterative deepening: search progressively deeper until time runs out
+  for (let depth = 1; depth <= config.searchDepth; depth++) {
+    if (Date.now() > deadline) break
+
+    const result = minimax(
+      board,
+      depth,
+      -Infinity,
+      Infinity,
+      true,
+      currentPlayer,
+      currentPlayer,
+      deadline
+    )
+
+    if (result.move !== null) {
+      bestMove = result.move
+      bestScore = result.score
+    }
+
+    // Stop early if we found a forced win
+    if (Math.abs(bestScore) >= EVAL_WEIGHTS.WIN) break
+  }
+
+  // Introduce random errors based on config
+  if (config.errorRate > 0 && Math.random() < config.errorRate) {
+    const randomIndex = Math.floor(Math.random() * validMoves.length)
+    return validMoves[randomIndex]
+  }
+
+  return bestMove
+}
+
+/**
  * Get the time elapsed during the bot's turn for deduction.
  */
 export function measureMoveTime<T>(fn: () => T): { result: T; elapsedMs: number } {
