@@ -24,6 +24,7 @@ interface GameSettings {
   difficulty: DifficultyLevel
   playerColor: Player // Which player the user plays as (1 = red/first, 2 = yellow/second)
   matchmakingMode: MatchmakingMode
+  allowSpectators: boolean // Whether spectators can watch your online games
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
@@ -31,6 +32,7 @@ const DEFAULT_SETTINGS: GameSettings = {
   difficulty: 'intermediate',
   playerColor: 1,
   matchmakingMode: 'ranked',
+  allowSpectators: true,
 }
 
 // Load saved settings from localStorage
@@ -44,6 +46,7 @@ function loadSettings(): GameSettings {
         difficulty: parsed.difficulty || DEFAULT_SETTINGS.difficulty,
         playerColor: parsed.playerColor || DEFAULT_SETTINGS.playerColor,
         matchmakingMode: parsed.matchmakingMode || DEFAULT_SETTINGS.matchmakingMode,
+        allowSpectators: parsed.allowSpectators ?? DEFAULT_SETTINGS.allowSpectators,
       }
     }
   } catch {
@@ -148,9 +151,9 @@ export default function PlayPage() {
     setIsBotThinking(false)
 
     if (settings.mode === 'online') {
-      // Start matchmaking
+      // Start matchmaking with spectator preference
       setGamePhase('matchmaking')
-      matchmaking.joinQueue(settings.matchmakingMode)
+      matchmaking.joinQueue(settings.matchmakingMode, settings.allowSpectators)
     } else {
       setGamePhase('playing')
     }
@@ -383,31 +386,58 @@ export default function PlayPage() {
 
         {/* Online-specific settings */}
         {settings.mode === 'online' && (
-          <div>
-            <label className="block text-sm font-medium mb-2">Match Type</label>
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                variant={settings.matchmakingMode === 'ranked' ? 'default' : 'outline'}
-                onClick={() => setSettings({ ...settings, matchmakingMode: 'ranked' })}
-                className="h-auto py-3"
-              >
-                <div className="text-center">
-                  <div className="font-medium">Ranked</div>
-                  <div className="text-xs opacity-80">Affects your rating</div>
-                </div>
-              </Button>
-              <Button
-                variant={settings.matchmakingMode === 'casual' ? 'default' : 'outline'}
-                onClick={() => setSettings({ ...settings, matchmakingMode: 'casual' })}
-                className="h-auto py-3"
-              >
-                <div className="text-center">
-                  <div className="font-medium">Casual</div>
-                  <div className="text-xs opacity-80">Just for fun</div>
-                </div>
-              </Button>
+          <>
+            <div>
+              <label className="block text-sm font-medium mb-2">Match Type</label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant={settings.matchmakingMode === 'ranked' ? 'default' : 'outline'}
+                  onClick={() => setSettings({ ...settings, matchmakingMode: 'ranked' })}
+                  className="h-auto py-3"
+                >
+                  <div className="text-center">
+                    <div className="font-medium">Ranked</div>
+                    <div className="text-xs opacity-80">Affects your rating</div>
+                  </div>
+                </Button>
+                <Button
+                  variant={settings.matchmakingMode === 'casual' ? 'default' : 'outline'}
+                  onClick={() => setSettings({ ...settings, matchmakingMode: 'casual' })}
+                  className="h-auto py-3"
+                >
+                  <div className="text-center">
+                    <div className="font-medium">Casual</div>
+                    <div className="text-xs opacity-80">Just for fun</div>
+                  </div>
+                </Button>
+              </div>
             </div>
-          </div>
+
+            {/* Privacy settings */}
+            <div>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settings.allowSpectators}
+                  onChange={(e) => setSettings({ ...settings, allowSpectators: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <span className="text-sm font-medium">Allow spectators</span>
+                  <p className="text-xs text-muted-foreground">
+                    Let others watch your game in real-time
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            {/* Watch games link */}
+            <Link to="/spectate" className="block">
+              <Button variant="outline" className="w-full">
+                Watch Live Games
+              </Button>
+            </Link>
+          </>
         )}
 
         {/* Login prompt for online mode */}

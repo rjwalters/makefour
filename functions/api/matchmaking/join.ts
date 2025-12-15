@@ -11,6 +11,7 @@ interface Env {
 
 const joinQueueSchema = z.object({
   mode: z.enum(['ranked', 'casual']).default('ranked'),
+  spectatable: z.boolean().default(true),
 })
 
 interface UserRow {
@@ -47,7 +48,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse(parseResult.error.errors[0].message, 400)
     }
 
-    const { mode } = parseResult.data
+    const { mode, spectatable } = parseResult.data
 
     // Check if user is already in an active game
     const activeGame = await DB.prepare(`
@@ -89,9 +90,9 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     const now = Date.now()
 
     await DB.prepare(`
-      INSERT INTO matchmaking_queue (id, user_id, rating, mode, initial_tolerance, joined_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).bind(queueId, session.userId, user.rating, mode, 100, now).run()
+      INSERT INTO matchmaking_queue (id, user_id, rating, mode, initial_tolerance, spectatable, joined_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(queueId, session.userId, user.rating, mode, 100, spectatable ? 1 : 0, now).run()
 
     return jsonResponse({
       status: 'queued',
