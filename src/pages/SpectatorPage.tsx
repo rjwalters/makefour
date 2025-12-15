@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import ThemeToggle from '../components/ThemeToggle'
 import GameBoard from '../components/GameBoard'
+import { SpectatorTimers } from '../components/GameTimer'
 import { useSpectate, type LiveGame } from '../hooks/useSpectate'
 
 export default function SpectatorPage() {
@@ -174,6 +175,20 @@ export default function SpectatorPage() {
           </div>
         </CardHeader>
         <CardContent className="flex flex-col items-center gap-6">
+          {/* Game Timers */}
+          {game.timeControlMs !== null && (
+            <SpectatorTimers
+              player1TimeMs={game.player1TimeMs}
+              player2TimeMs={game.player2TimeMs}
+              turnStartedAt={game.turnStartedAt}
+              currentTurn={game.currentTurn}
+              player1Name={game.player1.displayName}
+              player2Name={game.player2.displayName}
+              gameStatus={game.status}
+              className="w-full max-w-xs"
+            />
+          )}
+
           {game.board && (
             <GameBoard
               board={game.board}

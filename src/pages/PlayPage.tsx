@@ -8,6 +8,7 @@ import SoundToggle from '../components/SoundToggle'
 import GameBoard from '../components/GameBoard'
 import AnalysisPanel from '../components/AnalysisPanel'
 import ChatPanel from '../components/ChatPanel'
+import { GameTimers } from '../components/GameTimer'
 import {
   createGameState,
   makeMove,
@@ -16,11 +17,13 @@ import {
 } from '../game/makefour'
 import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
 import { useMatchmaking, type MatchmakingMode } from '../hooks/useMatchmaking'
+import { useBotGame, type BotDifficulty } from '../hooks/useBotGame'
 import { useSounds } from '../hooks/useSounds'
 import { suggestMove, analyzeThreats, DIFFICULTY_LEVELS, type DifficultyLevel } from '../ai/coach'
 
 type GameMode = 'ai' | 'hotseat' | 'online'
-type GamePhase = 'setup' | 'playing' | 'matchmaking' | 'online'
+type GamePhase = 'setup' | 'playing' | 'matchmaking' | 'online' | 'botGame'
+type BotGameMode = 'training' | 'ranked'
 
 interface GameSettings {
   mode: GameMode
@@ -28,6 +31,7 @@ interface GameSettings {
   playerColor: Player // Which player the user plays as (1 = red/first, 2 = yellow/second)
   matchmakingMode: MatchmakingMode
   allowSpectators: boolean // Whether spectators can watch your online games
+  botGameMode: BotGameMode // Training (untimed, no ELO) or Ranked (timed, affects ELO)
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
@@ -36,6 +40,7 @@ const DEFAULT_SETTINGS: GameSettings = {
   playerColor: 1,
   matchmakingMode: 'ranked',
   allowSpectators: true,
+  botGameMode: 'training',
 }
 
 // Load saved settings from localStorage
@@ -50,6 +55,7 @@ function loadSettings(): GameSettings {
         playerColor: parsed.playerColor || DEFAULT_SETTINGS.playerColor,
         matchmakingMode: parsed.matchmakingMode || DEFAULT_SETTINGS.matchmakingMode,
         allowSpectators: parsed.allowSpectators ?? DEFAULT_SETTINGS.allowSpectators,
+        botGameMode: parsed.botGameMode || DEFAULT_SETTINGS.botGameMode,
       }
     }
   } catch {
@@ -67,6 +73,7 @@ export default function PlayPage() {
   const { logout, user, isAuthenticated } = useAuth()
   const { apiCall } = useAuthenticatedApi()
   const matchmaking = useMatchmaking()
+  const botGame = useBotGame()
   const sounds = useSounds()
   const [gameState, setGameState] = useState<GameState>(createGameState)
   const [isSaving, setIsSaving] = useState(false)
@@ -101,6 +108,13 @@ export default function PlayPage() {
       }
     }
   }, [matchmaking.status, sounds])
+
+  // Handle bot game state changes
+  useEffect(() => {
+    if (botGame.status === 'playing' || botGame.status === 'completed') {
+      setGamePhase('botGame')
+    }
+  }, [botGame.status])
 
   // Track online game state for sounds
   const prevOnlineGameRef = useRef<{ winner: string | null; moveCount: number }>({
@@ -229,11 +243,16 @@ export default function PlayPage() {
       // Start matchmaking with spectator preference
       setGamePhase('matchmaking')
       matchmaking.joinQueue(settings.matchmakingMode, settings.allowSpectators)
+    } else if (settings.mode === 'ai' && settings.botGameMode === 'ranked') {
+      // Start ranked bot game (server-side, timed)
+      botGame.createGame(settings.difficulty as BotDifficulty, settings.playerColor)
+      sounds.playGameStart()
     } else {
+      // Training mode or hotseat (client-side)
       setGamePhase('playing')
       sounds.playGameStart()
     }
-  }, [settings, matchmaking, sounds])
+  }, [settings, matchmaking, botGame, sounds])
 
   const handleNewGame = useCallback(() => {
     setGamePhase('setup')
@@ -242,7 +261,8 @@ export default function PlayPage() {
     setSaveError(null)
     setIsBotThinking(false)
     matchmaking.reset()
-  }, [matchmaking])
+    botGame.reset()
+  }, [matchmaking, botGame])
 
   const handlePlayAgain = useCallback(() => {
     setGameState(createGameState())
@@ -301,6 +321,19 @@ export default function PlayPage() {
       sounds.playPieceDrop()
     },
     [matchmaking, sounds]
+  )
+
+  // Handle bot game column click
+  const handleBotGameColumnClick = useCallback(
+    async (column: number) => {
+      if (!botGame.game) return
+      if (botGame.game.status !== 'active') return
+      if (!botGame.game.isYourTurn) return
+
+      await botGame.submitMove(column)
+      sounds.playPieceDrop()
+    },
+    [botGame, sounds]
   )
 
   // Cancel matchmaking
@@ -406,6 +439,44 @@ export default function PlayPage() {
         {/* AI-specific settings */}
         {settings.mode === 'ai' && (
           <>
+            {/* Game Type Selection: Training vs Ranked */}
+            <div>
+              <label className="block text-sm font-medium mb-2">Game Type</label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant={settings.botGameMode === 'training' ? 'default' : 'outline'}
+                  onClick={() => setSettings({ ...settings, botGameMode: 'training' })}
+                  className="h-auto py-3"
+                >
+                  <div className="text-center">
+                    <div className="font-medium">Training</div>
+                    <div className="text-xs opacity-80">Untimed, no rating</div>
+                  </div>
+                </Button>
+                <Button
+                  variant={settings.botGameMode === 'ranked' ? 'default' : 'outline'}
+                  onClick={() => setSettings({ ...settings, botGameMode: 'ranked' })}
+                  className="h-auto py-3"
+                  disabled={!isAuthenticated}
+                >
+                  <div className="text-center">
+                    <div className="font-medium">Ranked</div>
+                    <div className="text-xs opacity-80">5-min clock, affects ELO</div>
+                  </div>
+                </Button>
+              </div>
+              {settings.botGameMode === 'ranked' && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Ranked bot games use a 5-minute chess clock and affect your rating.
+                </p>
+              )}
+              {settings.botGameMode === 'ranked' && !isAuthenticated && (
+                <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
+                  Sign in to play ranked bot games.
+                </p>
+              )}
+            </div>
+
             {/* Difficulty Selection */}
             <div>
               <label className="block text-sm font-medium mb-2">Difficulty</label>
@@ -726,6 +797,142 @@ export default function PlayPage() {
     )
   }
 
+  const renderBotGameScreen = () => {
+    const game = botGame.game
+    if (!game) return null
+
+    const isGameOver = game.status === 'completed'
+    const playerColor = game.playerNumber === 1 ? 'Red' : 'Yellow'
+    const botColor = game.playerNumber === 1 ? 'Yellow' : 'Red'
+
+    const getBotStatusMessage = (): string => {
+      if (game.winner === 'draw') return "It's a draw!"
+      if (game.winner === String(game.playerNumber)) {
+        // Check if bot ran out of time
+        const botTimeMs = game.playerNumber === 1 ? game.player2TimeMs : game.player1TimeMs
+        if (botTimeMs !== null && botTimeMs <= 0) {
+          return 'You win! (Bot timed out)'
+        }
+        return 'You win!'
+      }
+      if (game.winner) {
+        // Check if we ran out of time
+        const ourTimeMs = game.playerNumber === 1 ? game.player1TimeMs : game.player2TimeMs
+        if (ourTimeMs !== null && ourTimeMs <= 0) {
+          return 'Time ran out!'
+        }
+        return 'Bot wins!'
+      }
+      if (game.isYourTurn) return 'Your turn'
+      return 'Bot is thinking...'
+    }
+
+    const getBotStatusColor = (): string => {
+      if (game.winner === 'draw') return 'text-muted-foreground'
+      if (game.winner === String(game.playerNumber)) return 'text-green-600 dark:text-green-400'
+      if (game.winner) return 'text-red-500'
+      if (game.isYourTurn) {
+        return game.playerNumber === 1 ? 'text-red-500' : 'text-yellow-500'
+      }
+      return 'text-yellow-500'
+    }
+
+    const difficultyName = game.botDifficulty
+      ? game.botDifficulty.charAt(0).toUpperCase() + game.botDifficulty.slice(1)
+      : 'Bot'
+
+    return (
+      <Card>
+        <CardHeader className="text-center pb-2">
+          <div className="flex justify-center items-center gap-4 mb-2">
+            <div className="flex items-center gap-2">
+              <div
+                className={`w-4 h-4 rounded-full ${game.playerNumber === 1 ? 'bg-red-500' : 'bg-yellow-400'}`}
+              />
+              <span className="text-sm font-medium">You ({playerColor})</span>
+            </div>
+            <span className="text-muted-foreground">vs</span>
+            <div className="flex items-center gap-2">
+              <div
+                className={`w-4 h-4 rounded-full ${game.playerNumber === 1 ? 'bg-yellow-400' : 'bg-red-500'}`}
+              />
+              <span className="text-sm font-medium">
+                {difficultyName} Bot ({botColor}) - {game.opponentRating}
+              </span>
+            </div>
+          </div>
+          <CardTitle className={`text-2xl ${getBotStatusColor()}`}>
+            {getBotStatusMessage()}
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            Ranked Bot Match - 5 min clock
+          </p>
+        </CardHeader>
+        <CardContent className="flex flex-col items-center gap-6">
+          {/* Game Timers */}
+          {game.timeControlMs !== null && (
+            <GameTimers
+              player1TimeMs={game.player1TimeMs}
+              player2TimeMs={game.player2TimeMs}
+              turnStartedAt={game.turnStartedAt}
+              currentTurn={game.currentTurn}
+              playerNumber={game.playerNumber}
+              gameStatus={game.status}
+              className="w-full max-w-xs"
+            />
+          )}
+
+          {game.board && (
+            <GameBoard
+              board={game.board}
+              currentPlayer={game.currentTurn as 1 | 2}
+              winner={
+                game.winner === 'draw'
+                  ? 'draw'
+                  : game.winner === '1'
+                    ? 1
+                    : game.winner === '2'
+                      ? 2
+                      : null
+              }
+              onColumnClick={handleBotGameColumnClick}
+              disabled={!game.isYourTurn || isGameOver}
+              threats={[]}
+              showThreats={false}
+            />
+          )}
+
+          <div className="flex flex-col gap-3 w-full">
+            {/* Game over actions */}
+            {isGameOver && (
+              <div className="flex flex-col gap-2">
+                <div className="flex gap-2 justify-center">
+                  <Button onClick={handleNewGame} size="lg">
+                    New Game
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Mid-game actions */}
+            {!isGameOver && (
+              <div className="flex gap-2 justify-center">
+                <Button onClick={handleNewGame} variant="outline" size="sm">
+                  Abandon Game
+                </Button>
+              </div>
+            )}
+
+            {/* Move counter */}
+            <p className="text-center text-sm text-muted-foreground">
+              Moves: {game.moves.length}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   const renderOnlineGameScreen = () => {
     const game = matchmaking.game
     if (!game) return null
@@ -736,8 +943,22 @@ export default function PlayPage() {
 
     const getOnlineStatusMessage = (): string => {
       if (game.winner === 'draw') return "It's a draw!"
-      if (game.winner === String(game.playerNumber)) return 'You win!'
-      if (game.winner) return 'Opponent wins!'
+      if (game.winner === String(game.playerNumber)) {
+        // Check if opponent ran out of time
+        const opponentTimeMs = game.playerNumber === 1 ? game.player2TimeMs : game.player1TimeMs
+        if (opponentTimeMs !== null && opponentTimeMs <= 0) {
+          return 'You win! (Opponent timed out)'
+        }
+        return 'You win!'
+      }
+      if (game.winner) {
+        // Check if we ran out of time
+        const ourTimeMs = game.playerNumber === 1 ? game.player1TimeMs : game.player2TimeMs
+        if (ourTimeMs !== null && ourTimeMs <= 0) {
+          return 'Time ran out!'
+        }
+        return 'Opponent wins!'
+      }
       if (game.isYourTurn) return 'Your turn'
       return "Opponent's turn..."
     }
@@ -780,6 +1001,19 @@ export default function PlayPage() {
           </p>
         </CardHeader>
         <CardContent className="flex flex-col items-center gap-6">
+          {/* Game Timers */}
+          {game.timeControlMs !== null && (
+            <GameTimers
+              player1TimeMs={game.player1TimeMs}
+              player2TimeMs={game.player2TimeMs}
+              turnStartedAt={game.turnStartedAt}
+              currentTurn={game.currentTurn}
+              playerNumber={game.playerNumber}
+              gameStatus={game.status}
+              className="w-full max-w-xs"
+            />
+          )}
+
           {game.board && (
             <GameBoard
               board={game.board}
@@ -850,6 +1084,8 @@ export default function PlayPage() {
         return renderMatchmakingScreen()
       case 'online':
         return renderOnlineGameScreen()
+      case 'botGame':
+        return renderBotGameScreen()
       default:
         return renderSetupScreen()
     }

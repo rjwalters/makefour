@@ -36,6 +36,14 @@ export interface OnlineGameState {
   opponentRating: number
   isYourTurn: boolean
   lastMoveAt: number
+  // Timer fields (null for untimed games)
+  timeControlMs: number | null
+  player1TimeMs: number | null
+  player2TimeMs: number | null
+  turnStartedAt: number | null
+  // Bot game fields
+  isBotGame: boolean
+  botDifficulty: string | null
 }
 
 interface MatchmakingState {
@@ -300,6 +308,11 @@ export function useMatchmaking() {
           status: 'active' | 'completed'
           winner: '1' | '2' | 'draw' | null
           isYourTurn: boolean
+          // Timer fields
+          timeControlMs: number | null
+          player1TimeMs: number | null
+          player2TimeMs: number | null
+          turnStartedAt: number | null
         }>(`/api/match/${state.game.id}`, {
           method: 'POST',
           body: JSON.stringify({ column }),
@@ -319,6 +332,11 @@ export function useMatchmaking() {
                 status: response.status,
                 winner: response.winner,
                 isYourTurn: response.isYourTurn,
+                // Update timer fields
+                timeControlMs: response.timeControlMs,
+                player1TimeMs: response.player1TimeMs,
+                player2TimeMs: response.player2TimeMs,
+                turnStartedAt: response.turnStartedAt,
               }
             : null,
         }))

@@ -41,6 +41,9 @@ const TOLERANCE_EXPANSION_RATE = 50
 const TOLERANCE_EXPANSION_INTERVAL = 10000 // 10 seconds
 const MAX_TOLERANCE = 500
 
+// Default time control: 5 minutes per player
+const DEFAULT_TIME_CONTROL_MS = 300000
+
 export async function onRequestGet(context: EventContext<Env, any, any>) {
   const { DB } = context.env
 
@@ -167,14 +170,15 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     try {
       // Use a batch to atomically create game and remove both from queue
       await DB.batch([
-        // Create the active game
+        // Create the active game with timer initialized
         DB.prepare(`
           INSERT INTO active_games (
             id, player1_id, player2_id, moves, current_turn, status, mode,
             player1_rating, player2_rating, spectatable, spectator_count,
-            last_move_at, created_at, updated_at
+            last_move_at, time_control_ms, player1_time_ms, player2_time_ms,
+            turn_started_at, is_bot_game, created_at, updated_at
           )
-          VALUES (?, ?, ?, '[]', 1, 'active', ?, ?, ?, ?, 0, ?, ?, ?)
+          VALUES (?, ?, ?, '[]', 1, 'active', ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 0, ?, ?)
         `).bind(
           gameId,
           player1Id,
@@ -184,6 +188,10 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
           player2Rating,
           gameSpectatable,
           now,
+          DEFAULT_TIME_CONTROL_MS,
+          DEFAULT_TIME_CONTROL_MS,
+          DEFAULT_TIME_CONTROL_MS,
+          now, // turn_started_at - clock starts immediately
           now,
           now
         ),

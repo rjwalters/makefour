@@ -165,6 +165,14 @@ CREATE TABLE IF NOT EXISTS active_games (
   spectator_count INTEGER NOT NULL DEFAULT 0,
   -- Last activity timestamp (for abandonment detection)
   last_move_at INTEGER NOT NULL,
+  -- Timer fields (NULL = untimed game, 300000 = 5 minutes)
+  time_control_ms INTEGER,
+  player1_time_ms INTEGER,
+  player2_time_ms INTEGER,
+  turn_started_at INTEGER,
+  -- Bot game fields (for server-side ranked bot games)
+  is_bot_game INTEGER NOT NULL DEFAULT 0,
+  bot_difficulty TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   FOREIGN KEY (player1_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -173,7 +181,9 @@ CREATE TABLE IF NOT EXISTS active_games (
   CHECK (status IN ('active', 'completed', 'abandoned')),
   CHECK (mode IN ('ranked', 'casual')),
   CHECK (winner IS NULL OR winner IN ('1', '2', 'draw')),
-  CHECK (spectatable IN (0, 1))
+  CHECK (spectatable IN (0, 1)),
+  CHECK (is_bot_game IN (0, 1)),
+  CHECK (bot_difficulty IS NULL OR bot_difficulty IN ('beginner', 'intermediate', 'expert', 'perfect'))
 );
 
 -- Indexes for active games
@@ -183,6 +193,10 @@ CREATE INDEX IF NOT EXISTS idx_active_games_status ON active_games(status);
 CREATE INDEX IF NOT EXISTS idx_active_games_updated_at ON active_games(updated_at);
 -- Index for spectatable games (for live game browsing)
 CREATE INDEX IF NOT EXISTS idx_active_games_spectatable ON active_games(spectatable, status);
+-- Index for finding timed games (timeout detection)
+CREATE INDEX IF NOT EXISTS idx_active_games_timed ON active_games(status, time_control_ms, turn_started_at);
+-- Index for bot games
+CREATE INDEX IF NOT EXISTS idx_active_games_bot ON active_games(is_bot_game, status);
 
 -- Game messages - chat messages during active games
 CREATE TABLE IF NOT EXISTS game_messages (

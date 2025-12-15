@@ -25,6 +25,10 @@ interface ActiveGameRow {
   spectatable: number
   spectator_count: number
   last_move_at: number
+  time_control_ms: number | null
+  player1_time_ms: number | null
+  player2_time_ms: number | null
+  turn_started_at: number | null
   created_at: number
   updated_at: number
 }
@@ -53,6 +57,11 @@ export interface SpectatorGameState {
   spectatorCount: number
   lastMoveAt: number
   createdAt: number
+  // Timer fields
+  timeControlMs: number | null
+  player1TimeMs: number | null
+  player2TimeMs: number | null
+  turnStartedAt: number | null
 }
 
 /**
@@ -81,6 +90,10 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
         ag.spectatable,
         ag.spectator_count,
         ag.last_move_at,
+        ag.time_control_ms,
+        ag.player1_time_ms,
+        ag.player2_time_ms,
+        ag.turn_started_at,
         ag.created_at,
         ag.updated_at
       FROM active_games ag
@@ -113,6 +126,20 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
     // Reconstruct board state from moves
     const gameState = moves.length > 0 ? replayMoves(moves) : createGameState()
 
+    // Calculate remaining time for display
+    const now = Date.now()
+    let player1TimeMs = game.player1_time_ms
+    let player2TimeMs = game.player2_time_ms
+
+    if (game.time_control_ms !== null && game.turn_started_at !== null && game.status === 'active') {
+      const elapsed = now - game.turn_started_at
+      if (game.current_turn === 1) {
+        player1TimeMs = Math.max(0, (game.player1_time_ms ?? 0) - elapsed)
+      } else {
+        player2TimeMs = Math.max(0, (game.player2_time_ms ?? 0) - elapsed)
+      }
+    }
+
     const response: SpectatorGameState = {
       id: game.id,
       player1: {
@@ -132,6 +159,10 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
       spectatorCount: game.spectator_count,
       lastMoveAt: game.last_move_at,
       createdAt: game.created_at,
+      timeControlMs: game.time_control_ms,
+      player1TimeMs,
+      player2TimeMs,
+      turnStartedAt: game.turn_started_at,
     }
 
     return jsonResponse(response)

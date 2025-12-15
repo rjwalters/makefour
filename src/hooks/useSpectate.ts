@@ -48,6 +48,11 @@ export interface SpectatorGameState {
   spectatorCount: number
   lastMoveAt: number
   createdAt: number
+  // Timer fields
+  timeControlMs: number | null
+  player1TimeMs: number | null
+  player2TimeMs: number | null
+  turnStartedAt: number | null
 }
 
 export type SpectatorStatus = 'idle' | 'browsing' | 'loading' | 'watching' | 'error'

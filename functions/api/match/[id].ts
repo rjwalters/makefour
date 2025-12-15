@@ -26,6 +26,14 @@ interface ActiveGameRow {
   player1_rating: number
   player2_rating: number
   last_move_at: number
+  // Timer fields (null = untimed game)
+  time_control_ms: number | null
+  player1_time_ms: number | null
+  player2_time_ms: number | null
+  turn_started_at: number | null
+  // Bot game fields
+  is_bot_game: number
+  bot_difficulty: string | null
   created_at: number
   updated_at: number
 }
@@ -39,6 +47,88 @@ interface UserRow {
 const moveSchema = z.object({
   column: z.number().int().min(0).max(6),
 })
+
+/**
+ * Check if the current player's time has expired and handle timeout
+ * Returns the updated game if timeout occurred, null otherwise
+ */
+async function checkAndHandleTimeout(
+  DB: D1Database,
+  game: ActiveGameRow,
+  now: number
+): Promise<{ timedOut: boolean; winner?: string }> {
+  // Only check timed games that are active
+  if (game.time_control_ms === null || game.status !== 'active' || game.turn_started_at === null) {
+    return { timedOut: false }
+  }
+
+  const elapsed = now - game.turn_started_at
+  const currentPlayerTime = game.current_turn === 1 ? game.player1_time_ms : game.player2_time_ms
+
+  if (currentPlayerTime === null) {
+    return { timedOut: false }
+  }
+
+  const timeRemaining = currentPlayerTime - elapsed
+
+  if (timeRemaining <= 0) {
+    // Current player has timed out - opponent wins
+    const winner = game.current_turn === 1 ? '2' : '1'
+
+    await DB.prepare(`
+      UPDATE active_games
+      SET status = 'completed',
+          winner = ?,
+          player1_time_ms = ?,
+          player2_time_ms = ?,
+          updated_at = ?
+      WHERE id = ?
+    `).bind(
+      winner,
+      game.current_turn === 1 ? 0 : game.player1_time_ms,
+      game.current_turn === 2 ? 0 : game.player2_time_ms,
+      now,
+      game.id
+    ).run()
+
+    // Update ELO if ranked
+    if (game.mode === 'ranked') {
+      const moves = JSON.parse(game.moves) as number[]
+      await updateRatings(DB, { ...game, status: 'completed', winner }, winner, moves, now)
+    }
+
+    return { timedOut: true, winner }
+  }
+
+  return { timedOut: false }
+}
+
+/**
+ * Calculate current time remaining for display
+ */
+function calculateTimeRemaining(
+  game: ActiveGameRow,
+  now: number
+): { player1TimeMs: number | null; player2TimeMs: number | null } {
+  if (game.time_control_ms === null || game.turn_started_at === null) {
+    return { player1TimeMs: null, player2TimeMs: null }
+  }
+
+  const elapsed = now - game.turn_started_at
+
+  // Active player's time decreases, inactive player's time stays the same
+  if (game.current_turn === 1) {
+    return {
+      player1TimeMs: Math.max(0, (game.player1_time_ms ?? 0) - elapsed),
+      player2TimeMs: game.player2_time_ms,
+    }
+  } else {
+    return {
+      player1TimeMs: game.player1_time_ms,
+      player2TimeMs: Math.max(0, (game.player2_time_ms ?? 0) - elapsed),
+    }
+  }
+}
 
 /**
  * GET /api/match/:id - Get current game state
@@ -56,7 +146,9 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     // Get the game
     const game = await DB.prepare(`
       SELECT id, player1_id, player2_id, moves, current_turn, status, mode,
-             winner, player1_rating, player2_rating, last_move_at, created_at, updated_at
+             winner, player1_rating, player2_rating, last_move_at,
+             time_control_ms, player1_time_ms, player2_time_ms, turn_started_at,
+             is_bot_game, bot_difficulty, created_at, updated_at
       FROM active_games
       WHERE id = ?
     `)
@@ -72,11 +164,27 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       return errorResponse('You are not a participant in this game', 403)
     }
 
+    const now = Date.now()
     const playerNumber = game.player1_id === session.userId ? 1 : 2
+
+    // Check for timeout (this may end the game)
+    const timeoutResult = await checkAndHandleTimeout(DB, game, now)
+
+    // If timeout occurred, update game state for response
+    let status = game.status
+    let winner = game.winner
+    if (timeoutResult.timedOut) {
+      status = 'completed'
+      winner = timeoutResult.winner ?? null
+    }
+
     const moves = JSON.parse(game.moves) as number[]
 
     // Reconstruct board state from moves
     const gameState = moves.length > 0 ? replayMoves(moves) : createGameState()
+
+    // Calculate current time remaining
+    const timeRemaining = calculateTimeRemaining(game, now)
 
     return jsonResponse({
       id: game.id,
@@ -84,13 +192,25 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       currentTurn: game.current_turn,
       moves,
       board: gameState?.board ?? null,
-      status: game.status,
-      winner: game.winner,
+      status,
+      winner,
       mode: game.mode,
       opponentRating: playerNumber === 1 ? game.player2_rating : game.player1_rating,
       lastMoveAt: game.last_move_at,
       createdAt: game.created_at,
-      isYourTurn: game.status === 'active' && game.current_turn === playerNumber,
+      isYourTurn: status === 'active' && game.current_turn === playerNumber,
+      // Timer fields
+      timeControlMs: game.time_control_ms,
+      player1TimeMs: timeoutResult.timedOut
+        ? (game.current_turn === 1 ? 0 : game.player1_time_ms)
+        : timeRemaining.player1TimeMs,
+      player2TimeMs: timeoutResult.timedOut
+        ? (game.current_turn === 2 ? 0 : game.player2_time_ms)
+        : timeRemaining.player2TimeMs,
+      turnStartedAt: game.turn_started_at,
+      // Bot game fields
+      isBotGame: game.is_bot_game === 1,
+      botDifficulty: game.bot_difficulty,
     })
   } catch (error) {
     console.error('GET /api/match/:id error:', error)
@@ -124,7 +244,9 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     // Get the game
     const game = await DB.prepare(`
       SELECT id, player1_id, player2_id, moves, current_turn, status, mode,
-             winner, player1_rating, player2_rating, last_move_at, created_at, updated_at
+             winner, player1_rating, player2_rating, last_move_at,
+             time_control_ms, player1_time_ms, player2_time_ms, turn_started_at,
+             is_bot_game, bot_difficulty, created_at, updated_at
       FROM active_games
       WHERE id = ?
     `)
@@ -146,10 +268,61 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     const playerNumber = game.player1_id === session.userId ? 1 : 2
+    const now = Date.now()
 
     // Check it's their turn
     if (game.current_turn !== playerNumber) {
       return errorResponse('Not your turn', 400)
+    }
+
+    // Time tracking for timed games
+    let newPlayer1Time = game.player1_time_ms
+    let newPlayer2Time = game.player2_time_ms
+
+    if (game.time_control_ms !== null && game.turn_started_at !== null) {
+      const elapsed = now - game.turn_started_at
+      const currentPlayerTime = playerNumber === 1 ? game.player1_time_ms : game.player2_time_ms
+
+      if (currentPlayerTime !== null) {
+        const timeRemaining = currentPlayerTime - elapsed
+
+        // Check if player ran out of time
+        if (timeRemaining <= 0) {
+          // Time expired - opponent wins
+          const winner = playerNumber === 1 ? '2' : '1'
+
+          await DB.prepare(`
+            UPDATE active_games
+            SET status = 'completed',
+                winner = ?,
+                player1_time_ms = ?,
+                player2_time_ms = ?,
+                updated_at = ?
+            WHERE id = ?
+          `).bind(
+            winner,
+            playerNumber === 1 ? 0 : game.player1_time_ms,
+            playerNumber === 2 ? 0 : game.player2_time_ms,
+            now,
+            gameId
+          ).run()
+
+          // Update ELO if ranked
+          if (game.mode === 'ranked') {
+            const moves = JSON.parse(game.moves) as number[]
+            await updateRatings(DB, { ...game, status: 'completed', winner }, winner, moves, now)
+          }
+
+          return errorResponse('Time expired', 400)
+        }
+
+        // Deduct elapsed time from current player
+        if (playerNumber === 1) {
+          newPlayer1Time = timeRemaining
+        } else {
+          newPlayer2Time = timeRemaining
+        }
+      }
     }
 
     // Validate and apply the move
@@ -169,7 +342,6 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse('Invalid move', 400)
     }
 
-    const now = Date.now()
     const newMoves = [...moves, column]
     const nextTurn = playerNumber === 1 ? 2 : 1
 
@@ -182,11 +354,12 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       winner = newState.winner === 'draw' ? 'draw' : String(newState.winner)
     }
 
-    // Update the game
+    // Update the game (including timer fields)
     await DB.prepare(`
       UPDATE active_games
       SET moves = ?, current_turn = ?, status = ?, winner = ?,
-          last_move_at = ?, updated_at = ?
+          last_move_at = ?, updated_at = ?,
+          player1_time_ms = ?, player2_time_ms = ?, turn_started_at = ?
       WHERE id = ?
     `).bind(
       JSON.stringify(newMoves),
@@ -195,6 +368,9 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       winner,
       now,
       now,
+      newPlayer1Time,
+      newPlayer2Time,
+      newStatus === 'active' ? now : game.turn_started_at, // Only update turn start if game continues
       gameId
     ).run()
 
@@ -202,6 +378,10 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     if (newStatus === 'completed' && game.mode === 'ranked') {
       await updateRatings(DB, game, winner, newMoves, now)
     }
+
+    // Calculate time remaining for response
+    const responsePlayer1Time = newStatus === 'completed' ? newPlayer1Time : newPlayer1Time
+    const responsePlayer2Time = newStatus === 'completed' ? newPlayer2Time : newPlayer2Time
 
     return jsonResponse({
       success: true,
@@ -211,6 +391,11 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       status: newStatus,
       winner,
       isYourTurn: newStatus === 'active' && nextTurn === playerNumber,
+      // Timer fields
+      timeControlMs: game.time_control_ms,
+      player1TimeMs: responsePlayer1Time,
+      player2TimeMs: responsePlayer2Time,
+      turnStartedAt: newStatus === 'active' ? now : game.turn_started_at,
     })
   } catch (error) {
     console.error('POST /api/match/:id error:', error)
