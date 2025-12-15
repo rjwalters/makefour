@@ -7,15 +7,17 @@
 
 import { engineRegistry } from '../ai-engine'
 import { minimaxEngine } from './minimax-engine'
+import { neuralEngine } from './neural-engine'
 
-// Register the minimax engine
+// Register available engines
 engineRegistry.register(minimaxEngine, true)
+engineRegistry.register(neuralEngine, true) // Simulated mode always available
 
 // Set minimax as the default engine
 engineRegistry.setDefault('minimax')
 
 // Re-export engines for direct access if needed
-export { minimaxEngine }
+export { minimaxEngine, neuralEngine }
 
 // Re-export registry utilities
 export { engineRegistry }
