@@ -217,6 +217,29 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
     play_style: 'adaptive',
     base_elo: 2200,
   },
+  {
+    id: 'neuron',
+    name: 'Neuron',
+    description: 'Plays by intuition using pattern recognition. Sometimes brilliant, sometimes baffling.',
+    avatar_url: null,
+    ai_engine: 'neural',
+    ai_config: {
+      searchDepth: 3, // hybridDepth for neural engine
+      errorRate: 0.05,
+      timeMultiplier: 0.4,
+    },
+    chat_personality: {
+      style: 'intuitive',
+      greeting: "Interesting... I sense familiar patterns here.",
+      onWin: "The patterns aligned perfectly.",
+      onLose: "Hmm, I need to learn from this.",
+      onGoodMove: "I've seen this before... fascinating.",
+      onBadMove: "That felt right, but maybe it wasn't...",
+      tauntFrequency: 0.25,
+    },
+    play_style: 'adaptive',
+    base_elo: 1400,
+  },
 ]
 
 /**
