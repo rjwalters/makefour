@@ -143,8 +143,9 @@ export async function analyzeSingleMove(
     moveHistory,
   }
 
-  // Get ranked moves using perfect difficulty for accurate analysis
-  const rankedMoves = await rankMoves(position, 'perfect')
+  // Get ranked moves using expert difficulty for good accuracy with reasonable performance
+  // (depth 8 vs depth 42 for 'perfect' - much faster while still accurate for most positions)
+  const rankedMoves = await rankMoves(position, 'expert')
 
   // Find the played move in ranked moves
   const playedMoveData = rankedMoves.find((m) => m.column === playedColumn)
