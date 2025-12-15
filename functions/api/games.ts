@@ -6,18 +6,28 @@
  */
 
 import { validateSession, errorResponse, jsonResponse } from '../lib/auth'
-import { calculateNewRating, getAIRating, GameOutcome, AIDifficulty } from '../lib/elo'
+import { calculateNewRating, GameOutcome } from '../lib/elo'
 import { z } from 'zod'
 
 interface Env {
   DB: D1Database
 }
 
+// AI difficulty ratings for ELO calculations (mapped to new difficulty names)
+const AI_DIFFICULTY_RATINGS: Record<string, number> = {
+  beginner: 800,
+  intermediate: 1200,
+  expert: 1600,
+  perfect: 2000,
+}
+
 // Schema for creating a new game
 const createGameSchema = z.object({
   outcome: z.enum(['win', 'loss', 'draw']),
   moves: z.array(z.number().int().min(0).max(6)),
-  aiDifficulty: z.enum(['easy', 'medium', 'hard', 'expert']).optional(),
+  opponentType: z.enum(['human', 'ai']).default('ai'),
+  aiDifficulty: z.enum(['beginner', 'intermediate', 'expert', 'perfect']).nullable().optional(),
+  playerNumber: z.number().int().min(1).max(2).default(1),
 })
 
 // Schema for game from database
@@ -28,6 +38,9 @@ interface GameRow {
   moves: string
   move_count: number
   rating_change: number | null
+  opponent_type: string
+  ai_difficulty: string | null
+  player_number: number
   created_at: number
 }
 
@@ -59,7 +72,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 
     // Fetch games for user, ordered by most recent first
     const games = await DB.prepare(`
-      SELECT id, outcome, moves, move_count, rating_change, created_at
+      SELECT id, outcome, moves, move_count, rating_change, opponent_type, ai_difficulty, player_number, created_at
       FROM games
       WHERE user_id = ?
       ORDER BY created_at DESC
@@ -84,6 +97,9 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       moves: JSON.parse(game.moves),
       moveCount: game.move_count,
       ratingChange: game.rating_change ?? 0,
+      opponentType: game.opponent_type,
+      aiDifficulty: game.ai_difficulty,
+      playerNumber: game.player_number,
       createdAt: game.created_at,
     }))
 
@@ -122,7 +138,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse(parseResult.error.errors[0].message, 400)
     }
 
-    const { outcome, moves, aiDifficulty } = parseResult.data
+    const { outcome, moves, opponentType, aiDifficulty, playerNumber } = parseResult.data
 
     // Get user's current rating and stats
     const user = await DB.prepare(`
@@ -136,14 +152,21 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse('User not found', 404)
     }
 
-    // Calculate new ELO rating
-    const opponentRating = getAIRating(aiDifficulty as AIDifficulty | undefined)
-    const eloResult = calculateNewRating(
-      user.rating,
-      opponentRating,
-      outcome as GameOutcome,
-      user.games_played
-    )
+    // Calculate new ELO rating (only for AI games)
+    let ratingChange = 0
+    let newRating = user.rating
+
+    if (opponentType === 'ai' && aiDifficulty) {
+      const opponentRating = AI_DIFFICULTY_RATINGS[aiDifficulty] ?? 1200
+      const eloResult = calculateNewRating(
+        user.rating,
+        opponentRating,
+        outcome as GameOutcome,
+        user.games_played
+      )
+      ratingChange = eloResult.ratingChange
+      newRating = eloResult.newRating
+    }
 
     // Generate UUID for the game
     const gameId = crypto.randomUUID()
@@ -157,17 +180,20 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     // Use a batch to ensure all updates happen atomically
     await DB.batch([
-      // Insert the game with rating change
+      // Insert the game with all fields
       DB.prepare(`
-        INSERT INTO games (id, user_id, outcome, moves, move_count, rating_change, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO games (id, user_id, outcome, moves, move_count, rating_change, opponent_type, ai_difficulty, player_number, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         gameId,
         session.userId,
         outcome,
         JSON.stringify(moves),
         moves.length,
-        eloResult.ratingChange,
+        ratingChange,
+        opponentType,
+        aiDifficulty ?? null,
+        playerNumber,
         now
       ),
 
@@ -182,7 +208,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
           updated_at = ?
         WHERE id = ?
       `).bind(
-        eloResult.newRating,
+        newRating,
         winsIncrement,
         lossesIncrement,
         drawsIncrement,
@@ -190,19 +216,23 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         session.userId
       ),
 
-      // Record rating history
-      DB.prepare(`
-        INSERT INTO rating_history (id, user_id, game_id, rating_before, rating_after, rating_change, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).bind(
-        ratingHistoryId,
-        session.userId,
-        gameId,
-        user.rating,
-        eloResult.newRating,
-        eloResult.ratingChange,
-        now
-      ),
+      // Record rating history (only if rating changed)
+      ...(ratingChange !== 0
+        ? [
+            DB.prepare(`
+              INSERT INTO rating_history (id, user_id, game_id, rating_before, rating_after, rating_change, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+            `).bind(
+              ratingHistoryId,
+              session.userId,
+              gameId,
+              user.rating,
+              newRating,
+              ratingChange,
+              now
+            ),
+          ]
+        : []),
     ])
 
     return jsonResponse(
@@ -211,8 +241,11 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         outcome,
         moves,
         moveCount: moves.length,
-        ratingChange: eloResult.ratingChange,
-        newRating: eloResult.newRating,
+        ratingChange,
+        newRating,
+        opponentType,
+        aiDifficulty,
+        playerNumber,
         createdAt: now,
       },
       201

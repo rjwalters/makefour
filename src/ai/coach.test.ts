@@ -6,6 +6,8 @@ import {
   analyzePosition,
   suggestMove,
   rankMoves,
+  analyzeThreats,
+  getQuickEvaluation,
   DIFFICULTY_LEVELS,
   type Position,
 } from './coach'
@@ -370,6 +372,185 @@ describe('AI Coach - Minimax', () => {
       const elapsed = Date.now() - start
 
       expect(elapsed).toBeLessThan(1000)
+    })
+  })
+
+  describe('analyzeThreats', () => {
+    it('returns empty threats for empty board', () => {
+      const board = createEmptyBoard()
+      const threats = analyzeThreats(board, 1)
+
+      expect(threats.winningMoves).toHaveLength(0)
+      expect(threats.blockingMoves).toHaveLength(0)
+      expect(threats.threats).toHaveLength(0)
+    })
+
+    it('finds winning move when player has three in a row', () => {
+      const board = createBoardFromString(`
+        .......
+        .......
+        .......
+        .......
+        .......
+        111....
+      `)
+
+      const threats = analyzeThreats(board, 1)
+      expect(threats.winningMoves).toContain(3)
+      expect(threats.threats.some((t) => t.type === 'win' && t.column === 3)).toBe(true)
+    })
+
+    it('finds blocking move when opponent has three in a row', () => {
+      const board = createBoardFromString(`
+        .......
+        .......
+        .......
+        .......
+        .......
+        222....
+      `)
+
+      const threats = analyzeThreats(board, 1)
+      expect(threats.blockingMoves).toContain(3)
+      expect(threats.threats.some((t) => t.type === 'block' && t.column === 3)).toBe(true)
+    })
+
+    it('finds multiple threats in complex position', () => {
+      // Player 1 has two ways to win
+      const board = createBoardFromString(`
+        .......
+        .......
+        .......
+        .......
+        ...1...
+        .111.2.
+      `)
+
+      const threats = analyzeThreats(board, 1)
+      // Column 0 and column 4 are both wins for player 1
+      expect(threats.winningMoves.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('detects vertical threats', () => {
+      const board = createBoardFromString(`
+        .......
+        .......
+        .......
+        ...1...
+        ...1...
+        ...1...
+      `)
+
+      const threats = analyzeThreats(board, 1)
+      expect(threats.winningMoves).toContain(3)
+      expect(threats.threats.some((t) => t.column === 3 && t.row === 2)).toBe(true)
+    })
+
+    it('detects diagonal threats', () => {
+      // Player 1 has diagonal: (5,0), (4,1), (3,2)
+      // Playing column 3 will complete diagonal with (2,3)
+      // Column 3 needs pieces at rows 3,4,5 for piece to land at row 2
+      const board = createBoardFromString(`
+        .......
+        .......
+        .......
+        ..1222.
+        .1.111.
+        1..222.
+      `)
+
+      const threats = analyzeThreats(board, 1)
+      // Column 3 at row 2 should complete the diagonal (5,0)-(4,1)-(3,2)-(2,3)
+      expect(threats.winningMoves).toContain(3)
+    })
+
+    it('includes row information in threats', () => {
+      const board = createBoardFromString(`
+        .......
+        .......
+        .......
+        .......
+        .......
+        111....
+      `)
+
+      const threats = analyzeThreats(board, 1)
+      const winThreat = threats.threats.find((t) => t.type === 'win')
+      expect(winThreat).toBeDefined()
+      expect(winThreat?.column).toBe(3)
+      expect(winThreat?.row).toBe(5) // Bottom row
+    })
+  })
+
+  describe('getQuickEvaluation', () => {
+    it('returns winning evaluation when can win this move', () => {
+      const board = createBoardFromString(`
+        .......
+        .......
+        .......
+        .......
+        .......
+        111....
+      `)
+
+      const evaluation = getQuickEvaluation(board, 1)
+      expect(evaluation.result).toBe('win')
+      expect(evaluation.score).toBeGreaterThan(0)
+      expect(evaluation.description).toContain('can win')
+    })
+
+    it('returns losing evaluation when opponent has multiple threats', () => {
+      // Player 2 has two threats, player 1 can only block one
+      const board = createBoardFromString(`
+        .......
+        .......
+        .......
+        .......
+        ...2...
+        .222.1.
+      `)
+
+      const evaluation = getQuickEvaluation(board, 1)
+      expect(evaluation.result).toBe('loss')
+      expect(evaluation.score).toBeLessThan(0)
+    })
+
+    it('returns unknown for balanced position', () => {
+      const board = createBoardFromString(`
+        .......
+        .......
+        .......
+        .......
+        .......
+        ..12...
+      `)
+
+      const evaluation = getQuickEvaluation(board, 1)
+      expect(['unknown', 'draw']).toContain(evaluation.result)
+    })
+
+    it('returns correct description for favorable position', () => {
+      const board = createBoardFromString(`
+        .......
+        .......
+        .......
+        .......
+        ...1...
+        ..11...
+      `)
+
+      const evaluation = getQuickEvaluation(board, 1)
+      expect(evaluation.score).toBeGreaterThan(0)
+    })
+
+    it('evaluates quickly (< 10ms)', () => {
+      const board = createEmptyBoard()
+
+      const start = Date.now()
+      getQuickEvaluation(board, 1)
+      const elapsed = Date.now() - start
+
+      expect(elapsed).toBeLessThan(10)
     })
   })
 })

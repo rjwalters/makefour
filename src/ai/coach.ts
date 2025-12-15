@@ -21,6 +21,13 @@ import {
   COLUMNS,
   WIN_LENGTH,
 } from '../game/makefour'
+import {
+  getOptimalMove,
+  analyzeWithSolver,
+  canSolvePosition,
+  describeSolverResult,
+  type SolverAnalysis,
+} from './solver'
 
 // ============================================================================
 // POSITION EVALUATION
@@ -29,7 +36,7 @@ import {
 /**
  * Weights for position evaluation heuristics.
  */
-const EVAL_WEIGHTS = {
+export const EVAL_WEIGHTS = {
   WIN: 100000,
   THREE_IN_ROW: 100,
   TWO_IN_ROW: 10,
@@ -416,7 +423,8 @@ export async function analyzePosition(
 
 /**
  * Suggests the best move for the current position.
- * Uses minimax search with alpha-beta pruning.
+ * For "perfect" difficulty, uses the perfect play solver API.
+ * For other difficulties, uses minimax search with alpha-beta pruning.
  *
  * @param position - The current game position
  * @param difficulty - The difficulty level (determines search depth and error rate)
@@ -427,6 +435,16 @@ export async function suggestMove(
   difficulty: DifficultyLevel = 'intermediate'
 ): Promise<number> {
   const config = DIFFICULTY_LEVELS[difficulty]
+
+  // For perfect difficulty, try to use the solver first
+  if (difficulty === 'perfect') {
+    const optimalMove = await getOptimalMove(position)
+    if (optimalMove !== null) {
+      return optimalMove
+    }
+    // Fall back to deep minimax if solver unavailable
+  }
+
   const analysis = await analyzePosition(position, difficulty)
 
   // Introduce random errors based on difficulty
@@ -514,17 +532,32 @@ export async function rankMoves(
 }
 
 /**
- * Checks if the current position is part of the "solved" database.
- * Four-in-a-row is a solved game - with perfect play, the first player wins.
+ * Checks if the current position can be solved using the perfect play database.
+ * Connect Four is a solved game - with perfect play, the first player always wins.
  *
- * STUB: Always returns false.
- * TODO: Integrate with opening book / endgame database.
+ * This function queries the solver API to determine if we have perfect
+ * information about this position.
  *
  * @param position - The current game position
- * @returns Whether we have perfect information about this position
+ * @param timeout - Timeout in milliseconds for the solver query
+ * @returns Promise resolving to whether we have perfect information about this position
  */
-export function isPositionSolved(_position: Position): boolean {
-  // TODO: Implement lookup in opening/endgame database
+export async function isPositionSolved(
+  position: Position,
+  timeout = 2000
+): Promise<boolean> {
+  return canSolvePosition(position, timeout)
+}
+
+/**
+ * Synchronous version of isPositionSolved for backwards compatibility.
+ * Always returns false - use the async version for actual solver access.
+ *
+ * @deprecated Use the async isPositionSolved instead
+ * @param _position - The current game position
+ * @returns Always false (use async version for real checks)
+ */
+export function isPositionSolvedSync(_position: Position): boolean {
   return false
 }
 
@@ -589,3 +622,308 @@ export const DIFFICULTY_LEVELS = {
 } as const
 
 export type DifficultyLevel = keyof typeof DIFFICULTY_LEVELS
+
+// ============================================================================
+// THREAT DETECTION
+// ============================================================================
+
+/**
+ * Represents a threat on the board.
+ */
+export interface Threat {
+  /** Column that completes the threat (0-6) */
+  column: number
+  /** Row where the piece would land (0-5) */
+  row: number
+  /** Player who benefits from this threat */
+  player: Player
+  /** Type of threat */
+  type: 'win' | 'block'
+}
+
+/**
+ * Result of threat analysis.
+ */
+export interface ThreatAnalysis {
+  /** Columns where current player can win immediately */
+  winningMoves: number[]
+  /** Columns where opponent would win (must block) */
+  blockingMoves: number[]
+  /** All threats on the board */
+  threats: Threat[]
+}
+
+/**
+ * Gets the row where a piece would land in a column.
+ * @param board - Current board state
+ * @param column - Column to check
+ * @returns Row index (0-5) or -1 if column is full
+ */
+function getDropRow(board: Board, column: number): number {
+  for (let row = ROWS - 1; row >= 0; row--) {
+    if (board[row][column] === null) {
+      return row
+    }
+  }
+  return -1
+}
+
+/**
+ * Checks if playing in a column would result in a win for the given player.
+ * @param board - Current board state
+ * @param column - Column to check
+ * @param player - Player to check for
+ * @returns true if playing here wins
+ */
+function wouldWin(board: Board, column: number, player: Player): boolean {
+  const row = getDropRow(board, column)
+  if (row === -1) return false
+
+  const result = applyMove(board, column, player)
+  if (!result.success || !result.board) return false
+
+  const winner = checkWinner(result.board)
+  return winner === player
+}
+
+/**
+ * Analyzes the current position for threats.
+ * Identifies winning moves for current player and blocking moves needed.
+ *
+ * @param board - Current board state
+ * @param currentPlayer - The player whose turn it is
+ * @returns ThreatAnalysis with winning and blocking moves
+ */
+export function analyzeThreats(board: Board, currentPlayer: Player): ThreatAnalysis {
+  const opponent: Player = currentPlayer === 1 ? 2 : 1
+  const winningMoves: number[] = []
+  const blockingMoves: number[] = []
+  const threats: Threat[] = []
+
+  for (let col = 0; col < COLUMNS; col++) {
+    const row = getDropRow(board, col)
+    if (row === -1) continue
+
+    // Check if current player can win
+    if (wouldWin(board, col, currentPlayer)) {
+      winningMoves.push(col)
+      threats.push({ column: col, row, player: currentPlayer, type: 'win' })
+    }
+
+    // Check if opponent would win (need to block)
+    if (wouldWin(board, col, opponent)) {
+      blockingMoves.push(col)
+      threats.push({ column: col, row, player: opponent, type: 'block' })
+    }
+  }
+
+  return { winningMoves, blockingMoves, threats }
+}
+
+/**
+ * Gets a quick position evaluation for display purposes.
+ * Uses a shallow search for speed.
+ *
+ * @param board - Current board state
+ * @param currentPlayer - The player whose turn it is
+ * @returns Evaluation score and description
+ */
+export function getQuickEvaluation(
+  board: Board,
+  currentPlayer: Player
+): { score: number; description: string; result: 'win' | 'loss' | 'draw' | 'unknown' } {
+  // Check for immediate wins/losses
+  const threats = analyzeThreats(board, currentPlayer)
+
+  if (threats.winningMoves.length > 0) {
+    return {
+      score: EVAL_WEIGHTS.WIN,
+      description: 'Winning position - can win this move',
+      result: 'win',
+    }
+  }
+
+  // If opponent has multiple threats and we can only block one, we're losing
+  if (threats.blockingMoves.length > 1) {
+    return {
+      score: -EVAL_WEIGHTS.WIN,
+      description: 'Losing position - opponent has multiple threats',
+      result: 'loss',
+    }
+  }
+
+  // Use shallow evaluation for quick feedback
+  const score = evaluatePosition(board, currentPlayer)
+
+  return {
+    score,
+    description: getEvaluationDescription(score),
+    result: getTheoreticalResult(score),
+  }
+}
+
+// ============================================================================
+// PERFECT PLAY ANALYSIS
+// ============================================================================
+
+/**
+ * Extended analysis result that includes perfect play solver data.
+ */
+export interface PerfectAnalysis extends Analysis {
+  /** Solver analysis if available */
+  solverAnalysis: SolverAnalysis | null
+  /** Whether solver data was used */
+  usedSolver: boolean
+}
+
+/**
+ * Analyzes a position using the perfect play solver when available.
+ * Falls back to minimax analysis if the solver is unavailable.
+ *
+ * This provides the most accurate analysis possible by combining:
+ * - Perfect play solver data (when available)
+ * - Minimax heuristic analysis (as fallback or supplement)
+ *
+ * @param position - The game position to analyze
+ * @param timeout - Timeout for solver query in milliseconds
+ * @returns Promise resolving to comprehensive analysis
+ */
+export async function analyzeWithPerfectPlay(
+  position: Position,
+  timeout = 5000
+): Promise<PerfectAnalysis> {
+  // Try solver first
+  const solverAnalysis = await analyzeWithSolver(position, timeout)
+
+  if (solverAnalysis) {
+    // We have perfect information
+    const optimalMove = solverAnalysis.optimalMoves[0] ?? getValidMoves(position.board)[0] ?? 0
+
+    return {
+      bestMove: optimalMove,
+      score: solverAnalysis.score * 1000, // Scale to match minimax scores
+      evaluation: describeSolverResult(solverAnalysis),
+      theoreticalResult: solverAnalysis.value === 'unknown' ? 'unknown' : solverAnalysis.value,
+      confidence: 1, // Perfect information
+      solverAnalysis,
+      usedSolver: true,
+    }
+  }
+
+  // Fall back to minimax analysis
+  const analysis = await analyzePosition(position, 'expert')
+
+  return {
+    ...analysis,
+    solverAnalysis: null,
+    usedSolver: false,
+  }
+}
+
+/**
+ * Gets all optimal moves for a position using the perfect play solver.
+ * Returns all moves that maintain the optimal game-theoretic result.
+ *
+ * @param position - The game position
+ * @param timeout - Timeout in milliseconds
+ * @returns Array of optimal column indices (0-6), or null if solver unavailable
+ */
+export async function getOptimalMoves(
+  position: Position,
+  timeout = 5000
+): Promise<number[] | null> {
+  const analysis = await analyzeWithSolver(position, timeout)
+  return analysis?.optimalMoves ?? null
+}
+
+/**
+ * Scores a move against perfect play.
+ * Returns a rating of how good the move is compared to the optimal move.
+ *
+ * @param position - The game position before the move
+ * @param column - The column that was played (0-6)
+ * @param timeout - Timeout in milliseconds
+ * @returns Object with rating and explanation, or null if solver unavailable
+ */
+export async function scoreMove(
+  position: Position,
+  column: number,
+  timeout = 5000
+): Promise<{ rating: 'optimal' | 'good' | 'inaccuracy' | 'mistake' | 'blunder'; explanation: string } | null> {
+  const analysis = await analyzeWithSolver(position, timeout)
+
+  if (!analysis) {
+    return null
+  }
+
+  const moveData = analysis.rankedMoves.find((m) => m.column === column)
+  if (!moveData) {
+    return { rating: 'blunder', explanation: 'Invalid move' }
+  }
+
+  const isOptimal = analysis.optimalMoves.includes(column)
+  const bestScore = analysis.rankedMoves[0]?.score ?? 0
+  const scoreDiff = bestScore - moveData.score
+
+  if (isOptimal) {
+    return {
+      rating: 'optimal',
+      explanation: `Perfect move! This is one of the ${analysis.optimalMoves.length} optimal move(s).`,
+    }
+  }
+
+  // Categorize the move based on how much worse it is than optimal
+  if (scoreDiff <= 2) {
+    return {
+      rating: 'good',
+      explanation: 'Good move, very close to optimal play.',
+    }
+  }
+
+  if (scoreDiff <= 5) {
+    return {
+      rating: 'inaccuracy',
+      explanation: 'Slight inaccuracy. A better move was available.',
+    }
+  }
+
+  // Check if this move changes the game-theoretic result
+  const optimalValue = analysis.value
+  const moveValue = moveData.value
+
+  if (optimalValue === 'win' && moveValue === 'draw') {
+    return {
+      rating: 'mistake',
+      explanation: 'Mistake! This move turns a winning position into a draw.',
+    }
+  }
+
+  if (optimalValue === 'win' && moveValue === 'loss') {
+    return {
+      rating: 'blunder',
+      explanation: 'Blunder! This move turns a winning position into a loss.',
+    }
+  }
+
+  if (optimalValue === 'draw' && moveValue === 'loss') {
+    return {
+      rating: 'blunder',
+      explanation: 'Blunder! This move turns a drawn position into a loss.',
+    }
+  }
+
+  if (scoreDiff <= 10) {
+    return {
+      rating: 'mistake',
+      explanation: 'Mistake. There was a significantly better move.',
+    }
+  }
+
+  return {
+    rating: 'blunder',
+    explanation: 'Blunder! This move seriously weakens your position.',
+  }
+}
+
+// Re-export solver utilities for convenience
+export { encodePosition, decodePosition, clearSolverCache, getSolverCacheSize } from './solver'
