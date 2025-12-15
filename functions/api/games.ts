@@ -6,10 +6,19 @@
  */
 
 import { validateSession, errorResponse, jsonResponse } from '../lib/auth'
+import { calculateNewRating, GameOutcome } from '../lib/elo'
 import { z } from 'zod'
 
 interface Env {
   DB: D1Database
+}
+
+// AI difficulty ratings for ELO calculations (mapped to new difficulty names)
+const AI_DIFFICULTY_RATINGS: Record<string, number> = {
+  beginner: 800,
+  intermediate: 1200,
+  expert: 1600,
+  perfect: 2000,
 }
 
 // Schema for creating a new game
@@ -28,10 +37,20 @@ interface GameRow {
   outcome: string
   moves: string
   move_count: number
+  rating_change: number | null
   opponent_type: string
   ai_difficulty: string | null
   player_number: number
   created_at: number
+}
+
+// Schema for user rating data from database
+interface UserRatingRow {
+  rating: number
+  games_played: number
+  wins: number
+  losses: number
+  draws: number
 }
 
 /**
@@ -53,7 +72,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 
     // Fetch games for user, ordered by most recent first
     const games = await DB.prepare(`
-      SELECT id, outcome, moves, move_count, opponent_type, ai_difficulty, player_number, created_at
+      SELECT id, outcome, moves, move_count, rating_change, opponent_type, ai_difficulty, player_number, created_at
       FROM games
       WHERE user_id = ?
       ORDER BY created_at DESC
@@ -77,6 +96,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       outcome: game.outcome,
       moves: JSON.parse(game.moves),
       moveCount: game.move_count,
+      ratingChange: game.rating_change ?? 0,
       opponentType: game.opponent_type,
       aiDifficulty: game.ai_difficulty,
       playerNumber: game.player_number,
@@ -99,7 +119,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 }
 
 /**
- * POST /api/games - Save a completed game
+ * POST /api/games - Save a completed game and update ELO rating
  */
 export async function onRequestPost(context: EventContext<Env, any, any>) {
   const { DB } = context.env
@@ -120,27 +140,100 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     const { outcome, moves, opponentType, aiDifficulty, playerNumber } = parseResult.data
 
+    // Get user's current rating and stats
+    const user = await DB.prepare(`
+      SELECT rating, games_played, wins, losses, draws
+      FROM users WHERE id = ?
+    `)
+      .bind(session.userId)
+      .first<UserRatingRow>()
+
+    if (!user) {
+      return errorResponse('User not found', 404)
+    }
+
+    // Calculate new ELO rating (only for AI games)
+    let ratingChange = 0
+    let newRating = user.rating
+
+    if (opponentType === 'ai' && aiDifficulty) {
+      const opponentRating = AI_DIFFICULTY_RATINGS[aiDifficulty] ?? 1200
+      const eloResult = calculateNewRating(
+        user.rating,
+        opponentRating,
+        outcome as GameOutcome,
+        user.games_played
+      )
+      ratingChange = eloResult.ratingChange
+      newRating = eloResult.newRating
+    }
+
     // Generate UUID for the game
     const gameId = crypto.randomUUID()
+    const ratingHistoryId = crypto.randomUUID()
     const now = Date.now()
 
-    // Insert the game
-    await DB.prepare(`
-      INSERT INTO games (id, user_id, outcome, moves, move_count, opponent_type, ai_difficulty, player_number, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-      .bind(
+    // Update stats based on outcome
+    const winsIncrement = outcome === 'win' ? 1 : 0
+    const lossesIncrement = outcome === 'loss' ? 1 : 0
+    const drawsIncrement = outcome === 'draw' ? 1 : 0
+
+    // Use a batch to ensure all updates happen atomically
+    await DB.batch([
+      // Insert the game with all fields
+      DB.prepare(`
+        INSERT INTO games (id, user_id, outcome, moves, move_count, rating_change, opponent_type, ai_difficulty, player_number, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
         gameId,
         session.userId,
         outcome,
         JSON.stringify(moves),
         moves.length,
+        ratingChange,
         opponentType,
         aiDifficulty ?? null,
         playerNumber,
         now
-      )
-      .run()
+      ),
+
+      // Update user's rating and stats
+      DB.prepare(`
+        UPDATE users SET
+          rating = ?,
+          games_played = games_played + 1,
+          wins = wins + ?,
+          losses = losses + ?,
+          draws = draws + ?,
+          updated_at = ?
+        WHERE id = ?
+      `).bind(
+        newRating,
+        winsIncrement,
+        lossesIncrement,
+        drawsIncrement,
+        now,
+        session.userId
+      ),
+
+      // Record rating history (only if rating changed)
+      ...(ratingChange !== 0
+        ? [
+            DB.prepare(`
+              INSERT INTO rating_history (id, user_id, game_id, rating_before, rating_after, rating_change, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+            `).bind(
+              ratingHistoryId,
+              session.userId,
+              gameId,
+              user.rating,
+              newRating,
+              ratingChange,
+              now
+            ),
+          ]
+        : []),
+    ])
 
     return jsonResponse(
       {
@@ -148,6 +241,8 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         outcome,
         moves,
         moveCount: moves.length,
+        ratingChange,
+        newRating,
         opponentType,
         aiDifficulty,
         playerNumber,

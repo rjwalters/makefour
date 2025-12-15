@@ -6,6 +6,7 @@ import DashboardPage from './pages/DashboardPage'
 import PlayPage from './pages/PlayPage'
 import GamesPage from './pages/GamesPage'
 import ReplayPage from './pages/ReplayPage'
+import LeaderboardPage from './pages/LeaderboardPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -45,6 +46,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <ReplayPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/leaderboard"
+              element={
+                <ProtectedRoute>
+                  <LeaderboardPage />
                 </ProtectedRoute>
               }
             />

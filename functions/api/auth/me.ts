@@ -58,12 +58,26 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       )
     }
 
-    // Get user
+    // Get user with rating information
     const user = await DB.prepare(
-      'SELECT id, email, email_verified, created_at, last_login, updated_at FROM users WHERE id = ?'
+      `SELECT id, email, email_verified, rating, games_played, wins, losses, draws,
+              created_at, last_login, updated_at
+       FROM users WHERE id = ?`
     )
       .bind(session.user_id)
-      .first()
+      .first<{
+        id: string
+        email: string
+        email_verified: number
+        rating: number
+        games_played: number
+        wins: number
+        losses: number
+        draws: number
+        created_at: number
+        last_login: number
+        updated_at: number
+      }>()
 
     if (!user) {
       return new Response(
@@ -80,8 +94,17 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     return new Response(
       JSON.stringify({
         user: {
-          ...user,
+          id: user.id,
+          email: user.email,
           email_verified: user.email_verified === 1,
+          rating: user.rating,
+          gamesPlayed: user.games_played,
+          wins: user.wins,
+          losses: user.losses,
+          draws: user.draws,
+          createdAt: user.created_at,
+          lastLogin: user.last_login,
+          updatedAt: user.updated_at,
         },
       }),
       {

@@ -9,6 +9,12 @@ CREATE TABLE IF NOT EXISTS users (
   oauth_provider TEXT,
   oauth_id TEXT,
   encrypted_dek TEXT,
+  -- ELO rating fields
+  rating INTEGER NOT NULL DEFAULT 1200,
+  games_played INTEGER NOT NULL DEFAULT 0,
+  wins INTEGER NOT NULL DEFAULT 0,
+  losses INTEGER NOT NULL DEFAULT 0,
+  draws INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   last_login INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
@@ -58,6 +64,8 @@ CREATE TABLE IF NOT EXISTS games (
   moves TEXT NOT NULL,
   -- Total number of moves in the game
   move_count INTEGER NOT NULL,
+  -- ELO rating change from this game (positive for gains, negative for losses)
+  rating_change INTEGER DEFAULT 0,
   -- Type of opponent: 'human' for hotseat, 'ai' for AI opponent
   opponent_type TEXT NOT NULL DEFAULT 'ai',
   -- AI difficulty level (null for human games)
@@ -90,3 +98,23 @@ CREATE INDEX IF NOT EXISTS idx_games_created_at ON games(created_at);
 CREATE INDEX IF NOT EXISTS idx_games_outcome ON games(outcome);
 CREATE INDEX IF NOT EXISTS idx_games_opponent_type ON games(opponent_type);
 CREATE INDEX IF NOT EXISTS idx_games_ai_difficulty ON games(ai_difficulty);
+
+-- Rating history table - tracks ELO changes after each game
+CREATE TABLE IF NOT EXISTS rating_history (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  game_id TEXT NOT NULL,
+  rating_before INTEGER NOT NULL,
+  rating_after INTEGER NOT NULL,
+  rating_change INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+);
+
+-- Indexes for rating history
+CREATE INDEX IF NOT EXISTS idx_rating_history_user_id ON rating_history(user_id);
+CREATE INDEX IF NOT EXISTS idx_rating_history_created_at ON rating_history(created_at);
+
+-- Index for leaderboard queries (descending by rating)
+CREATE INDEX IF NOT EXISTS idx_users_rating ON users(rating DESC);

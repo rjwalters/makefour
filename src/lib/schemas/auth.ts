@@ -8,9 +8,15 @@ export const userSchema = z.object({
   password_hash: z.string().nullable(),
   oauth_provider: z.enum(['google']).nullable(),
   oauth_id: z.string().nullable(),
-  created_at: z.number(),
-  last_login: z.number(),
-  updated_at: z.number(),
+  // ELO rating fields
+  rating: z.number().default(1200),
+  gamesPlayed: z.number().default(0),
+  wins: z.number().default(0),
+  losses: z.number().default(0),
+  draws: z.number().default(0),
+  createdAt: z.number(),
+  lastLogin: z.number(),
+  updatedAt: z.number(),
 })
 
 export type User = z.infer<typeof userSchema>
