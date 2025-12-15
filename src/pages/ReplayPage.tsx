@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { Button } from '../components/ui/button'
@@ -209,19 +209,52 @@ export default function ReplayPage() {
     )
   }
 
+  // Mobile menu state
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  // Touch swipe handling for replay navigation
+  const touchStartX = useRef<number | null>(null)
+  const boardRef = useRef<HTMLDivElement>(null)
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX
+  }, [])
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (touchStartX.current === null) return
+
+    const touchEndX = e.changedTouches[0].clientX
+    const diff = touchStartX.current - touchEndX
+    const minSwipeDistance = 50 // minimum swipe distance in pixels
+
+    if (Math.abs(diff) > minSwipeDistance) {
+      if (diff > 0) {
+        // Swipe left = next move
+        goForward()
+      } else {
+        // Swipe right = previous move
+        goBack()
+      }
+    }
+
+    touchStartX.current = null
+  }, [goForward, goBack])
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-      <header className="border-b bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div>
-            <Link to="/dashboard" className="text-2xl font-bold hover:opacity-80">
+      <header className="border-b bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm sticky top-0 z-50">
+        <div className="container mx-auto px-4 py-3 sm:py-4 flex justify-between items-center">
+          <div className="min-w-0 flex-shrink">
+            <Link to="/dashboard" className="text-xl sm:text-2xl font-bold hover:opacity-80">
               MakeFour
             </Link>
             {user && (
-              <p className="text-xs text-muted-foreground">{user.email}</p>
+              <p className="text-xs text-muted-foreground truncate max-w-[150px] sm:max-w-none">{user.email}</p>
             )}
           </div>
-          <div className="flex gap-2">
+
+          {/* Desktop navigation */}
+          <div className="hidden sm:flex gap-2">
             <Link to="/games">
               <Button variant="outline" size="sm">
                 My Games
@@ -235,7 +268,59 @@ export default function ReplayPage() {
               Logout
             </Button>
           </div>
+
+          {/* Mobile navigation */}
+          <div className="flex sm:hidden gap-2 items-center">
+            <ThemeToggle />
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 touch-manipulation"
+              aria-label="Toggle menu"
+              aria-expanded={mobileMenuOpen}
+            >
+              {mobileMenuOpen ? (
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              ) : (
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
+
+        {/* Mobile menu dropdown */}
+        {mobileMenuOpen && (
+          <div className="sm:hidden border-t bg-white dark:bg-gray-800 px-4 py-3 space-y-2">
+            <Link
+              to="/games"
+              className="block"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <Button variant="outline" className="w-full justify-start h-12 touch-manipulation">
+                My Games
+              </Button>
+            </Link>
+            <Link
+              to="/play"
+              className="block"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <Button className="w-full justify-start h-12 touch-manipulation">
+                Play
+              </Button>
+            </Link>
+            <Button
+              variant="outline"
+              onClick={() => { logout(); setMobileMenuOpen(false); }}
+              className="w-full justify-start h-12 touch-manipulation"
+            >
+              Logout
+            </Button>
+          </div>
+        )}
       </header>
 
       <main className="container mx-auto px-4 py-8">
@@ -250,59 +335,68 @@ export default function ReplayPage() {
               </p>
               <p className="text-lg font-semibold mt-2">{getOutcomeLabel(game.outcome)}</p>
             </CardHeader>
-            <CardContent className="flex flex-col items-center gap-6">
-              <GameBoard
-                board={gameState.board}
-                currentPlayer={gameState.currentPlayer}
-                winner={gameState.winner}
-                disabled={true}
-              />
+            <CardContent className="flex flex-col items-center gap-4 sm:gap-6">
+              {/* Swipeable board area */}
+              <div
+                ref={boardRef}
+                onTouchStart={handleTouchStart}
+                onTouchEnd={handleTouchEnd}
+                className="touch-manipulation"
+              >
+                <GameBoard
+                  board={gameState.board}
+                  currentPlayer={gameState.currentPlayer}
+                  winner={gameState.winner}
+                  disabled={true}
+                />
+              </div>
 
-              {/* Replay controls */}
-              <div className="flex items-center gap-2">
+              {/* Replay controls - larger on mobile */}
+              <div className="flex items-center gap-1 sm:gap-2">
                 <Button
                   variant="outline"
-                  size="sm"
                   onClick={goToStart}
                   disabled={currentMoveIndex === 0}
                   title="Go to start (Home)"
+                  className="h-11 w-11 sm:h-10 sm:w-auto sm:px-3 p-0 touch-manipulation text-lg"
                 >
                   ⏮
                 </Button>
                 <Button
                   variant="outline"
-                  size="sm"
                   onClick={goBack}
                   disabled={currentMoveIndex === 0}
                   title="Previous move (←)"
+                  className="h-11 w-11 sm:h-10 sm:w-auto sm:px-3 p-0 touch-manipulation text-lg"
                 >
                   ◀
                 </Button>
-                <span className="px-4 text-sm font-medium min-w-[80px] text-center">
+                <span className="px-2 sm:px-4 text-sm font-medium min-w-[70px] sm:min-w-[80px] text-center">
                   {currentMoveIndex} / {game.moves.length}
                 </span>
                 <Button
                   variant="outline"
-                  size="sm"
                   onClick={goForward}
                   disabled={currentMoveIndex === game.moves.length}
                   title="Next move (→)"
+                  className="h-11 w-11 sm:h-10 sm:w-auto sm:px-3 p-0 touch-manipulation text-lg"
                 >
                   ▶
                 </Button>
                 <Button
                   variant="outline"
-                  size="sm"
                   onClick={goToEnd}
                   disabled={currentMoveIndex === game.moves.length}
                   title="Go to end (End)"
+                  className="h-11 w-11 sm:h-10 sm:w-auto sm:px-3 p-0 touch-manipulation text-lg"
                 >
                   ⏭
                 </Button>
               </div>
 
-              <p className="text-xs text-muted-foreground">
-                Use arrow keys to navigate
+              <p className="text-xs text-muted-foreground text-center">
+                <span className="hidden sm:inline">Use arrow keys to navigate</span>
+                <span className="sm:hidden">Swipe left/right on board to navigate</span>
               </p>
 
               {/* Current move quality info */}
@@ -341,7 +435,7 @@ export default function ReplayPage() {
                 <p className="text-sm font-medium mb-2">
                   Moves {isAnalyzing && <span className="text-xs text-muted-foreground">(analyzing...)</span>}
                 </p>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1.5 sm:gap-1">
                   {game.moves.map((col, idx) => {
                     const analysis = moveAnalyses[idx]
                     const isSelected = idx + 1 === currentMoveIndex
@@ -353,7 +447,7 @@ export default function ReplayPage() {
                       <button
                         key={idx}
                         onClick={() => setCurrentMoveIndex(idx + 1)}
-                        className={`w-8 h-8 text-xs rounded border transition-all ${
+                        className={`w-10 h-10 sm:w-8 sm:h-8 text-sm sm:text-xs rounded border transition-all touch-manipulation ${
                           isSelected
                             ? 'ring-2 ring-primary ring-offset-2 dark:ring-offset-gray-900'
                             : ''
@@ -362,7 +456,7 @@ export default function ReplayPage() {
                             ? qualityClass
                             : idx + 1 < currentMoveIndex
                             ? 'bg-muted'
-                            : 'bg-background hover:bg-accent'
+                            : 'bg-background hover:bg-accent active:bg-accent'
                         }`}
                         title={`Move ${idx + 1}: Column ${col + 1}${analysis ? ` (${getMoveQualityLabel(analysis.quality)})` : ''}`}
                       >

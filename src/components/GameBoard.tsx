@@ -64,9 +64,9 @@ export default function GameBoard({
   }
 
   return (
-    <div className="flex flex-col items-center gap-4">
+    <div className="flex flex-col items-center gap-2 sm:gap-4 w-full max-w-[calc(100vw-2rem)] sm:max-w-none">
       {/* Column click targets - invisible buttons above each column */}
-      <div className="flex gap-1">
+      <div className="flex gap-0.5 sm:gap-1">
         {Array.from({ length: COLUMNS }, (_, col) => {
           const hasThreat = threatColumns.has(col)
           const isWinColumn = showThreats && threats.some((t) => t.column === col && t.type === 'win')
@@ -78,9 +78,10 @@ export default function GameBoard({
               onClick={() => handleColumnClick(col)}
               disabled={!isInteractive}
               className={cn(
-                'w-12 h-8 sm:w-14 sm:h-10 rounded-t-lg transition-colors relative',
+                'w-11 h-11 sm:w-14 sm:h-12 rounded-t-lg transition-colors relative',
+                'touch-manipulation', // Prevents double-tap zoom on mobile
                 isInteractive
-                  ? 'hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer'
+                  ? 'hover:bg-gray-200 dark:hover:bg-gray-700 active:bg-gray-300 dark:active:bg-gray-600 cursor-pointer'
                   : 'cursor-default',
                 // Threat highlighting for column headers
                 hasThreat && isWinColumn && 'bg-green-100 dark:bg-green-900/30',
@@ -112,8 +113,8 @@ export default function GameBoard({
       </div>
 
       {/* Game board */}
-      <div className="bg-blue-600 dark:bg-blue-800 p-2 rounded-lg shadow-lg">
-        <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${COLUMNS}, 1fr)` }}>
+      <div className="bg-blue-600 dark:bg-blue-800 p-1.5 sm:p-2 rounded-lg shadow-lg">
+        <div className="grid gap-0.5 sm:gap-1" style={{ gridTemplateColumns: `repeat(${COLUMNS}, 1fr)` }}>
           {board.map((row, rowIndex) =>
             row.map((cell, colIndex) => {
               const isWinningCell = winningSet.has(`${rowIndex},${colIndex}`)
@@ -127,9 +128,10 @@ export default function GameBoard({
                   onClick={() => handleColumnClick(colIndex)}
                   disabled={!isInteractive}
                   className={cn(
-                    'w-12 h-12 sm:w-14 sm:h-14 rounded-full transition-all duration-200',
+                    'w-11 h-11 sm:w-14 sm:h-14 rounded-full transition-all duration-200',
                     'flex items-center justify-center',
-                    isInteractive ? 'cursor-pointer' : 'cursor-default',
+                    'touch-manipulation', // Prevents double-tap zoom on mobile
+                    isInteractive ? 'cursor-pointer active:scale-95' : 'cursor-default',
                     // Cell background (the "hole" in the board)
                     'bg-gray-100 dark:bg-gray-900',
                     // Threat highlighting for empty cells where piece would land
@@ -147,7 +149,7 @@ export default function GameBoard({
                   {cell === null && isThreatCell && (
                     <div
                       className={cn(
-                        'w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 border-dashed',
+                        'w-9 h-9 sm:w-12 sm:h-12 rounded-full border-2 border-dashed',
                         isWinThreat ? 'border-green-500' : 'border-red-500'
                       )}
                     />
@@ -156,7 +158,7 @@ export default function GameBoard({
                   {cell !== null && (
                     <div
                       className={cn(
-                        'w-10 h-10 sm:w-12 sm:h-12 rounded-full transition-all',
+                        'w-9 h-9 sm:w-12 sm:h-12 rounded-full transition-all',
                         cell === 1
                           ? 'bg-red-500 shadow-red-600/50'
                           : 'bg-yellow-400 shadow-yellow-500/50',
