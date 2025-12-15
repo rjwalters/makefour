@@ -16,7 +16,7 @@ export default defineConfig({
     ...(process.env.CI ? [['github'] as const] : []),
   ],
   use: {
-    baseURL: process.env.E2E_BASE_URL || 'http://localhost:5173',
+    baseURL: process.env.E2E_BASE_URL || 'http://localhost:8788',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'on-first-retry',
@@ -44,8 +44,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5173',
+    command: 'npm run pages:dev',
+    url: 'http://localhost:8788',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
   },
