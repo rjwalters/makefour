@@ -42,7 +42,7 @@ interface TTEntry {
 
 /**
  * Transposition table for storing evaluated positions.
- * Uses Zobrist-style hashing for efficient board state lookup.
+ * Uses string-based hashing for reliability (not Zobrist hashing).
  */
 class TranspositionTable {
   private table: Map<string, TTEntry> = new Map()
@@ -253,6 +253,204 @@ function evaluatePosition(board: Board, player: Player): number {
 }
 
 // ============================================================================
+// QUIESCENCE SEARCH - THREAT DETECTION
+// ============================================================================
+
+/**
+ * Maximum additional depth for quiescence search.
+ * Limits search explosion while ensuring tactical accuracy.
+ */
+const MAX_QUIESCENCE_DEPTH = 4
+
+/**
+ * Find columns where a player can complete a winning threat.
+ * Returns columns where playing would result in 4-in-a-row.
+ */
+function findWinningMoves(board: Board, player: Player): number[] {
+  const winningMoves: number[] = []
+
+  for (let col = 0; col < COLUMNS; col++) {
+    if (board[0][col] !== null) continue // Column full
+
+    const result = applyMove(board, col, player)
+    if (result.success && result.board) {
+      const winner = checkWinner(result.board)
+      if (winner === player) {
+        winningMoves.push(col)
+      }
+    }
+  }
+
+  return winningMoves
+}
+
+/**
+ * Check if a position is "unstable" - has immediate tactical threats.
+ * An unstable position has winning moves available for either player.
+ */
+function isPositionUnstable(board: Board, currentPlayer: Player): boolean {
+  const opponent: Player = currentPlayer === 1 ? 2 : 1
+
+  // Check if current player can win immediately
+  if (findWinningMoves(board, currentPlayer).length > 0) {
+    return true
+  }
+
+  // Check if opponent has winning threats that must be blocked
+  if (findWinningMoves(board, opponent).length > 0) {
+    return true
+  }
+
+  return false
+}
+
+/**
+ * Get "loud" moves - moves that are tactically significant.
+ * In Connect Four, these are winning moves and blocking moves.
+ */
+function getLoudMoves(board: Board, currentPlayer: Player): number[] {
+  const opponent: Player = currentPlayer === 1 ? 2 : 1
+  const loudMoves = new Set<number>()
+
+  // Winning moves for current player
+  for (const col of findWinningMoves(board, currentPlayer)) {
+    loudMoves.add(col)
+  }
+
+  // Blocking moves (opponent's winning moves)
+  for (const col of findWinningMoves(board, opponent)) {
+    loudMoves.add(col)
+  }
+
+  return Array.from(loudMoves)
+}
+
+/**
+ * Quiescence search - continue searching in unstable positions.
+ * Only considers "loud" moves (winning/blocking) to avoid search explosion.
+ */
+function quiescenceSearch(
+  board: Board,
+  alpha: number,
+  beta: number,
+  maximizingPlayer: boolean,
+  player: Player,
+  currentPlayer: Player,
+  deadline: number,
+  nodesSearched: number,
+  qDepth: number
+): { score: number; nodesSearched: number } {
+  nodesSearched++
+
+  // Check time limit
+  if (nodesSearched % 500 === 0 && Date.now() > deadline) {
+    return { score: evaluatePosition(board, player), nodesSearched }
+  }
+
+  // Check terminal states
+  const winner = checkWinner(board)
+  if (winner !== null) {
+    if (winner === 'draw') return { score: 0, nodesSearched }
+    const winScore = EVAL_WEIGHTS.WIN + qDepth * 100
+    return {
+      score: winner === player ? winScore : -winScore,
+      nodesSearched,
+    }
+  }
+
+  // Stand-pat: get static evaluation as baseline
+  const standPat = evaluatePosition(board, player)
+
+  // If we've reached max quiescence depth, return static eval
+  if (qDepth <= 0) {
+    return { score: standPat, nodesSearched }
+  }
+
+  // Check if position is quiet (no immediate threats)
+  if (!isPositionUnstable(board, currentPlayer)) {
+    return { score: standPat, nodesSearched }
+  }
+
+  // Get only loud moves (winning/blocking)
+  const loudMoves = getLoudMoves(board, currentPlayer)
+  if (loudMoves.length === 0) {
+    return { score: standPat, nodesSearched }
+  }
+
+  const nextPlayer: Player = currentPlayer === 1 ? 2 : 1
+
+  if (maximizingPlayer) {
+    let bestScore = standPat // Can always "stand pat"
+
+    if (bestScore >= beta) {
+      return { score: bestScore, nodesSearched }
+    }
+    alpha = Math.max(alpha, bestScore)
+
+    for (const move of loudMoves) {
+      const result = applyMove(board, move, currentPlayer)
+      if (!result.success || !result.board) continue
+
+      const qResult = quiescenceSearch(
+        result.board,
+        alpha,
+        beta,
+        false,
+        player,
+        nextPlayer,
+        deadline,
+        nodesSearched,
+        qDepth - 1
+      )
+      nodesSearched = qResult.nodesSearched
+
+      if (qResult.score > bestScore) {
+        bestScore = qResult.score
+      }
+
+      alpha = Math.max(alpha, bestScore)
+      if (beta <= alpha) break
+    }
+
+    return { score: bestScore, nodesSearched }
+  } else {
+    let bestScore = standPat
+
+    if (bestScore <= alpha) {
+      return { score: bestScore, nodesSearched }
+    }
+    beta = Math.min(beta, bestScore)
+
+    for (const move of loudMoves) {
+      const result = applyMove(board, move, currentPlayer)
+      if (!result.success || !result.board) continue
+
+      const qResult = quiescenceSearch(
+        result.board,
+        alpha,
+        beta,
+        true,
+        player,
+        nextPlayer,
+        deadline,
+        nodesSearched,
+        qDepth - 1
+      )
+      nodesSearched = qResult.nodesSearched
+
+      if (qResult.score < bestScore) {
+        bestScore = qResult.score
+      }
+
+      beta = Math.min(beta, bestScore)
+      if (beta <= alpha) break
+    }
+
+    return { score: bestScore, nodesSearched }
+  }
+}
+
+// ============================================================================
 // MOVE GENERATION WITH ORDERING
 // ============================================================================
 
@@ -358,9 +556,20 @@ function deepMinimax(
   const validMoves = getValidMoves(board)
   if (validMoves.length === 0) return { score: 0, move: null, nodesSearched }
 
-  // Depth limit reached
+  // Depth limit reached - use quiescence search for tactical accuracy
   if (depth === 0) {
-    return { score: evaluatePosition(board, player), move: null, nodesSearched }
+    const qResult = quiescenceSearch(
+      board,
+      alpha,
+      beta,
+      maximizingPlayer,
+      player,
+      currentPlayer,
+      deadline,
+      nodesSearched,
+      MAX_QUIESCENCE_DEPTH
+    )
+    return { score: qResult.score, move: null, nodesSearched: qResult.nodesSearched }
   }
 
   // Transposition table lookup
