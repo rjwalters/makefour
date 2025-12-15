@@ -234,6 +234,28 @@ export default function DashboardPage() {
               </Link>
             </CardContent>
           </Card>
+
+          {/* Watch Live Games Card */}
+          <Card className="hover:shadow-lg transition-shadow border-purple-500/30 bg-gradient-to-br from-purple-50/50 to-white dark:from-purple-950/30 dark:to-gray-900">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <CardTitle>Watch Games</CardTitle>
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                  Live
+                </span>
+              </div>
+              <CardDescription>
+                Watch live bot battles and player matches
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Link to="/spectate">
+                <Button variant="outline" className="w-full border-purple-500/50 hover:bg-purple-50 dark:hover:bg-purple-950/50" size="lg">
+                  Spectate Games
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
         </div>
       </main>
     </div>

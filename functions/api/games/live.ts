@@ -25,6 +25,13 @@ interface LiveGameRow {
   updated_at: number
   player1_email: string
   player2_email: string
+  // Bot vs bot fields
+  is_bot_vs_bot: number
+  bot1_persona_id: string | null
+  bot2_persona_id: string | null
+  bot1_name: string | null
+  bot2_name: string | null
+  next_move_at: number | null
 }
 
 export interface LiveGame {
@@ -32,10 +39,14 @@ export interface LiveGame {
   player1: {
     rating: number
     displayName: string
+    isBot?: boolean
+    personaId?: string
   }
   player2: {
     rating: number
     displayName: string
+    isBot?: boolean
+    personaId?: string
   }
   moveCount: number
   currentTurn: 1 | 2
@@ -43,6 +54,9 @@ export interface LiveGame {
   spectatorCount: number
   createdAt: number
   updatedAt: number
+  // Bot vs bot specific fields
+  isBotVsBot?: boolean
+  nextMoveAt?: number | null
 }
 
 /**
@@ -97,7 +111,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 
     const total = countResult?.total ?? 0
 
-    // Get games with player info
+    // Get games with player info (including bot vs bot games)
     const games = await DB.prepare(`
       SELECT
         ag.id,
@@ -113,10 +127,18 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
         ag.created_at,
         ag.updated_at,
         u1.email as player1_email,
-        u2.email as player2_email
+        u2.email as player2_email,
+        ag.is_bot_vs_bot,
+        ag.bot1_persona_id,
+        ag.bot2_persona_id,
+        bp1.name as bot1_name,
+        bp2.name as bot2_name,
+        ag.next_move_at
       FROM active_games ag
       JOIN users u1 ON ag.player1_id = u1.id
       JOIN users u2 ON ag.player2_id = u2.id
+      LEFT JOIN bot_personas bp1 ON ag.bot1_persona_id = bp1.id
+      LEFT JOIN bot_personas bp2 ON ag.bot2_persona_id = bp2.id
       WHERE ${whereClause}
       ORDER BY ag.spectator_count DESC, ag.updated_at DESC
       LIMIT ? OFFSET ?
@@ -124,18 +146,32 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       .bind(...params, limit, offset)
       .all<LiveGameRow>()
 
-    // Transform to response format (hide full email for privacy)
+    // Transform to response format (hide full email for privacy, show bot names for bot games)
     const liveGames: LiveGame[] = games.results.map((game) => {
       const moves = JSON.parse(game.moves) as number[]
+      const isBotVsBot = game.is_bot_vs_bot === 1
+
+      // For bot vs bot games, show bot names instead of masked emails
+      const player1DisplayName = isBotVsBot && game.bot1_name
+        ? game.bot1_name
+        : maskEmail(game.player1_email)
+      const player2DisplayName = isBotVsBot && game.bot2_name
+        ? game.bot2_name
+        : maskEmail(game.player2_email)
+
       return {
         id: game.id,
         player1: {
           rating: game.player1_rating,
-          displayName: maskEmail(game.player1_email),
+          displayName: player1DisplayName,
+          isBot: isBotVsBot,
+          personaId: game.bot1_persona_id || undefined,
         },
         player2: {
           rating: game.player2_rating,
-          displayName: maskEmail(game.player2_email),
+          displayName: player2DisplayName,
+          isBot: isBotVsBot,
+          personaId: game.bot2_persona_id || undefined,
         },
         moveCount: moves.length,
         currentTurn: game.current_turn as 1 | 2,
@@ -143,6 +179,8 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
         spectatorCount: game.spectator_count,
         createdAt: game.created_at,
         updatedAt: game.updated_at,
+        isBotVsBot,
+        nextMoveAt: isBotVsBot ? game.next_move_at : undefined,
       }
     })
 

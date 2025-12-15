@@ -182,6 +182,14 @@ CREATE TABLE IF NOT EXISTS active_games (
   -- Bot game fields (for server-side ranked bot games)
   is_bot_game INTEGER NOT NULL DEFAULT 0,
   bot_difficulty TEXT,
+  -- Bot vs Bot game fields
+  is_bot_vs_bot INTEGER NOT NULL DEFAULT 0,
+  bot1_persona_id TEXT,
+  bot2_persona_id TEXT,
+  -- Pacing for bot vs bot games (ms delay between moves)
+  move_delay_ms INTEGER,
+  -- Last move timestamp for spectator display
+  next_move_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   FOREIGN KEY (player1_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -192,7 +200,8 @@ CREATE TABLE IF NOT EXISTS active_games (
   CHECK (winner IS NULL OR winner IN ('1', '2', 'draw')),
   CHECK (spectatable IN (0, 1)),
   CHECK (is_bot_game IN (0, 1)),
-  CHECK (bot_difficulty IS NULL OR bot_difficulty IN ('beginner', 'intermediate', 'expert', 'perfect'))
+  CHECK (bot_difficulty IS NULL OR bot_difficulty IN ('beginner', 'intermediate', 'expert', 'perfect')),
+  CHECK (is_bot_vs_bot IN (0, 1))
 );
 
 -- Indexes for active games
@@ -206,6 +215,8 @@ CREATE INDEX IF NOT EXISTS idx_active_games_spectatable ON active_games(spectata
 CREATE INDEX IF NOT EXISTS idx_active_games_timed ON active_games(status, time_control_ms, turn_started_at);
 -- Index for bot games
 CREATE INDEX IF NOT EXISTS idx_active_games_bot ON active_games(is_bot_game, status);
+-- Index for bot vs bot games (for spectating and game orchestration)
+CREATE INDEX IF NOT EXISTS idx_active_games_bot_vs_bot ON active_games(is_bot_vs_bot, status, next_move_at);
 
 -- Game messages - chat messages during active games
 CREATE TABLE IF NOT EXISTS game_messages (

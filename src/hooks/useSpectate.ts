@@ -16,10 +16,14 @@ export interface LiveGame {
   player1: {
     rating: number
     displayName: string
+    isBot?: boolean
+    personaId?: string
   }
   player2: {
     rating: number
     displayName: string
+    isBot?: boolean
+    personaId?: string
   }
   moveCount: number
   currentTurn: 1 | 2
@@ -27,6 +31,9 @@ export interface LiveGame {
   spectatorCount: number
   createdAt: number
   updatedAt: number
+  // Bot vs bot specific fields
+  isBotVsBot?: boolean
+  nextMoveAt?: number | null
 }
 
 export interface SpectatorGameState {
@@ -34,10 +41,14 @@ export interface SpectatorGameState {
   player1: {
     rating: number
     displayName: string
+    isBot?: boolean
+    personaId?: string
   }
   player2: {
     rating: number
     displayName: string
+    isBot?: boolean
+    personaId?: string
   }
   currentTurn: 1 | 2
   moves: number[]
@@ -53,6 +64,10 @@ export interface SpectatorGameState {
   player1TimeMs: number | null
   player2TimeMs: number | null
   turnStartedAt: number | null
+  // Bot vs bot specific fields
+  isBotVsBot?: boolean
+  moveDelayMs?: number | null
+  nextMoveAt?: number | null
 }
 
 export type SpectatorStatus = 'idle' | 'browsing' | 'loading' | 'watching' | 'error'

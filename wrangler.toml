@@ -20,3 +20,10 @@ id = "rate-limit-kv"
 # Environment variables
 [vars]
 ENVIRONMENT = "production"
+
+# Bot vs bot game tick endpoint authentication
+# Set BOT_TICK_SECRET in Cloudflare dashboard for production
+# This secret is used to authenticate calls to /api/bot/vs-bot/tick
+# External scheduler (GitHub Actions, cron-job.org, etc.) should call:
+# POST /api/bot/vs-bot/tick?createNew=true
+# with header: Authorization: Bearer <BOT_TICK_SECRET>
