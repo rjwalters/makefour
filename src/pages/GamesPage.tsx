@@ -11,6 +11,9 @@ interface Game {
   outcome: 'win' | 'loss' | 'draw'
   moves: number[]
   moveCount: number
+  opponentType: 'human' | 'ai'
+  aiDifficulty: 'beginner' | 'intermediate' | 'expert' | 'perfect' | null
+  playerNumber: number
   createdAt: number
 }
 
@@ -96,6 +99,24 @@ export default function GamesPage() {
     }
   }
 
+  const getOpponentLabel = (game: Game) => {
+    if (game.opponentType === 'human') {
+      return 'Hotseat'
+    }
+    const difficultyLabels: Record<string, string> = {
+      beginner: 'Beginner',
+      intermediate: 'Intermediate',
+      expert: 'Expert',
+      perfect: 'Perfect',
+    }
+    return `vs AI (${difficultyLabels[game.aiDifficulty || 'intermediate']})`
+  }
+
+  const getPlayerColorLabel = (game: Game) => {
+    if (game.opponentType === 'human') return null
+    return game.playerNumber === 1 ? 'Red' : 'Yellow'
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
       <header className="border-b bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
@@ -167,7 +188,13 @@ export default function GamesPage() {
                           </span>
                           <div>
                             <p className="text-sm font-medium">
+                              {getOpponentLabel(game)}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
                               {game.moveCount} moves
+                              {getPlayerColorLabel(game) && (
+                                <> · Played as {getPlayerColorLabel(game)}</>
+                              )}
                             </p>
                             <p className="text-xs text-muted-foreground">
                               {formatDate(game.createdAt)}

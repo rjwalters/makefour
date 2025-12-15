@@ -16,6 +16,9 @@ interface Env {
 const createGameSchema = z.object({
   outcome: z.enum(['win', 'loss', 'draw']),
   moves: z.array(z.number().int().min(0).max(6)),
+  opponentType: z.enum(['human', 'ai']).default('ai'),
+  aiDifficulty: z.enum(['beginner', 'intermediate', 'expert', 'perfect']).nullable().optional(),
+  playerNumber: z.number().int().min(1).max(2).default(1),
 })
 
 // Schema for game from database
@@ -25,6 +28,9 @@ interface GameRow {
   outcome: string
   moves: string
   move_count: number
+  opponent_type: string
+  ai_difficulty: string | null
+  player_number: number
   created_at: number
 }
 
@@ -47,7 +53,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 
     // Fetch games for user, ordered by most recent first
     const games = await DB.prepare(`
-      SELECT id, outcome, moves, move_count, created_at
+      SELECT id, outcome, moves, move_count, opponent_type, ai_difficulty, player_number, created_at
       FROM games
       WHERE user_id = ?
       ORDER BY created_at DESC
@@ -71,6 +77,9 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       outcome: game.outcome,
       moves: JSON.parse(game.moves),
       moveCount: game.move_count,
+      opponentType: game.opponent_type,
+      aiDifficulty: game.ai_difficulty,
+      playerNumber: game.player_number,
       createdAt: game.created_at,
     }))
 
@@ -109,7 +118,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse(parseResult.error.errors[0].message, 400)
     }
 
-    const { outcome, moves } = parseResult.data
+    const { outcome, moves, opponentType, aiDifficulty, playerNumber } = parseResult.data
 
     // Generate UUID for the game
     const gameId = crypto.randomUUID()
@@ -117,10 +126,20 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     // Insert the game
     await DB.prepare(`
-      INSERT INTO games (id, user_id, outcome, moves, move_count, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO games (id, user_id, outcome, moves, move_count, opponent_type, ai_difficulty, player_number, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
-      .bind(gameId, session.userId, outcome, JSON.stringify(moves), moves.length, now)
+      .bind(
+        gameId,
+        session.userId,
+        outcome,
+        JSON.stringify(moves),
+        moves.length,
+        opponentType,
+        aiDifficulty ?? null,
+        playerNumber,
+        now
+      )
       .run()
 
     return jsonResponse(
@@ -129,6 +148,9 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         outcome,
         moves,
         moveCount: moves.length,
+        opponentType,
+        aiDifficulty,
+        playerNumber,
         createdAt: now,
       },
       201
