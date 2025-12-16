@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { usePreferencesContext } from '../contexts/PreferencesContext'
 import { Button } from '../components/ui/button'
@@ -8,7 +8,6 @@ import Navbar from '../components/Navbar'
 import GameBoard from '../components/GameBoard'
 import AnalysisPanel from '../components/AnalysisPanel'
 import ChatPanel from '../components/ChatPanel'
-import BotPersonaSelector from '../components/BotPersonaSelector'
 import BotAvatar from '../components/BotAvatar'
 import { GameTimers } from '../components/GameTimer'
 import AutomatchWaiting from '../components/AutomatchWaiting'
@@ -51,6 +50,7 @@ export default function PlayPage() {
   const challenge = useChallenge()
   const sounds = useSounds()
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [gameState, setGameState] = useState<GameState>(createGameState)
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -90,6 +90,14 @@ export default function PlayPage() {
     }
   }, [preferences, gamePhase])
 
+  // Redirect to training mode if no mode specified
+  useEffect(() => {
+    const mode = searchParams.get('mode')
+    if (!mode) {
+      navigate('/play?mode=training', { replace: true })
+    }
+  }, [searchParams, navigate])
+
   // Handle mode query parameter from navbar navigation
   useEffect(() => {
     if (gamePhase !== 'setup' && gamePhase !== 'competition-setup') return
@@ -108,11 +116,11 @@ export default function PlayPage() {
       if (isAuthenticated) {
         setGamePhase('competition-setup')
       } else {
-        // Not authenticated - show regular setup
-        setGamePhase('setup')
+        // Not authenticated - redirect to training mode instead
+        navigate('/play?mode=training', { replace: true })
       }
     }
-  }, [searchParams, gamePhase, isAuthenticated])
+  }, [searchParams, gamePhase, isAuthenticated, navigate])
 
   // Track previous game state for detecting game over transitions
   const prevWinnerRef = useRef<typeof gameState.winner>(null)
@@ -487,236 +495,72 @@ export default function PlayPage() {
   const renderSetupScreen = () => (
     <Card>
       <CardHeader className="text-center">
-        <CardTitle className="text-2xl">New Game</CardTitle>
+        <CardTitle className="text-2xl">Training Mode</CardTitle>
+        <p className="text-sm text-muted-foreground mt-1">
+          Practice with AI coaching, hints, and analysis
+        </p>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Game Mode Selection */}
+        {/* Difficulty Selection */}
         <div>
-          <label className="block text-sm font-medium mb-2">Game Mode</label>
-          <div className="grid grid-cols-3 gap-2">
+          <label className="block text-sm font-medium mb-2">Difficulty</label>
+          <div className="grid grid-cols-2 gap-2">
+            {(Object.keys(DIFFICULTY_LEVELS) as DifficultyLevel[]).map((level) => (
+              <Button
+                key={level}
+                variant={settings.difficulty === level ? 'default' : 'outline'}
+                onClick={() => setSettings({ ...settings, difficulty: level })}
+                className="h-auto py-2"
+              >
+                <div className="text-center">
+                  <div className="font-medium">{DIFFICULTY_LEVELS[level].name}</div>
+                  <div className="text-xs opacity-80">{DIFFICULTY_LEVELS[level].description}</div>
+                </div>
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {/* Player Color Selection */}
+        <div>
+          <label className="block text-sm font-medium mb-2">Play as</label>
+          <div className="grid grid-cols-2 gap-2">
             <Button
-              variant={settings.mode === 'ai' ? 'default' : 'outline'}
-              onClick={() => setSettings({ ...settings, mode: 'ai' })}
+              variant={settings.playerColor === 1 ? 'default' : 'outline'}
+              onClick={() => setSettings({ ...settings, playerColor: 1 })}
               className="h-auto py-3"
             >
-              <div className="text-center">
-                <div className="font-medium">vs AI</div>
-                <div className="text-xs opacity-80">Computer</div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded-full bg-red-500" />
+                <div>
+                  <div className="font-medium">Red</div>
+                  <div className="text-xs opacity-80">Goes first</div>
+                </div>
               </div>
             </Button>
             <Button
-              variant={settings.mode === 'online' ? 'default' : 'outline'}
-              onClick={() => setSettings({ ...settings, mode: 'online' })}
+              variant={settings.playerColor === 2 ? 'default' : 'outline'}
+              onClick={() => setSettings({ ...settings, playerColor: 2 })}
               className="h-auto py-3"
             >
-              <div className="text-center">
-                <div className="font-medium">Online</div>
-                <div className="text-xs opacity-80">Real player</div>
-              </div>
-            </Button>
-            <Button
-              variant={settings.mode === 'hotseat' ? 'default' : 'outline'}
-              onClick={() => setSettings({ ...settings, mode: 'hotseat' })}
-              className="h-auto py-3"
-            >
-              <div className="text-center">
-                <div className="font-medium">Hotseat</div>
-                <div className="text-xs opacity-80">Same device</div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded-full bg-yellow-400" />
+                <div>
+                  <div className="font-medium">Yellow</div>
+                  <div className="text-xs opacity-80">Goes second</div>
+                </div>
               </div>
             </Button>
           </div>
         </div>
-
-        {/* AI-specific settings */}
-        {settings.mode === 'ai' && (
-          <>
-            {/* Game Type Selection: Training vs Ranked */}
-            <div>
-              <label className="block text-sm font-medium mb-2">Game Type</label>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  variant={settings.botGameMode === 'training' ? 'default' : 'outline'}
-                  onClick={() => setSettings({ ...settings, botGameMode: 'training' })}
-                  className="h-auto py-3"
-                >
-                  <div className="text-center">
-                    <div className="font-medium">Training</div>
-                    <div className="text-xs opacity-80">Untimed, no rating</div>
-                  </div>
-                </Button>
-                <Button
-                  variant={settings.botGameMode === 'ranked' ? 'default' : 'outline'}
-                  onClick={() => setSettings({ ...settings, botGameMode: 'ranked' })}
-                  className="h-auto py-3"
-                  disabled={!isAuthenticated}
-                >
-                  <div className="text-center">
-                    <div className="font-medium">Ranked</div>
-                    <div className="text-xs opacity-80">5-min clock, affects ELO</div>
-                  </div>
-                </Button>
-              </div>
-              {settings.botGameMode === 'ranked' && (
-                <p className="text-xs text-muted-foreground mt-2">
-                  Ranked bot games use a 5-minute chess clock and affect your rating.
-                </p>
-              )}
-              {settings.botGameMode === 'ranked' && !isAuthenticated && (
-                <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
-                  Sign in to play ranked bot games.
-                </p>
-              )}
-            </div>
-
-            {/* Bot Selection - Persona selector for ranked, difficulty for training */}
-            {settings.botGameMode === 'ranked' ? (
-              <BotPersonaSelector
-                selectedPersonaId={selectedPersona?.id ?? null}
-                onSelect={(persona) => setSelectedPersona(persona)}
-              />
-            ) : (
-              <div>
-                <label className="block text-sm font-medium mb-2">Difficulty</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(Object.keys(DIFFICULTY_LEVELS) as DifficultyLevel[]).map((level) => (
-                    <Button
-                      key={level}
-                      variant={settings.difficulty === level ? 'default' : 'outline'}
-                      onClick={() => setSettings({ ...settings, difficulty: level })}
-                      className="h-auto py-2"
-                    >
-                      <div className="text-center">
-                        <div className="font-medium">{DIFFICULTY_LEVELS[level].name}</div>
-                        <div className="text-xs opacity-80">{DIFFICULTY_LEVELS[level].description}</div>
-                      </div>
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Player Color Selection */}
-            <div>
-              <label className="block text-sm font-medium mb-2">Play as</label>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  variant={settings.playerColor === 1 ? 'default' : 'outline'}
-                  onClick={() => setSettings({ ...settings, playerColor: 1 })}
-                  className="h-auto py-3"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded-full bg-red-500" />
-                    <div>
-                      <div className="font-medium">Red</div>
-                      <div className="text-xs opacity-80">Goes first</div>
-                    </div>
-                  </div>
-                </Button>
-                <Button
-                  variant={settings.playerColor === 2 ? 'default' : 'outline'}
-                  onClick={() => setSettings({ ...settings, playerColor: 2 })}
-                  className="h-auto py-3"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded-full bg-yellow-400" />
-                    <div>
-                      <div className="font-medium">Yellow</div>
-                      <div className="text-xs opacity-80">Goes second</div>
-                    </div>
-                  </div>
-                </Button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* Online-specific settings */}
-        {settings.mode === 'online' && (
-          <>
-            <div>
-              <label className="block text-sm font-medium mb-2">Match Type</label>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  variant={settings.matchmakingMode === 'ranked' ? 'default' : 'outline'}
-                  onClick={() => setSettings({ ...settings, matchmakingMode: 'ranked' })}
-                  className="h-auto py-3"
-                >
-                  <div className="text-center">
-                    <div className="font-medium">Ranked</div>
-                    <div className="text-xs opacity-80">Affects your rating</div>
-                  </div>
-                </Button>
-                <Button
-                  variant={settings.matchmakingMode === 'casual' ? 'default' : 'outline'}
-                  onClick={() => setSettings({ ...settings, matchmakingMode: 'casual' })}
-                  className="h-auto py-3"
-                >
-                  <div className="text-center">
-                    <div className="font-medium">Casual</div>
-                    <div className="text-xs opacity-80">Just for fun</div>
-                  </div>
-                </Button>
-              </div>
-            </div>
-
-            {/* Privacy settings */}
-            <div>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.allowSpectators}
-                  onChange={(e) => setSettings({ ...settings, allowSpectators: e.target.checked })}
-                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <div>
-                  <span className="text-sm font-medium">Allow spectators</span>
-                  <p className="text-xs text-muted-foreground">
-                    Let others watch your game in real-time
-                  </p>
-                </div>
-              </label>
-            </div>
-
-            {/* Watch games link */}
-            <Link to="/spectate" className="block">
-              <Button variant="outline" className="w-full">
-                Watch Live Games
-              </Button>
-            </Link>
-          </>
-        )}
-
-        {/* Login prompt for online mode */}
-        {settings.mode === 'online' && !isAuthenticated && (
-          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 text-center">
-            <p className="text-sm text-yellow-800 dark:text-yellow-200 mb-2">
-              Sign in to play online matches
-            </p>
-            <Link to="/login">
-              <Button variant="outline" size="sm">
-                Sign In
-              </Button>
-            </Link>
-          </div>
-        )}
 
         {/* Start Button */}
         <Button
           onClick={handleStartGame}
           size="lg"
           className="w-full"
-          disabled={
-            (settings.mode === 'online' && !isAuthenticated) ||
-            (settings.mode === 'ai' && settings.botGameMode === 'ranked' && !selectedPersona)
-          }
         >
-          {settings.mode === 'online'
-            ? 'Find Match'
-            : settings.mode === 'ai' && settings.botGameMode === 'ranked'
-              ? selectedPersona
-                ? `Challenge ${selectedPersona.name}`
-                : 'Select an Opponent'
-              : 'Start Game'}
+          Start Training
         </Button>
       </CardContent>
     </Card>
