@@ -29,17 +29,19 @@ interface ChatPanelProps {
   botAvatarUrl?: string | null
   /** Bot name for display in chat */
   botName?: string
+  /** Current user's ID for identifying own messages */
+  userId?: string
 }
 
 export default function ChatPanel({
   gameId,
   isActive = true,
   isBot = false,
-  playerNumber = 1,
   className,
   moveCount = 0,
   botAvatarUrl,
   botName = 'Bot',
+  userId,
 }: ChatPanelProps) {
   const {
     messages,
@@ -113,14 +115,17 @@ export default function ChatPanel({
       return botName
     }
     // Check if this is the current player's message
-    if (message.sender_id === 'self') {
+    if (message.sender_id === 'self' || message.sender_id === userId) {
       return 'You'
     }
-    return playerNumber === 1 ? 'Opponent' : 'You'
+    return 'Opponent'
   }
 
   const isOwnMessage = (message: ChatMessage) => {
-    return message.sender_id === 'self' || message.sender_type === 'human'
+    if (message.sender_type === 'bot') {
+      return false
+    }
+    return message.sender_id === 'self' || message.sender_id === userId
   }
 
   if (!gameId) {

@@ -44,7 +44,7 @@ interface GameSettings {
 }
 
 export default function PlayPage() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuth()
   const { preferences, updatePreferences } = usePreferencesContext()
   const { apiCall } = useAuthenticatedApi()
   const matchmaking = useMatchmaking()
@@ -1105,6 +1105,7 @@ export default function PlayPage() {
             className="w-full mt-4"
             botAvatarUrl={selectedPersona?.avatarUrl}
             botName={selectedPersona?.name || botName}
+            userId={user?.id}
           />
         </CardContent>
       </Card>
@@ -1246,6 +1247,7 @@ export default function PlayPage() {
             isBot={false}
             playerNumber={game.playerNumber}
             className="w-full mt-4"
+            userId={user?.id}
           />
         </CardContent>
       </Card>
