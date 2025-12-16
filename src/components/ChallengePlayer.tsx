@@ -57,7 +57,7 @@ export default function ChallengePlayer({
               autoFocus
             />
             <p className="text-xs text-muted-foreground mt-1">
-              The part before @ in their email
+              Their display name (or email prefix if they haven't set one)
             </p>
           </div>
 

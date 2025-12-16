@@ -60,7 +60,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 
     // Get user with rating information
     const user = await DB.prepare(
-      `SELECT id, email, email_verified, rating, games_played, wins, losses, draws,
+      `SELECT id, email, email_verified, username, rating, games_played, wins, losses, draws,
               created_at, last_login, updated_at
        FROM users WHERE id = ?`
     )
@@ -69,6 +69,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
         id: string
         email: string
         email_verified: number
+        username: string | null
         rating: number
         games_played: number
         wins: number
@@ -97,6 +98,8 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
           id: user.id,
           email: user.email,
           email_verified: user.email_verified === 1,
+          username: user.username,
+          displayName: user.username || user.email.split('@')[0],
           rating: user.rating,
           gamesPlayed: user.games_played,
           wins: user.wins,

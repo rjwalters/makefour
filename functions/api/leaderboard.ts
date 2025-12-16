@@ -14,6 +14,7 @@ interface Env {
 interface LeaderboardRow {
   id: string
   email: string
+  username: string | null
   rating: number
   games_played: number
   wins: number
@@ -55,7 +56,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 
     // Fetch top players by rating (verified users and optionally bots who have played at least 1 game)
     const players = await DB.prepare(`
-      SELECT u.id, u.email, u.rating, u.games_played, u.wins, u.losses, u.draws,
+      SELECT u.id, u.email, u.username, u.rating, u.games_played, u.wins, u.losses, u.draws,
              u.is_bot, u.bot_persona_id
       FROM users u
       ${whereClause}
@@ -106,7 +107,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
         userId: player.id,
         username: isBot && personaInfo
           ? personaInfo.name
-          : player.email.split('@')[0], // Use email prefix as username for humans
+          : player.username || player.email.split('@')[0], // Prefer username, fall back to email prefix
         rating: player.rating,
         gamesPlayed: player.games_played,
         wins: player.wins,
@@ -140,7 +141,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       if (!userInList) {
         // Get user's data and calculate global rank (always includes bots)
         const userRow = await DB.prepare(`
-          SELECT u.id, u.email, u.rating, u.games_played, u.wins, u.losses, u.draws,
+          SELECT u.id, u.email, u.username, u.rating, u.games_played, u.wins, u.losses, u.draws,
                  u.is_bot, u.bot_persona_id
           FROM users u
           WHERE u.id = ? AND u.games_played > 0 AND (u.email_verified = 1 OR u.is_bot = 1)
@@ -176,7 +177,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
                 userId: userRow.id,
                 username: isBot && personaInfo
                   ? personaInfo.name
-                  : userRow.email.split('@')[0],
+                  : userRow.username || userRow.email.split('@')[0],
                 rating: userRow.rating,
                 gamesPlayed: userRow.games_played,
                 wins: userRow.wins,

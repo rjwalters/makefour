@@ -5,6 +5,8 @@ export const userSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email(),
   email_verified: z.boolean(),
+  username: z.string().nullable().optional(),
+  displayName: z.string().optional(),
   password_hash: z.string().nullable(),
   oauth_provider: z.enum(['google']).nullable(),
   oauth_id: z.string().nullable(),

@@ -11,6 +11,7 @@ interface Env {
 interface UserRow {
   id: string
   email: string
+  username: string | null
 }
 
 interface ChallengeRow {
@@ -26,9 +27,9 @@ interface ChallengeRow {
   game_id: string | null
 }
 
-// Extract username from email (before @)
-function getUsernameFromEmail(email: string): string {
-  return email.split('@')[0]
+// Get display name from user: prefer username, fall back to email prefix
+function getDisplayName(user: { username: string | null; email: string }): string {
+  return user.username || user.email.split('@')[0]
 }
 
 export async function onRequestGet(context: EventContext<Env, any, any>) {
@@ -42,8 +43,8 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 
     const now = Date.now()
 
-    // Get user's email to find challenges by username
-    const user = await DB.prepare(`SELECT id, email FROM users WHERE id = ?`)
+    // Get user info to find challenges by username
+    const user = await DB.prepare(`SELECT id, email, username FROM users WHERE id = ?`)
       .bind(session.userId)
       .first<UserRow>()
 
@@ -51,7 +52,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       return errorResponse('User not found', 404)
     }
 
-    const username = getUsernameFromEmail(user.email).toLowerCase()
+    const displayName = getDisplayName(user).toLowerCase()
 
     // Expire old challenges first
     await DB.prepare(`
@@ -72,7 +73,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       ORDER BY created_at DESC
       LIMIT 10
     `)
-      .bind(session.userId, username, now)
+      .bind(session.userId, displayName, now)
       .all<ChallengeRow>()
 
     // Also check if any of our outgoing challenges were matched

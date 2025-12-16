@@ -126,7 +126,7 @@ export default function Navbar() {
                     className="gap-2"
                   >
                     <span className="max-w-[100px] truncate">
-                      {user?.email?.split('@')[0] || 'Account'}
+                      {user?.displayName || user?.email?.split('@')[0] || 'Account'}
                     </span>
                     <svg
                       className={`w-4 h-4 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`}

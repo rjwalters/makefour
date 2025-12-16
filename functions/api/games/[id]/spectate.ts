@@ -42,6 +42,7 @@ interface ActiveGameRow {
 interface UserRow {
   id: string
   email: string
+  username: string | null
 }
 
 export interface SpectatorGameState {
@@ -134,12 +135,12 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
       return jsonResponse({ error: 'This game is not available for spectating' }, { status: 403 })
     }
 
-    // Get player emails for display names
+    // Get player info for display names
     const [player1, player2] = await Promise.all([
-      DB.prepare('SELECT id, email FROM users WHERE id = ?')
+      DB.prepare('SELECT id, email, username FROM users WHERE id = ?')
         .bind(game.player1_id)
         .first<UserRow>(),
-      DB.prepare('SELECT id, email FROM users WHERE id = ?')
+      DB.prepare('SELECT id, email, username FROM users WHERE id = ?')
         .bind(game.player2_id)
         .first<UserRow>(),
     ])
@@ -164,13 +165,13 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
       }
     }
 
-    // For bot vs bot games, show bot names instead of masked emails
+    // For bot vs bot games, show bot names; otherwise prefer username, fall back to masked email
     const player1DisplayName = isBotVsBot && game.bot1_name
       ? game.bot1_name
-      : (player1 ? maskEmail(player1.email) : 'Player 1')
+      : (player1 ? (player1.username || maskEmail(player1.email)) : 'Player 1')
     const player2DisplayName = isBotVsBot && game.bot2_name
       ? game.bot2_name
-      : (player2 ? maskEmail(player2.email) : 'Player 2')
+      : (player2 ? (player2.username || maskEmail(player2.email)) : 'Player 2')
 
     const response: SpectatorGameState = {
       id: game.id,

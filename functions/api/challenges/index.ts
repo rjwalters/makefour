@@ -20,6 +20,7 @@ const createChallengeSchema = z.object({
 interface UserRow {
   id: string
   email: string
+  username: string | null
   rating: number
   email_verified: number
   is_bot: number
@@ -43,9 +44,9 @@ interface ActiveGameRow {
   id: string
 }
 
-// Extract username from email (before @)
-function getUsernameFromEmail(email: string): string {
-  return email.split('@')[0]
+// Get display name from user: prefer username, fall back to email prefix
+function getDisplayName(user: { username: string | null; email: string }): string {
+  return user.username || user.email.split('@')[0]
 }
 
 export async function onRequestPost(context: EventContext<Env, any, any>) {
@@ -69,7 +70,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     // Get challenger info
     const challenger = await DB.prepare(`
-      SELECT id, email, rating, email_verified, is_bot FROM users WHERE id = ?
+      SELECT id, email, username, rating, email_verified, is_bot FROM users WHERE id = ?
     `)
       .bind(session.userId)
       .first<UserRow>()
@@ -83,7 +84,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse('Email verification required for challenges', 403)
     }
 
-    const challengerUsername = getUsernameFromEmail(challenger.email)
+    const challengerUsername = getDisplayName(challenger)
 
     // Cannot challenge yourself
     if (challengerUsername.toLowerCase() === normalizedTarget) {
@@ -118,13 +119,13 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse('You already have a pending challenge to this user', 409)
     }
 
-    // Find target user by username (email prefix)
+    // Find target user by username or email prefix
     const targetUser = await DB.prepare(`
-      SELECT id, email, rating, is_bot FROM users
-      WHERE LOWER(SUBSTR(email, 1, INSTR(email, '@') - 1)) = ?
+      SELECT id, email, username, rating, is_bot FROM users
+      WHERE (LOWER(username) = ? OR LOWER(SUBSTR(email, 1, INSTR(email, '@') - 1)) = ?)
       AND is_bot = 0
     `)
-      .bind(normalizedTarget)
+      .bind(normalizedTarget, normalizedTarget)
       .first<UserRow>()
 
     // Check if target has a pending challenge TO the challenger (mutual challenge = start game)
@@ -179,7 +180,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
           gameId,
           opponent: {
             id: targetUser.id,
-            username: getUsernameFromEmail(targetUser.email),
+            username: getDisplayName(targetUser),
             rating: targetUser.rating,
           },
         })

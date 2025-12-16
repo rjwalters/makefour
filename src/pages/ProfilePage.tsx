@@ -69,6 +69,18 @@ export default function ProfilePage() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deleting, setDeleting] = useState(false)
 
+  // Username state
+  const [usernameStatus, setUsernameStatus] = useState<{
+    username: string | null
+    displayName: string
+    canChange: boolean
+    nextChangeAt: number | null
+  } | null>(null)
+  const [newUsername, setNewUsername] = useState('')
+  const [usernameError, setUsernameError] = useState<string | null>(null)
+  const [usernameSuccess, setUsernameSuccess] = useState(false)
+  const [savingUsername, setSavingUsername] = useState(false)
+
   useEffect(() => {
     const fetchStats = async () => {
       try {
@@ -86,6 +98,71 @@ export default function ProfilePage() {
 
     fetchStats()
   }, [apiCall])
+
+  // Fetch username status
+  useEffect(() => {
+    const fetchUsernameStatus = async () => {
+      try {
+        const data = await apiCall<{
+          username: string | null
+          displayName: string
+          canChange: boolean
+          nextChangeAt: number | null
+        }>('/api/users/me/username')
+        setUsernameStatus(data)
+        if (data.username) {
+          setNewUsername(data.username)
+        }
+      } catch (err) {
+        console.error('Failed to fetch username status:', err)
+      }
+    }
+    fetchUsernameStatus()
+  }, [apiCall])
+
+  const handleSaveUsername = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setUsernameError(null)
+    setUsernameSuccess(false)
+
+    // Client-side validation
+    if (!newUsername) {
+      setUsernameError('Username is required')
+      return
+    }
+    if (newUsername.length < 3) {
+      setUsernameError('Username must be at least 3 characters')
+      return
+    }
+    if (newUsername.length > 20) {
+      setUsernameError('Username must be at most 20 characters')
+      return
+    }
+    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(newUsername)) {
+      setUsernameError('Username must start with a letter and contain only letters, numbers, and underscores')
+      return
+    }
+
+    try {
+      setSavingUsername(true)
+      const data = await apiCall<{ success: boolean; username: string; nextChangeAt: number }>('/api/users/me/username', {
+        method: 'PUT',
+        body: JSON.stringify({ username: newUsername }),
+      })
+      setUsernameSuccess(true)
+      setUsernameStatus(prev => prev ? {
+        ...prev,
+        username: data.username,
+        displayName: data.username,
+        canChange: false,
+        nextChangeAt: data.nextChangeAt,
+      } : null)
+    } catch (err) {
+      setUsernameError(err instanceof Error ? err.message : 'Failed to save username')
+    } finally {
+      setSavingUsername(false)
+    }
+  }
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -249,6 +326,59 @@ export default function ProfilePage() {
                         </div>
                       )}
                     </div>
+                  </CardContent>
+                </Card>
+
+                {/* Username Card */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Display Name</CardTitle>
+                    <CardDescription>
+                      Choose a username to display on the leaderboard and in games
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <form onSubmit={handleSaveUsername} className="space-y-4 max-w-md">
+                      {usernameError && (
+                        <div className="p-3 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-md text-sm">
+                          {usernameError}
+                        </div>
+                      )}
+                      {usernameSuccess && (
+                        <div className="p-3 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-md text-sm">
+                          Username saved successfully!
+                        </div>
+                      )}
+                      <div>
+                        <label htmlFor="username" className="block text-sm font-medium mb-1">
+                          Username
+                        </label>
+                        <Input
+                          id="username"
+                          type="text"
+                          value={newUsername}
+                          onChange={(e) => setNewUsername(e.target.value)}
+                          placeholder={usernameStatus?.displayName || 'Enter username'}
+                          disabled={usernameStatus ? !usernameStatus.canChange : false}
+                          minLength={3}
+                          maxLength={20}
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          3-20 characters, letters, numbers, and underscores only. Must start with a letter.
+                        </p>
+                      </div>
+                      {usernameStatus && !usernameStatus.canChange && usernameStatus.nextChangeAt && (
+                        <p className="text-sm text-muted-foreground">
+                          You can change your username again on {formatDate(usernameStatus.nextChangeAt)}
+                        </p>
+                      )}
+                      <Button
+                        type="submit"
+                        disabled={savingUsername || (usernameStatus ? !usernameStatus.canChange : false)}
+                      >
+                        {savingUsername ? 'Saving...' : usernameStatus?.username ? 'Change Username' : 'Set Username'}
+                      </Button>
+                    </form>
                   </CardContent>
                 </Card>
 

@@ -25,6 +25,8 @@ interface LiveGameRow {
   updated_at: number
   player1_email: string
   player2_email: string
+  player1_username: string | null
+  player2_username: string | null
   // Bot vs bot fields
   is_bot_vs_bot: number
   bot1_persona_id: string | null
@@ -128,6 +130,8 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
         ag.updated_at,
         u1.email as player1_email,
         u2.email as player2_email,
+        u1.username as player1_username,
+        u2.username as player2_username,
         ag.is_bot_vs_bot,
         ag.bot1_persona_id,
         ag.bot2_persona_id,
@@ -151,13 +155,13 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       const moves = JSON.parse(game.moves) as number[]
       const isBotVsBot = game.is_bot_vs_bot === 1
 
-      // For bot vs bot games, show bot names instead of masked emails
+      // For bot vs bot games, show bot names; otherwise prefer username, fall back to masked email
       const player1DisplayName = isBotVsBot && game.bot1_name
         ? game.bot1_name
-        : maskEmail(game.player1_email)
+        : game.player1_username || maskEmail(game.player1_email)
       const player2DisplayName = isBotVsBot && game.bot2_name
         ? game.bot2_name
-        : maskEmail(game.player2_email)
+        : game.player2_username || maskEmail(game.player2_email)
 
       return {
         id: game.id,

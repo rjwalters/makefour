@@ -11,6 +11,7 @@ interface Env {
 interface UserRow {
   id: string
   email: string
+  username: string | null
   rating: number
 }
 
@@ -31,9 +32,9 @@ interface ActiveGameRow {
   id: string
 }
 
-// Extract username from email (before @)
-function getUsernameFromEmail(email: string): string {
-  return email.split('@')[0]
+// Get display name from user: prefer username, fall back to email prefix
+function getDisplayName(user: { username: string | null; email: string }): string {
+  return user.username || user.email.split('@')[0]
 }
 
 export async function onRequestPost(context: EventContext<Env, any, any>) {
@@ -74,7 +75,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     // Get acceptor info
     const acceptor = await DB.prepare(`
-      SELECT id, email, rating FROM users WHERE id = ?
+      SELECT id, email, username, rating FROM users WHERE id = ?
     `)
       .bind(session.userId)
       .first<UserRow>()
@@ -83,12 +84,12 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse('User not found', 404)
     }
 
-    const acceptorUsername = getUsernameFromEmail(acceptor.email).toLowerCase()
+    const acceptorDisplayName = getDisplayName(acceptor).toLowerCase()
 
     // Verify the acceptor is the target
     if (
       challenge.target_id !== session.userId &&
-      challenge.target_username.toLowerCase() !== acceptorUsername
+      challenge.target_username.toLowerCase() !== acceptorDisplayName
     ) {
       return errorResponse('You are not the target of this challenge', 403)
     }

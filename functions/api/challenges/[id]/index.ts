@@ -11,6 +11,7 @@ interface Env {
 interface UserRow {
   id: string
   email: string
+  username: string | null
 }
 
 interface ChallengeRow {
@@ -21,9 +22,9 @@ interface ChallengeRow {
   status: string
 }
 
-// Extract username from email (before @)
-function getUsernameFromEmail(email: string): string {
-  return email.split('@')[0]
+// Get display name from user: prefer username, fall back to email prefix
+function getDisplayName(user: { username: string | null; email: string }): string {
+  return user.username || user.email.split('@')[0]
 }
 
 export async function onRequestDelete(context: EventContext<Env, any, any>) {
@@ -53,7 +54,7 @@ export async function onRequestDelete(context: EventContext<Env, any, any>) {
     }
 
     // Get user info
-    const user = await DB.prepare(`SELECT id, email FROM users WHERE id = ?`)
+    const user = await DB.prepare(`SELECT id, email, username FROM users WHERE id = ?`)
       .bind(session.userId)
       .first<UserRow>()
 
@@ -61,13 +62,13 @@ export async function onRequestDelete(context: EventContext<Env, any, any>) {
       return errorResponse('User not found', 404)
     }
 
-    const username = getUsernameFromEmail(user.email).toLowerCase()
+    const displayName = getDisplayName(user).toLowerCase()
 
     // Check if user is challenger or target
     const isChallenger = challenge.challenger_id === session.userId
     const isTarget =
       challenge.target_id === session.userId ||
-      challenge.target_username.toLowerCase() === username
+      challenge.target_username.toLowerCase() === displayName
 
     if (!isChallenger && !isTarget) {
       return errorResponse('You are not part of this challenge', 403)
