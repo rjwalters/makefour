@@ -1,8 +1,6 @@
-import { useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import {
   COLUMNS,
-  ROWS,
   type Board,
   type Player,
   type GameResult,
@@ -25,7 +23,7 @@ interface GameBoardProps {
 /**
  * Renders the MakeFour game board.
  * Supports interactive play and read-only replay mode.
- * Tracks previous board state to prevent flickering on re-renders.
+ * Note: Animations are currently disabled for rendering stability.
  */
 export default function GameBoard({
   board,
@@ -36,27 +34,6 @@ export default function GameBoard({
   threats = [],
   showThreats = false,
 }: GameBoardProps) {
-  // Track previous board state to identify new pieces (for drop animation)
-  const prevBoardRef = useRef<Board | null>(null)
-
-  // Compute new pieces by comparing current board to previous (during render, not in effect)
-  const newPieces = new Set<string>()
-  if (prevBoardRef.current) {
-    for (let row = 0; row < ROWS; row++) {
-      for (let col = 0; col < COLUMNS; col++) {
-        const prev = prevBoardRef.current[row][col]
-        const curr = board[row][col]
-        if (prev === null && curr !== null) {
-          newPieces.add(`${row},${col}`)
-        }
-      }
-    }
-  }
-
-  // Update previous board ref after render
-  useEffect(() => {
-    prevBoardRef.current = board.map(row => [...row]) as Board
-  }, [board])
   const winningCells = winner && winner !== 'draw' ? getWinningCells(board) : null
   const winningSet = new Set(winningCells?.map(([r, c]) => `${r},${c}`) ?? [])
 
@@ -145,7 +122,6 @@ export default function GameBoard({
               const isWinThreat = winThreatCells.has(`${rowIndex},${colIndex}`)
               const isBlockThreat = blockThreatCells.has(`${rowIndex},${colIndex}`)
               const isThreatCell = isWinThreat || isBlockThreat
-              const isNewPiece = newPieces.has(`${rowIndex},${colIndex}`)
 
               return (
                 <button
@@ -188,10 +164,8 @@ export default function GameBoard({
                           ? 'bg-red-500 shadow-red-600/50'
                           : 'bg-yellow-400 shadow-yellow-500/50',
                         'shadow-lg',
-                        // Only animate new pieces (drop animation)
-                        isNewPiece && 'animate-drop',
-                        // Winning piece animation
-                        isWinningCell && 'ring-4 ring-white animate-pulse'
+                        // Highlight winning pieces with a static ring (animations disabled for stability)
+                        isWinningCell && 'ring-4 ring-white'
                       )}
                     />
                   )}
