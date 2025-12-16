@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/base'
-import { DashboardPage, GamesPage, LoginPage, PlayPage } from '../pages'
+import { DashboardPage, LoginPage, PlayPage } from '../pages'
 
 test.describe('Gameplay Flow', () => {
   test.describe('Game Setup', () => {
