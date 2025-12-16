@@ -10,7 +10,10 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useAuthenticatedApi } from './useAuthenticatedApi'
-import type { Board } from '../game/makefour'
+import { makeMove as applyMove, replayMoves, type Board } from '../game/makefour'
+
+// Minimum time before bot responds (ms) - makes the interaction feel more natural
+const BOT_MIN_RESPONSE_TIME_MS = 1000
 
 export type BotDifficulty = 'beginner' | 'intermediate' | 'expert' | 'perfect'
 
@@ -227,10 +230,35 @@ export function useBotGame() {
 
   /**
    * Submit a move (bot will respond automatically)
+   * Optimistically renders human move, then delays before showing bot's response
    */
   const submitMove = useCallback(
     async (column: number) => {
-      if (!state.game) return false
+      if (!state.game || !state.game.board) return false
+
+      const startTime = Date.now()
+
+      // Optimistically apply the human's move locally
+      const gameState = replayMoves(state.game.moves)
+      if (!gameState) return false
+
+      const afterHumanMove = applyMove(gameState, column)
+      if (!afterHumanMove) return false
+
+      // Update state immediately with the human's move
+      const optimisticMoves = [...state.game.moves, column]
+      setState((prev) => ({
+        ...prev,
+        game: prev.game
+          ? {
+              ...prev.game,
+              moves: optimisticMoves,
+              board: afterHumanMove.board,
+              currentTurn: (prev.game.currentTurn === 1 ? 2 : 1) as 1 | 2,
+              isYourTurn: false,
+            }
+          : null,
+      }))
 
       try {
         const response = await apiCall<{
@@ -252,6 +280,23 @@ export function useBotGame() {
 
         if (!isMountedRef.current) return false
 
+        // Check if bot made a move (response has more moves than our optimistic state)
+        const botMadeMove = response.moves.length > optimisticMoves.length
+
+        if (botMadeMove) {
+          // Calculate how long we've waited and ensure minimum delay
+          const elapsed = Date.now() - startTime
+          const remainingDelay = Math.max(0, BOT_MIN_RESPONSE_TIME_MS - elapsed)
+
+          if (remainingDelay > 0) {
+            // Wait for the remaining delay before showing bot's move
+            await new Promise(resolve => setTimeout(resolve, remainingDelay))
+          }
+        }
+
+        if (!isMountedRef.current) return false
+
+        // Now update with the full server response (including bot's move)
         setState((prev) => ({
           ...prev,
           status: response.status === 'completed' ? 'completed' : 'playing',
@@ -275,6 +320,19 @@ export function useBotGame() {
         return true
       } catch (error) {
         console.error('Bot game move submission error:', error)
+        // Revert optimistic update on error
+        setState((prev) => ({
+          ...prev,
+          game: prev.game
+            ? {
+                ...prev.game,
+                moves: state.game!.moves,
+                board: state.game!.board,
+                currentTurn: state.game!.currentTurn,
+                isYourTurn: state.game!.isYourTurn,
+              }
+            : null,
+        }))
         return false
       }
     },

@@ -106,6 +106,63 @@ function calculateTimeRemaining(
 }
 
 /**
+ * Check if the current player's time has expired and handle timeout
+ * Returns the updated game if timeout occurred, null otherwise
+ */
+async function checkAndHandleTimeout(
+  db: ReturnType<typeof createDb>,
+  game: ActiveGameRow,
+  now: number
+): Promise<{ timedOut: boolean; winner?: string }> {
+  // Only check timed games that are active
+  if (game.time_control_ms === null || game.status !== 'active' || game.turn_started_at === null) {
+    return { timedOut: false }
+  }
+
+  const elapsed = now - game.turn_started_at
+  const currentPlayerTime = game.current_turn === 1 ? game.player1_time_ms : game.player2_time_ms
+
+  if (currentPlayerTime === null) {
+    return { timedOut: false }
+  }
+
+  const timeRemaining = currentPlayerTime - elapsed
+
+  if (timeRemaining <= 0) {
+    // Current player has timed out - opponent wins
+    const winner = game.current_turn === 1 ? '2' : '1'
+
+    await db.update(activeGames)
+      .set({
+        status: 'completed',
+        winner,
+        player1TimeMs: game.current_turn === 1 ? 0 : game.player1_time_ms,
+        player2TimeMs: game.current_turn === 2 ? 0 : game.player2_time_ms,
+        updatedAt: now,
+      })
+      .where(eq(activeGames.id, game.id))
+
+    // Update user's rating if ranked bot game
+    if (game.mode === 'ranked') {
+      // Determine which player is human and which is bot
+      const humanIsPlayer1 = !isBotUserId(game.player1_id)
+      const humanUserId = humanIsPlayer1 ? game.player1_id : game.player2_id
+      const humanPlayerNumber = humanIsPlayer1 ? 1 : 2
+
+      // Human wins if bot timed out, loses if human timed out
+      const humanTimedOut = game.current_turn === humanPlayerNumber
+      const outcome: GameOutcome = humanTimedOut ? 'loss' : 'win'
+
+      await updateUserRating(db, humanUserId, game, outcome, now)
+    }
+
+    return { timedOut: true, winner }
+  }
+
+  return { timedOut: false }
+}
+
+/**
  * GET /api/bot/game/:id - Get current game state
  */
 export async function onRequestGet(context: EventContext<Env, any, any>) {
@@ -160,6 +217,18 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       created_at: game.createdAt,
       updated_at: game.updatedAt,
     }
+
+    // Check for timeout (this may end the game)
+    const timeoutResult = await checkAndHandleTimeout(db, gameRow, now)
+
+    // If timeout occurred, update game state for response
+    let status = game.status
+    let winner = game.winner
+    if (timeoutResult.timedOut) {
+      status = 'completed'
+      winner = timeoutResult.winner ?? null
+    }
+
     const timeRemaining = calculateTimeRemaining(gameRow, now)
 
     return jsonResponse({
@@ -168,16 +237,20 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       currentTurn: game.currentTurn,
       moves,
       board: gameState?.board ?? null,
-      status: game.status,
-      winner: game.winner,
+      status,
+      winner,
       mode: game.mode,
       opponentRating: playerNumber === 1 ? game.player2Rating : game.player1Rating,
       lastMoveAt: game.lastMoveAt,
       createdAt: game.createdAt,
-      isYourTurn: game.status === 'active' && game.currentTurn === playerNumber,
+      isYourTurn: status === 'active' && game.currentTurn === playerNumber,
       timeControlMs: game.timeControlMs,
-      player1TimeMs: timeRemaining.player1TimeMs,
-      player2TimeMs: timeRemaining.player2TimeMs,
+      player1TimeMs: timeoutResult.timedOut
+        ? (game.currentTurn === 1 ? 0 : game.player1TimeMs)
+        : timeRemaining.player1TimeMs,
+      player2TimeMs: timeoutResult.timedOut
+        ? (game.currentTurn === 2 ? 0 : game.player2TimeMs)
+        : timeRemaining.player2TimeMs,
       turnStartedAt: game.turnStartedAt,
       isBotGame: true,
       botDifficulty: game.botDifficulty,
