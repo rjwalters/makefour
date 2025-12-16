@@ -14,7 +14,6 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
     const stored = localStorage.getItem('makefour_theme') as Theme
-    console.log('🎨 ThemeProvider initialized with theme:', stored || 'system')
     return stored || 'system'
   })
 
@@ -31,16 +30,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         ? 'dark'
         : 'light'
       effective = systemTheme
-      console.log('🎨 Theme changed to SYSTEM (detected as:', effective + ')')
     } else {
       effective = theme
-      console.log('🎨 Theme changed to:', theme.toUpperCase())
     }
 
     root.classList.add(effective)
     setEffectiveTheme(effective)
     localStorage.setItem('makefour_theme', theme)
-    console.log('🎨 Applied theme class:', effective, '- HTML classes:', root.className)
   }, [theme])
 
   // Listen for system theme changes

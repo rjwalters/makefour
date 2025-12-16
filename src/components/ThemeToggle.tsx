@@ -10,7 +10,6 @@ export default function ThemeToggle() {
     else if (theme === 'dark') newTheme = 'system'
     else newTheme = 'light'
 
-    console.log('🔄 ThemeToggle clicked! Cycling from', theme, 'to', newTheme)
     setTheme(newTheme)
   }
 
