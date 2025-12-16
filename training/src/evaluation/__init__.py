@@ -13,7 +13,7 @@ from .agents import (
     REFERENCE_ELOS,
 )
 from .arena import Arena, MatchResult, TournamentResult, quick_match
-from .elo import ELOCalculator, estimate_elo_from_matches, RatingEstimate
+from .elo import ELOCalculator, estimate_elo_from_matches, RatingEstimate, calibrate_ratings_with_anchors
 from .analysis import (
     analyze_matches,
     analyze_tournament,
@@ -41,6 +41,7 @@ __all__ = [
     "ELOCalculator",
     "estimate_elo_from_matches",
     "RatingEstimate",
+    "calibrate_ratings_with_anchors",
     # Analysis
     "analyze_matches",
     "analyze_tournament",

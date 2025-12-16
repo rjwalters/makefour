@@ -5,7 +5,7 @@ from .mlp import TinyMLP
 from .cnn import TinyCNN
 from .transformer import MicroTransformer
 from .resnet import TinyResNet
-from .registry import MODEL_REGISTRY, create_model, list_models, get_model_info
+from .registry import MODEL_REGISTRY, MODEL_INFO, create_model, list_models, get_model_info
 
 __all__ = [
     # Base class
@@ -17,6 +17,7 @@ __all__ = [
     "TinyResNet",
     # Registry
     "MODEL_REGISTRY",
+    "MODEL_INFO",
     "create_model",
     "list_models",
     "get_model_info",

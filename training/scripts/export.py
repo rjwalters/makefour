@@ -31,8 +31,8 @@ import argparse
 import sys
 from pathlib import Path
 
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Add training directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def main():
@@ -176,7 +176,7 @@ def main():
 
 def list_models():
     """List all available model architectures."""
-    from models import list_models as get_models, get_model_info
+    from src.models import list_models as get_models, get_model_info
 
     print("Available Models:")
     print("-" * 60)
@@ -192,7 +192,7 @@ def list_models():
 
 def show_model_info(onnx_path: str):
     """Display metadata from an ONNX model."""
-    from export.metadata import print_metadata
+    from src.export.metadata import print_metadata
 
     path = Path(onnx_path)
     if not path.exists():
@@ -207,9 +207,9 @@ def show_model_info(onnx_path: str):
 
 def validate_model(onnx_path: str, model_name: str):
     """Validate an ONNX model against its PyTorch equivalent."""
-    from models import create_model
-    from export import validate_onnx_model
-    from export.onnx_export import get_input_shape_for_model
+    from src.models import create_model
+    from src.export import validate_onnx_model
+    from src.export.onnx_export import get_input_shape_for_model
 
     print(f"Validating {onnx_path}...")
 
@@ -229,10 +229,10 @@ def validate_model(onnx_path: str, model_name: str):
 def single_export(args):
     """Export a single model."""
     import torch
-    from models import create_model
-    from export import export_to_onnx, validate_onnx_model, ExportConfig
-    from export.metadata import add_metadata, create_metadata_from_model
-    from export.onnx_export import get_input_shape_for_model
+    from src.models import create_model
+    from src.export import export_to_onnx, validate_onnx_model, ExportConfig
+    from src.export.metadata import add_metadata, create_metadata_from_model
+    from src.export.onnx_export import get_input_shape_for_model
 
     # Determine model name
     if args.model:
@@ -328,9 +328,9 @@ def single_export(args):
 def batch_export(args):
     """Export all checkpoints in a directory."""
     import torch
-    from models import create_model, list_models as get_models
-    from export import export_to_onnx, ExportConfig
-    from export.metadata import add_metadata, create_metadata_from_model
+    from src.models import create_model, list_models as get_models
+    from src.export import export_to_onnx, ExportConfig
+    from src.export.metadata import add_metadata, create_metadata_from_model
 
     checkpoint_dir = Path(args.checkpoint_dir)
     output_dir = Path(args.output_dir) if args.output_dir else Path("models")

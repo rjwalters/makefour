@@ -14,7 +14,7 @@ from typing import Literal
 
 import numpy as np
 
-from ..data import COLUMNS, ROWS, Board, Player, encode_onehot
+from ..data import COLUMNS, ROWS, Board, Player, encode_onehot, encode_flat_binary
 
 # Type alias for game result
 GameResult = Literal["player1_win", "player2_win", "draw"]
@@ -426,8 +426,17 @@ class NeuralAgent(Agent):
         self._name_override = name_override
         self._session = ort.InferenceSession(model_path)
 
-        # Get model input name
+        # Get model input name and shape
         self._input_name = self._session.get_inputs()[0].name
+        input_shape = self._session.get_inputs()[0].shape
+        # Detect input size (second dimension, first is batch)
+        self._input_size = input_shape[1] if len(input_shape) > 1 else 85
+
+        # Auto-detect encoding based on input size
+        if self._input_size == 85:
+            self._encoding = "flat-binary"
+        else:  # 126 or other
+            self._encoding = "onehot"
 
     @property
     def name(self) -> str:
@@ -446,8 +455,11 @@ class NeuralAgent(Agent):
         )
 
     def get_move(self, board: Board, to_move: Player) -> int:
-        # Encode board
-        encoded = encode_onehot(board, to_move)
+        # Encode board using appropriate encoding
+        if self._encoding == "flat-binary":
+            encoded = encode_flat_binary(board, to_move)
+        else:
+            encoded = encode_onehot(board, to_move)
 
         # Run inference
         policy, _ = self._session.run(None, {self._input_name: encoded.reshape(1, -1)})

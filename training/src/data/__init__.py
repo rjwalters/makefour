@@ -4,6 +4,8 @@ from .encoding import (
     ROWS,
     COLUMNS,
     Board,
+    Player,
+    EncodingType,
     encode_onehot,
     encode_onehot_3d,
     encode_flat_binary,
@@ -49,6 +51,8 @@ __all__ = [
     "ROWS",
     "COLUMNS",
     "Board",
+    "Player",
+    "EncodingType",
     # Encoding functions
     "encode_onehot",
     "encode_onehot_3d",
