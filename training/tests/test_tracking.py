@@ -232,7 +232,8 @@ class TestExperiment:
 
         assert len(history) == 10
         assert history[0] == (0, 1.0)
-        assert history[9] == (9, 0.1)
+        assert history[9][0] == 9
+        assert history[9][1] == pytest.approx(0.1)
 
     def test_to_dict(self, temp_experiments_dir, sample_config):
         """Test serialization to dict."""
@@ -356,7 +357,7 @@ class TestExperimentRegistry:
             exp.start()
             registry.register(exp)
 
-        experiments = registry.list()
+        experiments = registry.list_experiments()
 
         assert len(experiments) == 3
 
@@ -365,17 +366,18 @@ class TestExperimentRegistry:
         registry = ExperimentRegistry(temp_experiments_dir)
 
         # Create experiments with different model types
-        for model_type in ["mlp-tiny", "cnn-small", "mlp-tiny"]:
+        for i, model_type in enumerate(["mlp-tiny", "cnn-small", "mlp-tiny"]):
             config = ExperimentConfig(model_type=model_type)
             exp = Experiment(
-                name=f"test-{model_type}",
+                name=f"test-{model_type}-{i}",
                 config=config,
                 experiments_dir=temp_experiments_dir,
+                experiment_id=f"exp-filter-{i:05d}",
             )
             exp.start()
             registry.register(exp)
 
-        mlp_experiments = registry.list(model_type="mlp-tiny")
+        mlp_experiments = registry.list_experiments(model_type="mlp-tiny")
 
         assert len(mlp_experiments) == 2
 
@@ -426,6 +428,7 @@ class TestExperimentRegistry:
                 name=f"test-rebuild-{i}",
                 config=sample_config,
                 experiments_dir=temp_experiments_dir,
+                experiment_id=f"exp-rebuild-{i:05d}",
             )
             exp.start()
             exp.complete()
@@ -451,6 +454,7 @@ class TestExperimentRegistry:
                 name=f"test-scaling-{i}",
                 config=config,
                 experiments_dir=temp_experiments_dir,
+                experiment_id=f"exp-scaling-{i:05d}",
             )
             exp.start()
             exp.log_eval({"elo": elo})
@@ -484,7 +488,7 @@ class TestExperimentRegistry:
         registry = ExperimentRegistry(temp_experiments_dir)
 
         # Create experiments
-        for params in [1000, 5000, 10000]:
+        for i, params in enumerate([1000, 5000, 10000]):
             config = ExperimentConfig(
                 model_type="mlp",
                 model_params={"param_count": params},
@@ -493,6 +497,7 @@ class TestExperimentRegistry:
                 name=f"test-filter-{params}",
                 config=config,
                 experiments_dir=temp_experiments_dir,
+                experiment_id=f"exp-byfilter-{i:05d}",
             )
             exp.start()
             registry.register(exp)

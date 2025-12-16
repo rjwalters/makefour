@@ -29,7 +29,7 @@ def cmd_list(args: argparse.Namespace) -> int:
             print(f"Invalid status: {args.status}", file=sys.stderr)
             return 1
 
-    experiments = registry.list(
+    experiments = registry.list_experiments(
         status=status,
         model_type=args.model_type,
         sort_by=args.sort_by,

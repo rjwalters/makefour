@@ -163,7 +163,7 @@ class ExperimentRegistry:
             dir=data["dir"],
         )
 
-    def list(
+    def list_experiments(
         self,
         status: ExperimentStatus | None = None,
         model_type: str | None = None,
@@ -290,7 +290,7 @@ class ExperimentRegistry:
         Returns:
             List of matching ExperimentSummary
         """
-        all_experiments = self.list()
+        all_experiments = self.list_experiments()
         return [exp for exp in all_experiments if filter_fn(exp)]
 
     def rebuild_index(self) -> int:
