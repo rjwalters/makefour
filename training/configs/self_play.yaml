@@ -1,0 +1,32 @@
+# Self-Play Data Generation Configuration
+# This configuration controls how training data is generated through self-play.
+
+# Parallelization settings
+num_workers: 4                    # Number of parallel workers
+games_per_iteration: 100          # Games generated per batch
+
+# Temperature settings for move sampling
+temperature: 1.0                  # Higher = more exploration, lower = more exploitation
+temperature_threshold: 15         # After this many moves, temperature drops to 0 (greedy)
+
+# Exploration noise (Dirichlet noise, AlphaZero-style)
+noise:
+  enabled: true
+  alpha: 0.3                      # Dirichlet alpha parameter (lower = more peaked noise)
+  epsilon: 0.25                   # Weight of noise: (1-epsilon)*policy + epsilon*noise
+
+# Replay buffer settings
+replay_buffer:
+  max_size: 100000                # Maximum positions to store
+
+# Opponent configuration for curriculum learning
+# Types: "self" (current model), "previous_version", "random", "bot"
+opponents:
+  - type: self
+    weight: 0.7                   # 70% of games against self
+  - type: random
+    weight: 0.3                   # 30% of games against random opponent
+
+# Output settings
+output_dir: data/self_play        # Directory for saved games
+save_interval: 1000               # Save every N games to a new file
