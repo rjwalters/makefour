@@ -11,7 +11,10 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useAuthenticatedApi } from './useAuthenticatedApi'
-import type { Board } from '../game/makefour'
+import { makeMove as applyMove, replayMoves, type Board } from '../game/makefour'
+
+// Minimum time before bot responds (ms) - makes the interaction feel more natural
+const BOT_MIN_RESPONSE_TIME_MS = 1000
 
 export type MatchmakingMode = 'ranked' | 'casual'
 
@@ -34,6 +37,7 @@ export interface OnlineGameState {
   winner: '1' | '2' | 'draw' | null
   mode: MatchmakingMode
   opponentRating: number
+  opponentUsername: string | null
   isYourTurn: boolean
   lastMoveAt: number
   // Timer fields (null for untimed games)
@@ -306,13 +310,42 @@ export function useMatchmaking() {
 
   /**
    * Submit a move
+   * For bot games: optimistically renders human move, then delays before showing bot's response
    */
   const submitMove = useCallback(
     async (column: number) => {
-      if (!state.game) return false
+      if (!state.game || !state.game.board) return false
+
+      const isBotGame = state.game.isBotGame
+      const startTime = Date.now()
+
+      // For bot games, optimistically apply the human's move locally
+      let optimisticMoves: number[] | null = null
+      if (isBotGame) {
+        const gameState = replayMoves(state.game.moves)
+        if (gameState) {
+          const afterHumanMove = applyMove(gameState, column)
+          if (afterHumanMove) {
+            optimisticMoves = [...state.game.moves, column]
+            // Update state immediately with the human's move
+            setState((prev) => ({
+              ...prev,
+              game: prev.game
+                ? {
+                    ...prev.game,
+                    moves: optimisticMoves!,
+                    board: afterHumanMove.board,
+                    currentTurn: (prev.game.currentTurn === 1 ? 2 : 1) as 1 | 2,
+                    isYourTurn: false,
+                  }
+                : null,
+            }))
+          }
+        }
+      }
 
       try {
-        const endpoint = state.game.isBotGame
+        const endpoint = isBotGame
           ? `/api/bot/game/${state.game.id}`
           : `/api/match/${state.game.id}`
         const response = await apiCall<{
@@ -334,6 +367,16 @@ export function useMatchmaking() {
         })
 
         if (!isMountedRef.current) return false
+
+        // For bot games, add delay before showing bot's response
+        if (isBotGame && optimisticMoves && response.moves.length > optimisticMoves.length) {
+          const elapsed = Date.now() - startTime
+          const remainingDelay = Math.max(0, BOT_MIN_RESPONSE_TIME_MS - elapsed)
+          if (remainingDelay > 0) {
+            await new Promise(resolve => setTimeout(resolve, remainingDelay))
+          }
+          if (!isMountedRef.current) return false
+        }
 
         setState((prev) => ({
           ...prev,
@@ -359,6 +402,21 @@ export function useMatchmaking() {
         return true
       } catch (error) {
         console.error('Move submission error:', error)
+        // Revert optimistic update on error for bot games
+        if (isBotGame && optimisticMoves) {
+          setState((prev) => ({
+            ...prev,
+            game: prev.game
+              ? {
+                  ...prev.game,
+                  moves: state.game!.moves,
+                  board: state.game!.board,
+                  currentTurn: state.game!.currentTurn,
+                  isYourTurn: state.game!.isYourTurn,
+                }
+              : null,
+          }))
+        }
         return false
       }
     },

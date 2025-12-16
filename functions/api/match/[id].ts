@@ -158,6 +158,17 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 
     const now = Date.now()
     const playerNumber = game.player1Id === session.userId ? 1 : 2
+    const opponentId = playerNumber === 1 ? game.player2Id : game.player1Id
+
+    // Get opponent's username for rematch functionality
+    let opponentUsername: string | null = null
+    if (!game.isBotGame) {
+      const opponent = await db.query.users.findFirst({
+        where: eq(users.id, opponentId),
+        columns: { username: true },
+      })
+      opponentUsername = opponent?.username ?? null
+    }
 
     // Convert to ActiveGameRow format for compatibility with helper functions
     const gameRow: ActiveGameRow = {
@@ -211,6 +222,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       winner,
       mode: game.mode,
       opponentRating: playerNumber === 1 ? game.player2Rating : game.player1Rating,
+      opponentUsername,
       lastMoveAt: game.lastMoveAt,
       createdAt: game.createdAt,
       isYourTurn: status === 'active' && game.currentTurn === playerNumber,
