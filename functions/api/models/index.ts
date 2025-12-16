@@ -6,49 +6,12 @@
 
 import { jsonResponse, errorResponse } from '../../lib/auth'
 import { applyRateLimit } from '../../lib/rateLimit'
+import { MODEL_REGISTRY, type ModelMetadata } from '../../lib/engines/neural-engine'
 
 interface Env {
   DB: D1Database
   RATE_LIMITER: DurableObjectNamespace
 }
-
-/**
- * Model metadata returned by the API.
- */
-interface ModelMetadata {
-  id: string
-  name: string
-  architecture: 'mlp' | 'cnn' | 'transformer'
-  expectedElo: number
-  sizeBytes: number
-  url: string
-  version: string
-  encoding: 'onehot-6x7x3' | 'bitboard' | 'flat-binary'
-  training?: {
-    games: number
-    epochs: number
-    date: string
-  }
-}
-
-/**
- * Registry of available neural network models.
- * The heuristic-v1 model is built-in and always available.
- */
-const MODEL_REGISTRY: ModelMetadata[] = [
-  {
-    id: 'heuristic-v1',
-    name: 'Heuristic Baseline',
-    architecture: 'mlp',
-    expectedElo: 1200,
-    sizeBytes: 0,
-    url: '', // Built-in, no download needed
-    version: '1.0.0',
-    encoding: 'flat-binary',
-  },
-  // Future models will be added here as they are trained
-  // Models can also be served from cloud storage (R2, etc.)
-]
 
 /**
  * GET /api/models - List available neural network models

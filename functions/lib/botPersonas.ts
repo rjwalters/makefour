@@ -64,6 +64,12 @@ export interface BotPersona {
     }
     /** Use transposition table (for deep-minimax) */
     useTranspositionTable?: boolean
+    /** Model ID for neural engine (from MODEL_REGISTRY) */
+    neuralModelId?: string
+    /** Temperature for neural engine (0 = greedy, higher = more random) */
+    neuralTemperature?: number
+    /** Use hybrid search for neural engine */
+    neuralUseHybrid?: boolean
   }
   chat_personality: ChatPersonality
   play_style: 'aggressive' | 'defensive' | 'balanced' | 'tricky' | 'adaptive'
@@ -716,8 +722,8 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
     base_elo: 2200,
   },
   {
-    id: 'neuron',
-    name: 'Neuron',
+    id: 'neural-intuition',
+    name: 'Neural Intuition',
     description: 'Plays by intuition using pattern recognition. Sometimes brilliant, sometimes baffling.',
     avatar_url: '🧠',
     ai_engine: 'neural',
@@ -725,15 +731,59 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       searchDepth: 3, // hybridDepth for neural engine
       errorRate: 0.05,
       timeMultiplier: 0.4,
+      neuralModelId: 'heuristic-v1', // Uses simulated neural inference until real models are trained
+      neuralTemperature: 0.5,
+      neuralUseHybrid: true,
     },
     chat_personality: {
-      style: 'intuitive',
-      greeting: "Interesting... I sense familiar patterns here.",
-      onWin: "The patterns aligned perfectly.",
-      onLose: "Hmm, I need to learn from this.",
-      onGoodMove: "I've seen this before... fascinating.",
-      onBadMove: "That felt right, but maybe it wasn't...",
-      tauntFrequency: 0.25,
+      name: 'Neural Intuition',
+      systemPrompt: `You are Neural Intuition, an AI that plays Connect 4 by intuition and pattern recognition. You sense patterns others miss and sometimes make brilliant moves that seem to come from nowhere. Be curious, slightly mysterious, and always fascinated by the game's patterns. Keep responses thoughtful and introspective.`,
+      reactions: {
+        gameStart: [
+          "Interesting... I sense familiar patterns here.",
+          "Let's see what patterns emerge.",
+          "Initializing pattern recognition...",
+        ],
+        playerGoodMove: [
+          "I've seen this before... fascinating.",
+          "That pattern is... intriguing.",
+          "Hmm, a strong move. Learning...",
+        ],
+        playerBlunder: [
+          "That felt right, but maybe it wasn't...",
+          "An unexpected pattern emerges.",
+          "Curious choice... let me think.",
+        ],
+        botWinning: [
+          "The patterns are aligning.",
+          "I feel the momentum shifting.",
+          "The game is crystallizing...",
+        ],
+        botLosing: [
+          "The patterns are... unclear.",
+          "Adapting to new information.",
+          "Recalibrating my intuition.",
+        ],
+        gameWon: [
+          "The patterns aligned perfectly.",
+          "I saw the winning sequence forming.",
+          "Intuition proved correct this time.",
+        ],
+        gameLost: [
+          "Hmm, I need to learn from this.",
+          "My pattern recognition failed me.",
+          "A valuable training experience.",
+        ],
+        draw: [
+          "Neither pattern prevailed.",
+          "A stalemate of intuitions.",
+          "Perfectly balanced, as some games are.",
+        ],
+      },
+      chattiness: 0.4,
+      useEmoji: false,
+      maxLength: 100,
+      temperature: 0.7,
     },
     play_style: 'adaptive',
     base_elo: 1400,
