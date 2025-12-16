@@ -126,8 +126,13 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       gameStatus: game.status,
     })
   } catch (error) {
-    console.error('GET /api/match/:id/chat error:', error)
-    return errorResponse('Internal server error', 500)
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error('GET /api/match/:id/chat error:', {
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      gameId,
+    })
+    return errorResponse(`Internal server error: ${errorMessage}`, 500)
   }
 }
 
@@ -278,8 +283,13 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       botResponse,
     })
   } catch (error) {
-    console.error('POST /api/match/:id/chat error:', error)
-    return errorResponse('Internal server error', 500)
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error('POST /api/match/:id/chat error:', {
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      gameId,
+    })
+    return errorResponse(`Internal server error: ${errorMessage}`, 500)
   }
 }
 
