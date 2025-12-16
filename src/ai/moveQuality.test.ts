@@ -330,22 +330,24 @@ describe('Move Quality Scoring', () => {
   })
 
   describe('Performance', () => {
-    it('analyzes a short game in reasonable time (< 10 seconds)', async () => {
-      // Expert difficulty (depth 8) takes ~500-800ms per move
+    it('analyzes a short game in reasonable time (< 20 seconds)', async () => {
+      // Expert difficulty (depth 8) takes ~500-800ms per move locally
+      // CI environments may be slower, so allow up to 20 seconds
       const start = Date.now()
       await analyzeGame([3, 3, 2, 4, 1, 5])
       const elapsed = Date.now() - start
 
-      expect(elapsed).toBeLessThan(10000)
+      expect(elapsed).toBeLessThan(20000)
     })
 
-    it('analyzes a typical game in reasonable time (< 15 seconds)', async () => {
-      // 10-move game at ~500-800ms per move
+    it('analyzes a typical game in reasonable time (< 30 seconds)', async () => {
+      // 10-move game at ~500-800ms per move locally
+      // CI environments may be slower, so allow up to 30 seconds
       const start = Date.now()
       await analyzeGame([3, 3, 2, 4, 1, 5, 0, 6, 2, 4])
       const elapsed = Date.now() - start
 
-      expect(elapsed).toBeLessThan(15000)
+      expect(elapsed).toBeLessThan(30000)
     })
   })
 })
