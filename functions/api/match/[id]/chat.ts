@@ -260,20 +260,27 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       }
 
       // Generate bot response using Cloudflare Workers AI with Llama
-      botResponse = await generateBotResponse(AI, content, gameRow, personality)
+      // Wrap in try/catch to ensure AI failures don't break the user's message
+      try {
+        botResponse = await generateBotResponse(AI, content, gameRow, personality)
 
-      if (botResponse) {
-        const botMessageId = crypto.randomUUID()
-        const botNow = Date.now()
+        if (botResponse) {
+          const botMessageId = crypto.randomUUID()
+          const botNow = Date.now()
 
-        await db.insert(gameMessages).values({
-          id: botMessageId,
-          gameId,
-          senderId: 'bot',
-          senderType: 'bot',
-          content: botResponse,
-          createdAt: botNow,
-        })
+          await db.insert(gameMessages).values({
+            id: botMessageId,
+            gameId,
+            senderId: 'bot',
+            senderType: 'bot',
+            content: botResponse,
+            createdAt: botNow,
+          })
+        }
+      } catch (aiError) {
+        // Log AI error but don't fail the request - user's message was still saved
+        console.error('Bot response generation failed:', aiError)
+        // Bot just won't respond to this message, which is acceptable
       }
     }
 
