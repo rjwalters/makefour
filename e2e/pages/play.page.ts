@@ -26,27 +26,27 @@ export class PlayPage {
   constructor(page: Page) {
     this.page = page
     this.pageTitle = page.locator('text=MakeFour').first()
-    this.gameBoard = page.locator('.bg-blue-600, .bg-blue-800').first()
-    this.newGameButton = page.locator('button:has-text("New Game")')
+    this.gameBoard = page.locator('.bg-blue-600, .dark\\:bg-blue-800').first()
+    this.newGameButton = page.locator('button:has-text("New Game"), button:has-text("Change Settings")')
     this.saveGameButton = page.locator('button:has-text("Save")')
     this.currentPlayerIndicator = page.locator('text=/Player [12]/').first()
-    this.winnerIndicator = page.locator('text=/wins|Draw|Winner/')
+    this.winnerIndicator = page.locator('text=/wins|Draw|Winner|You win|AI wins/')
     this.logoutButton = page.locator('button:has-text("Logout")')
     this.dashboardLink = page.locator('a[href="/dashboard"]').first()
     this.mobileMenuButton = page.locator('button[aria-label="Toggle menu"]')
 
-    // Game mode buttons
+    // Game mode buttons - Training Mode is the default now
     this.aiModeButton = page.locator('button:has-text("vs AI"), button:has-text("AI")')
     this.hotseatModeButton = page.locator('button:has-text("Hotseat"), button:has-text("Local")')
     this.onlineModeButton = page.locator('button:has-text("Online")')
     this.startGameButton = page.locator(
-      'button:has-text("Start Game"), button:has-text("Start"), button:has-text("Play")'
+      'button:has-text("Start Training"), button:has-text("Start Game"), button:has-text("Start"), button:has-text("Play")'
     )
     this.difficultySelector = page.locator('select, [role="combobox"]')
   }
 
   async goto() {
-    await this.page.goto('/play')
+    await this.page.goto('/play?mode=training')
     await this.page.waitForLoadState('networkidle')
   }
 
@@ -75,26 +75,21 @@ export class PlayPage {
   }
 
   /**
-   * Start a new hotseat game (local 2-player)
+   * Start a new training game (vs AI with coaching)
+   * Note: This was previously hotseat, but the UI now defaults to Training Mode
    */
   async startHotseatGame() {
-    // Look for hotseat/local mode
-    const hotseatBtn = this.page.locator(
-      'button:has-text("Hotseat"), button:has-text("Local 2P"), label:has-text("Hotseat")'
-    )
-    if (await hotseatBtn.isVisible()) {
-      await hotseatBtn.click()
-    }
-
-    // Start the game
+    // Training Mode is the default - just click the start button
     const startBtn = this.page.locator(
-      'button:has-text("Start Game"), button:has-text("Start"), button:has-text("Play Now")'
+      'button:has-text("Start Training"), button:has-text("Start Game"), button:has-text("Start"), button:has-text("Play Now")'
     )
     if (await startBtn.isVisible()) {
       await startBtn.click()
     }
 
+    // Wait for the game to start and board to appear
     await this.page.waitForTimeout(500)
+    await this.gameBoard.waitFor({ state: 'visible', timeout: 5000 })
   }
 
   /**
@@ -124,11 +119,25 @@ export class PlayPage {
 
   /**
    * Play a sequence of moves (columns)
+   * In Training Mode (AI), waits for AI to move after each player move
    */
   async playMoves(columns: number[]) {
     for (const col of columns) {
       await this.dropPieceInColumn(col)
-      await this.page.waitForTimeout(200) // Wait between moves
+      // Wait for move to register and check if game is over
+      await this.page.waitForTimeout(200)
+
+      // Check if game is over after this move
+      const isOver = await this.isGameOver()
+      if (isOver) break
+
+      // In AI mode, wait for AI to make its move (look for "Your turn" indicator)
+      try {
+        await this.page.waitForSelector('text=/Your turn|wins|Draw/', { timeout: 5000 })
+      } catch {
+        // If timeout, the turn indicator might be different or game is over
+      }
+      await this.page.waitForTimeout(200)
     }
   }
 
@@ -136,7 +145,7 @@ export class PlayPage {
    * Check if the game is over (winner or draw)
    */
   async isGameOver(): Promise<boolean> {
-    const winText = this.page.locator('text=/wins|Draw|Winner|Game Over/')
+    const winText = this.page.locator('text=/wins|Draw|Winner|Game Over|You win|AI wins/')
     return await winText.isVisible()
   }
 

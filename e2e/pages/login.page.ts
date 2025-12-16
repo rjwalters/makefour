@@ -63,6 +63,8 @@ export class LoginPage {
   }
 
   async expectError(errorText?: string) {
+    // Wait for error message to appear with timeout
+    await this.errorMessage.waitFor({ state: 'visible', timeout: 10000 })
     await expect(this.errorMessage).toBeVisible()
     if (errorText) {
       await expect(this.errorMessage).toContainText(errorText)

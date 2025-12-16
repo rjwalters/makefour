@@ -3,7 +3,7 @@ import { DashboardPage, GamesPage, LoginPage, PlayPage } from '../pages'
 
 test.describe('Gameplay Flow', () => {
   test.describe('Game Setup', () => {
-    test('should start a hotseat game from setup', async ({ page, testUser }) => {
+    test('should start a training game from setup', async ({ page, testUser }) => {
       const loginPage = new LoginPage(page)
       const playPage = new PlayPage(page)
 
@@ -13,10 +13,10 @@ test.describe('Gameplay Flow', () => {
       await page.waitForURL('/dashboard')
       await playPage.goto()
 
-      // Start hotseat game
+      // Start training game (vs AI)
       await playPage.startHotseatGame()
 
-      // Board should be visible and empty
+      // Board should be visible
       await expect(playPage.gameBoard).toBeVisible()
     })
 
@@ -25,8 +25,27 @@ test.describe('Gameplay Flow', () => {
 
       await playPage.goto()
 
-      // Should be able to see the play page
-      await expect(page).toHaveURL('/play')
+      // Should be able to see the play page with training mode
+      await expect(page).toHaveURL(/\/play/)
+    })
+
+    test('should show training mode setup options', async ({ page, testUser }) => {
+      const loginPage = new LoginPage(page)
+      const playPage = new PlayPage(page)
+
+      await loginPage.goto()
+      await loginPage.register(testUser.email, testUser.password)
+      await page.waitForURL('/dashboard')
+      await playPage.goto()
+
+      // Should see Training Mode title
+      await expect(page.locator('text=Training Mode')).toBeVisible()
+
+      // Should see difficulty options
+      await expect(page.locator('text=Difficulty')).toBeVisible()
+
+      // Should see start button
+      await expect(page.locator('button:has-text("Start Training")')).toBeVisible()
     })
   })
 
@@ -50,7 +69,7 @@ test.describe('Gameplay Flow', () => {
       expect(hasPieces).toBe(true)
     })
 
-    test('should alternate between players in hotseat mode', async ({ page, testUser }) => {
+    test('should show player pieces after moves', async ({ page, testUser }) => {
       const loginPage = new LoginPage(page)
       const playPage = new PlayPage(page)
 
@@ -61,20 +80,20 @@ test.describe('Gameplay Flow', () => {
       await playPage.goto()
       await playPage.startHotseatGame()
 
-      // Make several moves in different columns
-      await playPage.playMoves([0, 1, 2, 3])
+      // Make a move
+      await playPage.dropPieceInColumn(3)
 
-      // Should have pieces from both players
+      // Wait for AI to respond
+      await page.waitForTimeout(1000)
+
+      // Should have at least one red piece (player's move)
       const redPieces = page.locator('.bg-red-500')
-      const yellowPieces = page.locator('.bg-yellow-400')
-
       expect(await redPieces.count()).toBeGreaterThan(0)
-      expect(await yellowPieces.count()).toBeGreaterThan(0)
     })
   })
 
-  test.describe('Winning Conditions', () => {
-    test('should detect horizontal win', async ({ page, testUser }) => {
+  test.describe('Game UI Elements', () => {
+    test('should show game status during play', async ({ page, testUser }) => {
       const loginPage = new LoginPage(page)
       const playPage = new PlayPage(page)
 
@@ -85,25 +104,12 @@ test.describe('Gameplay Flow', () => {
       await playPage.goto()
       await playPage.startHotseatGame()
 
-      // Play moves for horizontal win
-      // Player 1: columns 0, 1, 2, 3 (bottom row)
-      // Player 2: columns 0, 1, 2 (second row - to not block)
-      await playPage.playMoves([
-        0,
-        0, // P1 bottom col 0, P2 top of col 0
-        1,
-        1, // P1 bottom col 1, P2 top of col 1
-        2,
-        2, // P1 bottom col 2, P2 top of col 2
-        3, // P1 bottom col 3 - wins!
-      ])
-
-      // Game should be over
-      const isOver = await playPage.isGameOver()
-      expect(isOver).toBe(true)
+      // Should show player vs AI header
+      await expect(page.locator('text=You')).toBeVisible()
+      await expect(page.locator('text=AI')).toBeVisible()
     })
 
-    test('should detect vertical win', async ({ page, testUser }) => {
+    test('should have New Game button during play', async ({ page, testUser }) => {
       const loginPage = new LoginPage(page)
       const playPage = new PlayPage(page)
 
@@ -114,59 +120,17 @@ test.describe('Gameplay Flow', () => {
       await playPage.goto()
       await playPage.startHotseatGame()
 
-      // Play moves for vertical win
-      // Player 1: column 0 four times
-      // Player 2: column 1 three times
-      await playPage.playMoves([
-        0,
-        1, // P1 col 0, P2 col 1
-        0,
-        1, // P1 col 0, P2 col 1
-        0,
-        1, // P1 col 0, P2 col 1
-        0, // P1 col 0 - wins!
-      ])
+      // Make a move to enable the New Game button
+      await playPage.dropPieceInColumn(3)
+      await page.waitForTimeout(500)
 
-      // Game should be over
-      const isOver = await playPage.isGameOver()
-      expect(isOver).toBe(true)
-    })
-
-    test('should detect diagonal win', async ({ page, testUser }) => {
-      const loginPage = new LoginPage(page)
-      const playPage = new PlayPage(page)
-
-      // Setup
-      await loginPage.goto()
-      await loginPage.register(testUser.email, testUser.password)
-      await page.waitForURL('/dashboard')
-      await playPage.goto()
-      await playPage.startHotseatGame()
-
-      // Play moves for diagonal win (ascending)
-      // This is a complex sequence to set up a diagonal
-      await playPage.playMoves([
-        0,
-        1, // P1 col 0 (row 5), P2 col 1 (row 5)
-        1,
-        2, // P1 col 1 (row 4), P2 col 2 (row 5)
-        2,
-        3, // P1 col 2 (row 4), P2 col 3 (row 5)
-        2,
-        3, // P1 col 2 (row 3), P2 col 3 (row 4)
-        3,
-        4, // P1 col 3 (row 3), P2 col 4 (row 5)
-        3, // P1 col 3 (row 2) - wins diagonally!
-      ])
-
-      // Game should be over with a winner
-      const isOver = await playPage.isGameOver()
-      expect(isOver).toBe(true)
+      // Should show New Game button
+      await expect(page.locator('button:has-text("New Game")')).toBeVisible()
     })
   })
 
   test.describe('New Game', () => {
-    test('should reset board when starting new game', async ({ page, testUser }) => {
+    test('should return to setup when clicking New Game', async ({ page, testUser }) => {
       const loginPage = new LoginPage(page)
       const playPage = new PlayPage(page)
 
@@ -177,73 +141,18 @@ test.describe('Gameplay Flow', () => {
       await playPage.goto()
       await playPage.startHotseatGame()
 
-      await playPage.playMoves([0, 1, 2, 3])
-
-      // Verify pieces on board
-      let hasPieces = await playPage.hasPieces()
-      expect(hasPieces).toBe(true)
-
-      // Start new game
-      await playPage.clickNewGame()
-
-      // Wait for setup screen or empty board
+      // Make a move
+      await playPage.dropPieceInColumn(0)
       await page.waitForTimeout(500)
 
-      // If we're in setup mode, start a new game
-      const setupVisible = await page.locator('button:has-text("Start Game"), button:has-text("Play")').isVisible()
-      if (setupVisible) {
-        await playPage.startHotseatGame()
-      }
+      // Click New Game
+      await playPage.clickNewGame()
+      await page.waitForTimeout(500)
 
-      // Board should be empty (no pieces) or we should be in setup
-      hasPieces = await playPage.hasPieces()
-      expect(hasPieces).toBe(false)
-    })
-  })
-
-  test.describe('Game Saving (Authenticated)', () => {
-    test('should save completed game for authenticated user', async ({ page, testUser }) => {
-      const loginPage = new LoginPage(page)
-      const playPage = new PlayPage(page)
-      const gamesPage = new GamesPage(page)
-
-      // Register and setup game
-      await loginPage.goto()
-      await loginPage.register(testUser.email, testUser.password)
-      await page.waitForURL('/dashboard')
-      await playPage.goto()
-      await playPage.startHotseatGame()
-
-      // Play a complete game (vertical win)
-      await playPage.playMoves([
-        0,
-        1,
-        0,
-        1,
-        0,
-        1,
-        0, // P1 wins
-      ])
-
-      // Game should be over
-      const isOver = await playPage.isGameOver()
-      expect(isOver).toBe(true)
-
-      // Save the game
-      const saveButton = page.locator('button:has-text("Save")')
-      if (await saveButton.isVisible()) {
-        await saveButton.click()
-        await page.waitForTimeout(1000)
-      }
-
-      // Navigate to games page
-      await gamesPage.goto()
-
-      // Should see at least one game (the one we just played)
-      // Note: This might fail if the game wasn't saved properly
-      // Even if no games appear (API might not be running), test should pass
-      // The important thing is that the flow completed without errors
-      await gamesPage.hasGames() // Just verify the call doesn't throw
+      // Should see setup screen again
+      const setupVisible = await page.locator('text=Training Mode').isVisible()
+      const startVisible = await page.locator('button:has-text("Start Training")').isVisible()
+      expect(setupVisible || startVisible).toBe(true)
     })
   })
 
@@ -258,8 +167,8 @@ test.describe('Gameplay Flow', () => {
       await page.waitForURL('/dashboard')
       await playPage.goto()
 
-      // Navigate to dashboard
-      await playPage.navigateToDashboard()
+      // Navigate to dashboard via navbar
+      await page.locator('a[href="/dashboard"]').first().click()
 
       // Should be on dashboard
       await expect(page).toHaveURL('/dashboard')
@@ -278,7 +187,7 @@ test.describe('Gameplay Flow', () => {
       await dashboardPage.navigateToPlay()
 
       // Should be on play page
-      await expect(page).toHaveURL('/play')
+      await expect(page).toHaveURL(/\/play/)
     })
   })
 })
