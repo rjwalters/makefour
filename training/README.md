@@ -290,6 +290,91 @@ Evaluation results are saved as JSON:
 }
 ```
 
+## ONNX Export
+
+Export trained models to ONNX format for deployment in browsers and Cloudflare Workers.
+
+### Quick Export
+
+```bash
+# Export a model by name (creates untrained model)
+python scripts/export.py --model cnn-tiny --output models/cnn-tiny.onnx
+
+# Export from checkpoint
+python scripts/export.py --checkpoint checkpoints/cnn-tiny-epoch50.pt --output models/cnn-tiny.onnx
+
+# Export with optimization and quantization
+python scripts/export.py --checkpoint checkpoints/model.pt --output models/model.onnx --optimize --quantize
+
+# Validate an exported model
+python scripts/export.py --validate models/cnn-tiny.onnx --model cnn-tiny
+
+# Show model info
+python scripts/export.py --info models/cnn-tiny.onnx
+
+# List available models
+python scripts/export.py --list-models
+```
+
+### Using the Export API
+
+```python
+from src.models import create_model
+from src.export import export_to_onnx, validate_onnx_model, ExportConfig
+from src.export.metadata import add_metadata, create_metadata_from_model
+
+# Create and train model
+model = create_model("cnn-tiny")
+# ... training code ...
+
+# Export to ONNX
+config = ExportConfig(
+    output_path="models/cnn-tiny.onnx",
+    optimize=True,
+    quantize=False,  # Set True for ~4x smaller size
+)
+result = export_to_onnx(model, config)
+print(f"Exported: {result.model_size_kb:.1f} KB")
+
+# Add metadata for tracking
+metadata = create_metadata_from_model(
+    model,
+    "cnn-tiny-v1",
+    training_games=100000,
+    training_epochs=50,
+    estimated_elo=1250,
+)
+add_metadata("models/cnn-tiny.onnx", metadata)
+
+# Validate ONNX matches PyTorch
+val_result = validate_onnx_model(
+    "models/cnn-tiny.onnx",
+    model,
+    input_shape=(3, 6, 7),
+)
+print(val_result)  # "Validation PASSED (100 test cases)"
+```
+
+### Model Input/Output Format
+
+All exported models use consistent I/O naming:
+
+**Input**: `board`
+- MLP models: `[batch, 85]` (flat-binary encoding)
+- CNN/ResNet models: `[batch, 3, 6, 7]` (one-hot 3D encoding)
+
+**Outputs**:
+- `policy`: `[batch, 7]` - Column logits (apply softmax for probabilities)
+- `value`: `[batch, 1]` - Position evaluation in [-1, 1]
+
+### Size Optimization
+
+| Target | Max Size | Technique |
+|--------|----------|-----------|
+| Browser (fast) | <100KB | Quantization |
+| Browser (standard) | <500KB | Basic optimization |
+| Workers | <1MB | Full precision |
+
 ## Directory Structure
 
 ```
@@ -306,6 +391,17 @@ training/
 │   │   ├── arena.py         # Match/tournament management
 │   │   ├── elo.py           # ELO calculation
 │   │   └── analysis.py      # Result analysis and reporting
+│   ├── models/
+│   │   ├── base.py          # ConnectFourModel base class
+│   │   ├── mlp.py           # MLP architectures
+│   │   ├── cnn.py           # CNN architectures
+│   │   ├── transformer.py   # Transformer architectures
+│   │   ├── resnet.py        # ResNet architectures
+│   │   └── registry.py      # Model registry
+│   ├── export/
+│   │   ├── onnx_export.py   # ONNX export functionality
+│   │   ├── validation.py    # ONNX validation utilities
+│   │   └── metadata.py      # Model metadata utilities
 │   └── self_play/
 │       ├── worker.py        # SelfPlayWorker for game generation
 │       ├── manager.py       # SelfPlayManager for parallel generation
@@ -316,17 +412,22 @@ training/
 │   ├── test_game.py         # Game logic tests
 │   ├── test_dataset.py      # Dataset tests
 │   ├── test_validation.py   # Validation tests
+│   ├── test_models.py       # Model architecture tests
 │   ├── test_self_play.py    # Self-play system tests
-│   └── test_evaluation.py   # Evaluation harness tests
+│   ├── test_evaluation.py   # Evaluation harness tests
+│   └── test_export.py       # ONNX export tests
 ├── data/
 │   ├── games/               # Raw game records
 │   ├── self_play/           # Self-play generated data
 │   └── processed/           # Processed tensors
+├── models/                   # Exported ONNX models
 ├── configs/
-│   └── self_play.yaml       # Self-play configuration
+│   ├── self_play.yaml       # Self-play configuration
+│   └── export.yaml          # Export configuration
 └── scripts/
     ├── self_play.py         # Self-play CLI script
-    └── evaluate.py          # Model evaluation CLI script
+    ├── evaluate.py          # Model evaluation CLI script
+    └── export.py            # ONNX export CLI script
 ```
 
 ## Related Issues
@@ -334,4 +435,5 @@ training/
 - Epic: #81 - Neural Network Training Pipeline
 - Model Architectures: #83
 - Training Infrastructure: #84
+- ONNX Export Pipeline: #86
 - Model Evaluation: #87
