@@ -15,7 +15,7 @@ binding = "AI"
 # KV namespace for rate limiting
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
-id = "rate-limit-kv"
+id = "a6799ad4f2b84bcb9323f5ddfb7f1714"
 
 # Environment variables
 [vars]
