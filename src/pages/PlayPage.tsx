@@ -1106,6 +1106,7 @@ export default function PlayPage() {
             botAvatarUrl={selectedPersona?.avatarUrl}
             botName={selectedPersona?.name || botName}
             userId={user?.id}
+            opponentName={selectedPersona?.name || botName}
           />
         </CardContent>
       </Card>

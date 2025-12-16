@@ -31,6 +31,8 @@ interface ChatPanelProps {
   botName?: string
   /** Current user's ID for identifying own messages */
   userId?: string
+  /** Opponent's display name */
+  opponentName?: string
 }
 
 export default function ChatPanel({
@@ -42,6 +44,7 @@ export default function ChatPanel({
   botAvatarUrl,
   botName = 'Bot',
   userId,
+  opponentName = 'Opponent',
 }: ChatPanelProps) {
   const {
     messages,
@@ -118,7 +121,7 @@ export default function ChatPanel({
     if (message.sender_id === 'self' || message.sender_id === userId) {
       return 'You'
     }
-    return 'Opponent'
+    return opponentName
   }
 
   const isOwnMessage = (message: ChatMessage) => {
