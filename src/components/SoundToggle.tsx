@@ -6,7 +6,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { Button } from './ui/button'
-import { type SoundSettings } from '../hooks/useSounds'
+import type { SoundSettings } from '../hooks/useSounds'
 
 interface SoundToggleProps {
   settings: SoundSettings

@@ -770,7 +770,7 @@ export class NeuralEngine implements AIEngine {
         // Temperature-adjusted sampling
         const tempAdjusted = validPolicy.map((p) => ({
           col: p.col,
-          prob: Math.pow(p.prob, 1 / neuralConfig.temperature),
+          prob: p.prob ** (1 / neuralConfig.temperature),
         }))
         const tempSum = tempAdjusted.reduce((sum, p) => sum + p.prob, 0)
         for (const p of tempAdjusted) {

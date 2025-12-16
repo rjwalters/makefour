@@ -24,7 +24,7 @@ import {
 /**
  * Entry types for transposition table bounds.
  */
-const enum TTEntryType {
+enum TTEntryType {
   EXACT = 0, // Exact score
   LOWER = 1, // Score is a lower bound (beta cutoff)
   UPPER = 2, // Score is an upper bound (alpha cutoff)

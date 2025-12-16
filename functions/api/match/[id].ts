@@ -7,7 +7,7 @@
 
 import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
 import { replayMoves, makeMove, isValidMove, createGameState } from '../../lib/game'
-import { calculateNewRating, GameOutcome } from '../../lib/elo'
+import { calculateNewRating, type GameOutcome } from '../../lib/elo'
 import { z } from 'zod'
 
 interface Env {

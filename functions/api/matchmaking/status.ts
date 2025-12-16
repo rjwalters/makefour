@@ -44,6 +44,9 @@ const MAX_TOLERANCE = 500
 // Default time control: 5 minutes per player
 const DEFAULT_TIME_CONTROL_MS = 300000
 
+// Time after which bot match becomes available
+const BOT_READY_THRESHOLD_MS = 60000 // 60 seconds
+
 export async function onRequestGet(context: EventContext<Env, any, any>) {
   const { DB } = context.env
 
@@ -139,12 +142,16 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 
     if (!matchedOpponent) {
       // No match found yet
+      // Check if bot match is ready (waited 60 seconds)
+      const botMatchReady = waitTime >= BOT_READY_THRESHOLD_MS
+
       return jsonResponse({
         status: 'queued',
         waitTime,
         currentTolerance,
         mode: queueEntry.mode,
         rating: queueEntry.rating,
+        botMatchReady,
       })
     }
 

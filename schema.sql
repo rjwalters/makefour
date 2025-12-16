@@ -293,3 +293,33 @@ CREATE TABLE IF NOT EXISTS player_bot_stats (
 CREATE INDEX IF NOT EXISTS idx_player_bot_stats_user ON player_bot_stats(user_id);
 CREATE INDEX IF NOT EXISTS idx_player_bot_stats_bot ON player_bot_stats(bot_persona_id);
 CREATE INDEX IF NOT EXISTS idx_player_bot_stats_last_played ON player_bot_stats(last_played_at DESC);
+
+-- Challenges table - direct player-to-player challenges
+CREATE TABLE IF NOT EXISTS challenges (
+  id TEXT PRIMARY KEY,
+  -- User who initiated the challenge
+  challenger_id TEXT NOT NULL,
+  challenger_username TEXT NOT NULL,
+  challenger_rating INTEGER NOT NULL,
+  -- Target user (can be NULL if username doesn't exist yet)
+  target_id TEXT,
+  target_username TEXT NOT NULL,
+  target_rating INTEGER,
+  -- Challenge status
+  status TEXT NOT NULL DEFAULT 'pending',
+  -- Timestamps
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  -- Game ID if challenge was accepted
+  game_id TEXT,
+  FOREIGN KEY (challenger_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (target_id) REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (game_id) REFERENCES active_games(id) ON DELETE SET NULL,
+  CHECK (status IN ('pending', 'accepted', 'cancelled', 'declined', 'expired'))
+);
+
+-- Indexes for challenges
+CREATE INDEX IF NOT EXISTS idx_challenges_challenger ON challenges(challenger_id, status);
+CREATE INDEX IF NOT EXISTS idx_challenges_target ON challenges(target_id, status);
+CREATE INDEX IF NOT EXISTS idx_challenges_expires ON challenges(expires_at);
+CREATE INDEX IF NOT EXISTS idx_challenges_status ON challenges(status, created_at);

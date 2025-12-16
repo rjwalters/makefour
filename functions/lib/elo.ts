@@ -48,7 +48,7 @@ function getKFactor(gamesPlayed: number): number {
  * @returns Expected score between 0 and 1
  */
 function calculateExpectedScore(playerRating: number, opponentRating: number): number {
-  return 1 / (1 + Math.pow(10, (opponentRating - playerRating) / 400))
+  return 1 / (1 + 10 ** ((opponentRating - playerRating) / 400))
 }
 
 /**

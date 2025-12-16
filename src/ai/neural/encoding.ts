@@ -248,7 +248,7 @@ export function sampleFromPolicy(policy: number[], temperature = 0): number {
   }
 
   // Temperature-scaled sampling
-  const scaled = policy.map((p) => Math.pow(p, 1 / temperature))
+  const scaled = policy.map((p) => p ** (1 / temperature))
   const sum = scaled.reduce((a, b) => a + b, 0)
   const normalized = scaled.map((p) => p / sum)
 

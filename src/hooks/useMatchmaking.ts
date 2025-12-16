@@ -53,6 +53,8 @@ interface MatchmakingState {
   currentTolerance: number
   mode: MatchmakingMode
   game: OnlineGameState | null
+  botMatchReady: boolean
+  userRating: number
 }
 
 const QUEUE_POLL_INTERVAL = 2000 // 2 seconds
@@ -67,6 +69,8 @@ export function useMatchmaking() {
     currentTolerance: 100,
     mode: 'ranked',
     game: null,
+    botMatchReady: false,
+    userRating: 1200,
   })
 
   const queuePollRef = useRef<NodeJS.Timeout | null>(null)
@@ -147,6 +151,8 @@ export function useMatchmaking() {
       currentTolerance: 100,
       mode: 'ranked',
       game: null,
+      botMatchReady: false,
+      userRating: 1200,
     })
   }, [apiCall])
 
@@ -162,6 +168,8 @@ export function useMatchmaking() {
         waitTime?: number
         currentTolerance?: number
         mode?: MatchmakingMode
+        rating?: number
+        botMatchReady?: boolean
         opponent?: { rating: number }
       }>('/api/matchmaking/status')
 
@@ -186,6 +194,8 @@ export function useMatchmaking() {
           ...prev,
           waitTime: response.waitTime || 0,
           currentTolerance: response.currentTolerance || prev.currentTolerance,
+          botMatchReady: response.botMatchReady || false,
+          userRating: response.rating || prev.userRating,
         }))
       } else if (response.status === 'not_queued') {
         // User was removed from queue (shouldn't happen normally)
@@ -389,6 +399,44 @@ export function useMatchmaking() {
   }, [apiCall, state.game])
 
   /**
+   * Play against a bot immediately (skip human matchmaking)
+   */
+  const playBotNow = useCallback(async () => {
+    // Stop queue polling
+    if (queuePollRef.current) {
+      clearInterval(queuePollRef.current)
+      queuePollRef.current = null
+    }
+
+    try {
+      const response = await apiCall<{
+        status: 'matched'
+        gameId: string
+        playerNumber: 1 | 2
+        opponent: { name: string; rating: number; isBot: boolean }
+        mode: MatchmakingMode
+      }>('/api/matchmaking/play-bot', { method: 'POST' })
+
+      if (!isMountedRef.current) return
+
+      setState((prev) => ({
+        ...prev,
+        status: 'matched',
+      }))
+
+      // Fetch initial game state and start game polling
+      await fetchGameState(response.gameId)
+    } catch (error) {
+      if (!isMountedRef.current) return
+      setState((prev) => ({
+        ...prev,
+        status: 'error',
+        error: error instanceof Error ? error.message : 'Failed to start bot game',
+      }))
+    }
+  }, [apiCall, fetchGameState])
+
+  /**
    * Reset to idle state
    */
   const reset = useCallback(() => {
@@ -408,6 +456,8 @@ export function useMatchmaking() {
       currentTolerance: 100,
       mode: 'ranked',
       game: null,
+      botMatchReady: false,
+      userRating: 1200,
     })
   }, [])
 
@@ -415,6 +465,7 @@ export function useMatchmaking() {
     ...state,
     joinQueue,
     leaveQueue,
+    playBotNow,
     submitMove,
     resign,
     reset,

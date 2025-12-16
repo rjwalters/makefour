@@ -185,7 +185,7 @@ export async function advanceGame(
   const newMoves = [...moves, moveResult.column]
   let newStatus = 'active'
   let winner: string | null = null
-  let nextTurn = game.current_turn === 1 ? 2 : 1
+  const nextTurn = game.current_turn === 1 ? 2 : 1
 
   // Check for game over
   if (afterMove.winner !== null) {

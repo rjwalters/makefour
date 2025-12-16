@@ -119,7 +119,7 @@ export async function suggestNeuralMove(
  * Samples a move from probabilities with temperature scaling.
  */
 function sampleWithTemperature(probs: number[], temperature: number): number {
-  const scaled = probs.map((p) => Math.pow(p, 1 / temperature))
+  const scaled = probs.map((p) => p ** (1 / temperature))
   const sum = scaled.reduce((a, b) => a + b, 0)
   const normalized = scaled.map((p) => p / sum)
 

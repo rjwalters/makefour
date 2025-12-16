@@ -10,7 +10,7 @@
  * - Unread message indicator
  */
 
-import { useState, useRef, useEffect, FormEvent } from 'react'
+import { useState, useRef, useEffect, type FormEvent } from 'react'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { cn } from '@/lib/utils'

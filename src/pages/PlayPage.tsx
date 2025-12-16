@@ -11,6 +11,9 @@ import ChatPanel from '../components/ChatPanel'
 import BotPersonaSelector from '../components/BotPersonaSelector'
 import BotAvatar from '../components/BotAvatar'
 import { GameTimers } from '../components/GameTimer'
+import AutomatchWaiting from '../components/AutomatchWaiting'
+import ChallengePlayer from '../components/ChallengePlayer'
+import ChallengeWaiting from '../components/ChallengeWaiting'
 import {
   createGameState,
   makeMove,
@@ -20,13 +23,14 @@ import {
 import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
 import { useMatchmaking, type MatchmakingMode } from '../hooks/useMatchmaking'
 import { useBotGame, type BotDifficulty } from '../hooks/useBotGame'
+import { useChallenge } from '../hooks/useChallenge'
 import { useSounds } from '../hooks/useSounds'
 import type { BotPersona } from '../hooks/useBotPersonas'
 import { useSingleBotStats } from '../hooks/usePlayerBotStats'
 import { suggestMove, analyzeThreats, analyzePosition, DIFFICULTY_LEVELS, type DifficultyLevel, type Analysis } from '../ai/coach'
 
 type GameMode = 'ai' | 'hotseat' | 'online'
-type GamePhase = 'setup' | 'playing' | 'matchmaking' | 'online' | 'botGame'
+type GamePhase = 'setup' | 'playing' | 'matchmaking' | 'online' | 'botGame' | 'competition-setup' | 'automatch' | 'challenging'
 type BotGameMode = 'training' | 'ranked'
 
 interface GameSettings {
@@ -44,6 +48,7 @@ export default function PlayPage() {
   const { apiCall } = useAuthenticatedApi()
   const matchmaking = useMatchmaking()
   const botGame = useBotGame()
+  const challenge = useChallenge()
   const sounds = useSounds()
   const [searchParams] = useSearchParams()
   const [gameState, setGameState] = useState<GameState>(createGameState)
@@ -87,7 +92,7 @@ export default function PlayPage() {
 
   // Handle mode query parameter from navbar navigation
   useEffect(() => {
-    if (gamePhase !== 'setup') return
+    if (gamePhase !== 'setup' && gamePhase !== 'competition-setup') return
 
     const mode = searchParams.get('mode')
     if (mode === 'training') {
@@ -97,16 +102,17 @@ export default function PlayPage() {
         mode: 'ai',
         botGameMode: 'training',
       }))
+      setGamePhase('setup')
     } else if (mode === 'compete') {
-      // Compete mode: Show ranked options (AI ranked or Online)
-      // Default to AI ranked if authenticated, otherwise show online option
-      setSettings((prev) => ({
-        ...prev,
-        mode: 'ai',
-        botGameMode: 'ranked',
-      }))
+      // Compete mode: Show competition setup (Automatch vs Challenge)
+      if (isAuthenticated) {
+        setGamePhase('competition-setup')
+      } else {
+        // Not authenticated - show regular setup
+        setGamePhase('setup')
+      }
     }
-  }, [searchParams, gamePhase])
+  }, [searchParams, gamePhase, isAuthenticated])
 
   // Track previous game state for detecting game over transitions
   const prevWinnerRef = useRef<typeof gameState.winner>(null)
@@ -139,6 +145,16 @@ export default function PlayPage() {
       setGamePhase('botGame')
     }
   }, [botGame.status])
+
+  // Handle challenge state changes
+  useEffect(() => {
+    if (challenge.status === 'matched' && challenge.matchedGame) {
+      // Challenge was accepted - transition to online game
+      // The matchmaking hook will handle game state polling
+      // We need to simulate a matched state for the online game screen
+      sounds.playMatchFound()
+    }
+  }, [challenge.status, challenge.matchedGame, sounds])
 
   // Track online game state for sounds
   const prevOnlineGameRef = useRef<{ winner: string | null; moveCount: number }>({
@@ -1267,6 +1283,111 @@ export default function PlayPage() {
     )
   }
 
+  const renderCompetitionSetupScreen = () => (
+    <Card>
+      <CardHeader className="text-center">
+        <CardTitle className="text-2xl">Competitive Play</CardTitle>
+        <p className="text-muted-foreground mt-1">
+          All matches affect your rating
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Automatch option */}
+        <button
+          onClick={() => {
+            matchmaking.joinQueue('ranked', true)
+            setGamePhase('automatch')
+          }}
+          className="w-full p-4 rounded-lg border-2 border-primary/20 hover:border-primary/50 hover:bg-primary/5 transition-all text-left"
+        >
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="font-bold text-lg">Automatch</h3>
+              <p className="text-sm text-muted-foreground">
+                Find an opponent matched to your rating. Plays a human if available, or a bot at your level.
+              </p>
+            </div>
+          </div>
+        </button>
+
+        {/* Challenge option */}
+        <button
+          onClick={() => setGamePhase('challenging')}
+          className="w-full p-4 rounded-lg border-2 border-primary/20 hover:border-primary/50 hover:bg-primary/5 transition-all text-left"
+        >
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="font-bold text-lg">Challenge Player</h3>
+              <p className="text-sm text-muted-foreground">
+                Challenge a specific player by username. Both players must accept for the match to start.
+              </p>
+            </div>
+          </div>
+        </button>
+
+        {/* Back button */}
+        <Button
+          variant="outline"
+          onClick={() => setGamePhase('setup')}
+          className="w-full mt-4"
+        >
+          Back to Game Options
+        </Button>
+      </CardContent>
+    </Card>
+  )
+
+  const renderAutomatchScreen = () => (
+    <AutomatchWaiting
+      waitTime={Math.floor(matchmaking.waitTime / 1000)}
+      currentTolerance={matchmaking.currentTolerance}
+      userRating={matchmaking.userRating}
+      onCancel={() => {
+        matchmaking.leaveQueue()
+        setGamePhase('competition-setup')
+      }}
+      onPlayBotNow={() => {
+        matchmaking.playBotNow()
+      }}
+    />
+  )
+
+  const renderChallengingScreen = () => {
+    if (challenge.status === 'waiting' && challenge.outgoingChallenge) {
+      return (
+        <ChallengeWaiting
+          targetUsername={challenge.outgoingChallenge.targetUsername}
+          targetRating={challenge.outgoingChallenge.targetRating}
+          targetExists={challenge.outgoingChallenge.targetExists}
+          expiresAt={challenge.outgoingChallenge.expiresAt}
+          onCancel={() => {
+            challenge.cancelChallenge()
+            setGamePhase('challenging')
+          }}
+        />
+      )
+    }
+
+    return (
+      <ChallengePlayer
+        onSendChallenge={(username) => challenge.sendChallenge(username)}
+        onBack={() => setGamePhase('competition-setup')}
+        isLoading={challenge.status === 'sending'}
+        error={challenge.error}
+      />
+    )
+  }
+
   const renderContent = () => {
     switch (gamePhase) {
       case 'setup':
@@ -1279,6 +1400,12 @@ export default function PlayPage() {
         return renderOnlineGameScreen()
       case 'botGame':
         return renderBotGameScreen()
+      case 'competition-setup':
+        return renderCompetitionSetupScreen()
+      case 'automatch':
+        return renderAutomatchScreen()
+      case 'challenging':
+        return renderChallengingScreen()
       default:
         return renderSetupScreen()
     }

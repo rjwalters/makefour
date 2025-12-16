@@ -377,7 +377,7 @@ export class ThreatHeuristicEngine implements HeuristicEngine {
     )
 
     // Apply center bias - pick from the more central moves more often
-    const weights = sorted.map((_, i) => Math.pow(this.config.centerBias, sorted.length - i - 1))
+    const weights = sorted.map((_, i) => this.config.centerBias ** (sorted.length - i - 1))
     const totalWeight = weights.reduce((sum, w) => sum + w, 0)
     let random = Math.random() * totalWeight
 

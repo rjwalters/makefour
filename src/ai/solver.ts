@@ -13,7 +13,7 @@
  */
 
 import { type Board, COLUMNS, ROWS, getValidMoves } from '../game/makefour'
-import { type Position } from './coach'
+import type { Position } from './coach'
 
 // ============================================================================
 // POSITION ENCODING

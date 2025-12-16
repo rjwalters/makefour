@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { PreferencesProvider } from './contexts/PreferencesContext'
+import { ToastProvider } from './contexts/ToastContext'
+import ToastContainer from './components/Toast'
 import LoginPage from './pages/LoginPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
@@ -26,8 +28,9 @@ function App() {
     <ThemeProvider>
       <AuthProvider>
         <PreferencesProvider>
-          <BrowserRouter>
-            <Routes>
+          <ToastProvider>
+            <BrowserRouter>
+              <Routes>
             {/* Public routes */}
             <Route path="/" element={<PlayPage />} />
             <Route path="/play" element={<PlayPage />} />
@@ -80,8 +83,10 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            </Routes>
-          </BrowserRouter>
+              </Routes>
+              <ToastContainer />
+            </BrowserRouter>
+          </ToastProvider>
         </PreferencesProvider>
       </AuthProvider>
     </ThemeProvider>

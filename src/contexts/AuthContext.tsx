@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import type React from 'react'
+import { createContext, useContext, useState, useEffect } from 'react'
 import type { PublicUser } from '../lib/schemas/auth'
 import { decryptDEK } from '../lib/crypto'
 
