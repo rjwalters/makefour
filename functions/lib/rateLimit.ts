@@ -189,3 +189,62 @@ export function applyRateLimitHeaders(response: Response, result: RateLimitResul
 
   return newResponse
 }
+
+/**
+ * Options for applyRateLimit function
+ */
+interface ApplyRateLimitOptions {
+  rateLimiter: DurableObjectNamespace
+  db: D1Database
+  limit: number
+  window: number // in seconds
+}
+
+/**
+ * Apply rate limiting using Durable Objects
+ * Simplified rate limiter for API endpoints
+ *
+ * @param request - The incoming request
+ * @param options - Rate limit configuration
+ * @returns RateLimitResult with allowed status
+ */
+export async function applyRateLimit(
+  request: Request,
+  options: ApplyRateLimitOptions
+): Promise<RateLimitResult> {
+  const clientIP = getClientIP(request)
+  const windowMs = options.window * 1000
+
+  // Use a simple in-memory approach via the Durable Object
+  // For simplicity, we'll use a basic rate limiting strategy
+  const id = options.rateLimiter.idFromName(clientIP)
+  const stub = options.rateLimiter.get(id)
+
+  try {
+    const response = await stub.fetch(
+      new Request('https://rate-limiter/check', {
+        method: 'POST',
+        body: JSON.stringify({
+          limit: options.limit,
+          window: options.window,
+        }),
+      })
+    )
+
+    if (response.ok) {
+      const data = await response.json() as RateLimitResult
+      return data
+    }
+  } catch {
+    // If Durable Object fails, allow the request
+    // This prevents rate limiting from blocking requests on infrastructure issues
+  }
+
+  // Default: allow the request if rate limiting fails
+  return {
+    allowed: true,
+    limit: options.limit,
+    remaining: options.limit,
+    resetAt: Math.ceil((Date.now() + windowMs) / 1000),
+  }
+}
