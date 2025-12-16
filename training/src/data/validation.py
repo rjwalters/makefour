@@ -58,14 +58,15 @@ def validate_board(board: Board) -> ValidationResult:
     if errors:
         return ValidationResult(False, errors, warnings)
 
-    # Check gravity (pieces must stack from bottom)
+    # Check gravity (pieces must stack from bottom, row 5 is bottom)
     for col in range(COLUMNS):
-        found_empty = False
-        for row in range(ROWS):
+        found_empty_below = False
+        for row in range(ROWS - 1, -1, -1):  # Iterate bottom (5) to top (0)
             cell = board[row][col]
             if cell is None:
-                found_empty = True
-            elif found_empty:
+                found_empty_below = True
+            elif found_empty_below:
+                # Piece with empty space below it = floating
                 errors.append(f"Floating piece at ({row}, {col})")
 
     if errors:

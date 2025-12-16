@@ -20,7 +20,7 @@ class TestPolicyLoss:
     def test_basic_policy_loss(self):
         """Test that policy loss computes correctly."""
         batch_size = 4
-        policy_logits = torch.randn(batch_size, 7)
+        policy_logits = torch.randn(batch_size, 7, requires_grad=True)
         target_move = torch.randint(0, 7, (batch_size,))
 
         loss = policy_loss(policy_logits, target_move)
@@ -63,7 +63,7 @@ class TestValueLoss:
     def test_basic_value_loss(self):
         """Test that value loss computes correctly."""
         batch_size = 4
-        value_pred = torch.randn(batch_size, 1)
+        value_pred = torch.randn(batch_size, 1, requires_grad=True)
         target_value = torch.randn(batch_size, 1)
 
         loss = value_loss(value_pred, target_value)
