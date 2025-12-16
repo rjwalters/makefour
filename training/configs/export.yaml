@@ -1,0 +1,74 @@
+# ONNX Export Configuration
+#
+# Default settings for exporting Connect Four models to ONNX format.
+
+# Export settings
+export:
+  opset_version: 14  # ONNX opset version (14 is widely supported)
+  optimize: true     # Apply ONNX optimizations (recommended)
+  quantize: false    # Apply INT8 quantization (reduces size ~4x)
+  dynamic_batch: true  # Support variable batch sizes
+
+# Input/output naming conventions
+io:
+  input_name: "board"
+  output_names:
+    - "policy"
+    - "value"
+
+# Validation settings
+validation:
+  num_samples: 100    # Random samples for validation
+  rtol: 1.0e-4        # Relative tolerance
+  atol: 1.0e-5        # Absolute tolerance
+  use_game_positions: true  # Also test with realistic game positions
+
+# Metadata defaults
+metadata:
+  makefour_version: "1.0.0"
+  # Optional fields populated at export time:
+  # training_games: null
+  # training_epochs: null
+  # estimated_elo: null
+
+# Size optimization targets (informational)
+# These help guide optimization decisions
+size_targets:
+  browser_fast: 100_000      # <100KB for fast loading
+  browser_standard: 500_000  # <500KB for standard browser deployment
+  workers: 1_000_000         # <1MB for Cloudflare Workers
+
+# Model-specific export configurations
+# Override defaults for specific model architectures
+models:
+  # MLP models - smaller, use flat-binary encoding
+  mlp-micro:
+    quantize: true  # Very small model, quantization OK
+  mlp-tiny:
+    quantize: false
+  mlp-small:
+    quantize: false
+
+  # CNN models - use one-hot 3D encoding
+  cnn-micro:
+    quantize: true
+  cnn-tiny:
+    quantize: false
+  cnn-small:
+    quantize: false
+
+  # Transformer models
+  transformer-micro:
+    quantize: true
+  transformer-tiny:
+    quantize: false
+  transformer-small:
+    quantize: false
+
+  # ResNet models - larger, may benefit from quantization
+  resnet-micro:
+    quantize: false
+  resnet-tiny:
+    quantize: false
+  resnet-small:
+    quantize: true  # Larger model, quantize for browser
