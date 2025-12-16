@@ -30,6 +30,16 @@ export const publicUserSchema = userSchema.omit({
 
 export type PublicUser = z.infer<typeof publicUserSchema>
 
+// Username validation: 3-20 chars, alphanumeric + underscores, must start with letter
+export const usernameSchema = z
+  .string()
+  .min(3, 'Username must be at least 3 characters')
+  .max(20, 'Username must be at most 20 characters')
+  .regex(
+    /^[a-zA-Z][a-zA-Z0-9_]{2,19}$/,
+    'Username must start with a letter and contain only letters, numbers, and underscores'
+  )
+
 // Registration schemas
 export const registerRequestSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -37,6 +47,7 @@ export const registerRequestSchema = z.object({
     .string()
     .min(8, 'Password must be at least 8 characters')
     .max(128, 'Password must be less than 128 characters'),
+  username: usernameSchema,
 })
 
 export type RegisterRequest = z.infer<typeof registerRequestSchema>

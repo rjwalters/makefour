@@ -9,6 +9,7 @@ import ThemeToggle from '../components/ThemeToggle'
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [username, setUsername] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isNewUser, setIsNewUser] = useState(false)
@@ -36,7 +37,7 @@ export default function LoginPage() {
 
     try {
       const result = isNewUser
-        ? await register(email, password)
+        ? await register(email, password, username)
         : await login(email, password)
 
       if (result.success) {
@@ -66,6 +67,29 @@ export default function LoginPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {isNewUser && (
+              <div className="space-y-2">
+                <label htmlFor="username" className="text-sm font-medium">
+                  Username
+                </label>
+                <Input
+                  id="username"
+                  type="text"
+                  placeholder="Choose a username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                  disabled={isLoading}
+                  autoComplete="username"
+                  minLength={3}
+                  maxLength={20}
+                  pattern="^[a-zA-Z][a-zA-Z0-9_]{2,19}$"
+                />
+                <p className="text-xs text-muted-foreground">
+                  3-20 characters, letters, numbers, and underscores only
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
               <label htmlFor="email" className="text-sm font-medium">
                 Email
@@ -167,6 +191,7 @@ export default function LoginPage() {
                   setError('')
                   setEmail('')
                   setPassword('')
+                  setUsername('')
                 }}
                 className="text-sm text-muted-foreground hover:text-foreground underline"
               >

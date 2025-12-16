@@ -7,7 +7,7 @@ interface AuthContextType {
   isAuthenticated: boolean
   user: PublicUser | null
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
-  register: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
+  register: (email: string, password: string, username: string) => Promise<{ success: boolean; error?: string }>
   loginWithGoogle: () => void
   logout: () => Promise<void>
   resendVerification: () => Promise<{ success: boolean; error?: string }>
@@ -126,12 +126,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     checkSession()
   }, [])
 
-  const register = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  const register = async (email: string, password: string, username: string): Promise<{ success: boolean; error?: string }> => {
     try {
       const response = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email, password, username })
       })
 
       const data = await response.json()

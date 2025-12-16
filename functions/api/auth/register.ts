@@ -5,7 +5,7 @@ import { generateDEK, encryptDEK } from '../../lib/crypto'
 import { createVerificationToken, sendVerificationEmail } from '../../lib/email'
 import { createDb } from '../../../shared/db/client'
 import { users } from '../../../shared/db/schema'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -21,19 +21,38 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
   try {
     // Parse and validate request body
     const body = await context.request.json()
-    const { email, password } = registerRequestSchema.parse(body)
+    const { email, password, username } = registerRequestSchema.parse(body)
 
-    // Check if user already exists
-    const existingUser = await db.query.users.findFirst({
+    // Check if email already exists
+    const existingEmail = await db.query.users.findFirst({
       where: eq(users.email, email),
       columns: { id: true },
     })
 
-    if (existingUser) {
+    if (existingEmail) {
       return new Response(
         JSON.stringify({
           error: 'User already exists',
           details: 'An account with this email address already exists',
+        }),
+        {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    // Check if username is already taken (case-insensitive)
+    const existingUsername = await db.query.users.findFirst({
+      where: sql`LOWER(${users.username}) = LOWER(${username})`,
+      columns: { id: true },
+    })
+
+    if (existingUsername) {
+      return new Response(
+        JSON.stringify({
+          error: 'Username taken',
+          details: 'This username is already taken',
         }),
         {
           status: 409,
@@ -58,13 +77,14 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     // Email starts unverified - user must click verification link
     const email_verified = 0
 
-    // Create user with encrypted_dek
+    // Create user with encrypted_dek and username
     await db.insert(users).values({
       id: user_id,
       email,
       emailVerified: email_verified,
       passwordHash: password_hash,
       encryptedDek: encrypted_dek,
+      username,
       createdAt: now,
       lastLogin: now,
       updatedAt: now,
