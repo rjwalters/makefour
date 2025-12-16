@@ -38,8 +38,7 @@ data/processed/
 *.onnx
 
 # Experiment outputs
-experiments/*/checkpoints/
-experiments/*/logs/
+experiments/
 wandb/
 
 # OS

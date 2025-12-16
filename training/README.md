@@ -481,6 +481,80 @@ All exported models use consistent I/O naming:
 | Browser (standard) | <500KB | Basic optimization |
 | Workers | <1MB | Full precision |
 
+## Experiment Tracking
+
+Track training experiments for reproducibility and analysis:
+
+```python
+from src.tracking import Experiment, ExperimentConfig, ExperimentRegistry
+
+# Create experiment with config
+config = ExperimentConfig(
+    model_type="cnn-small",
+    model_params={"channels": [16, 32], "param_count": 8000},
+    epochs=100,
+    batch_size=256,
+    learning_rate=0.001,
+)
+
+# Start tracking
+experiment = Experiment("my-cnn-experiment", config)
+experiment.start()
+
+# Log metrics during training
+for epoch in range(100):
+    experiment.log_metrics({
+        "train_loss": train_loss,
+        "val_loss": val_loss,
+        "val_accuracy": val_accuracy,
+    }, epoch=epoch)
+
+# Log evaluation results
+experiment.log_eval({"elo": 1200, "confidence_interval": [1150, 1250]})
+
+# Complete and save summary
+experiment.complete()
+```
+
+### Experiment Registry
+
+Manage and compare multiple experiments:
+
+```python
+registry = ExperimentRegistry("experiments")
+
+# Register experiment
+registry.register(experiment)
+
+# List experiments with filters
+experiments = registry.list_experiments(model_type="cnn", status=ExperimentStatus.COMPLETED)
+
+# Compare experiments
+results = registry.compare(["exp-001", "exp-002", "exp-003"])
+
+# Get scaling data for analysis
+scaling_data = registry.get_scaling_data()
+```
+
+### CLI Commands
+
+```bash
+# List experiments
+python scripts/experiments.py list
+
+# Show experiment details
+python scripts/experiments.py show exp-00123
+
+# Compare experiments
+python scripts/experiments.py compare exp-001 exp-002 exp-003
+
+# Generate scaling curve plot
+python scripts/experiments.py plot-scaling --output scaling_curve.png
+
+# Export experiment data
+python scripts/experiments.py export exp-001 --format csv
+```
+
 ## Directory Structure
 
 ```
@@ -513,11 +587,15 @@ training/
 │   │   ├── onnx_export.py   # ONNX export functionality
 │   │   ├── validation.py    # ONNX validation utilities
 │   │   └── metadata.py      # Model metadata utilities
-│   └── self_play/
-│       ├── worker.py        # SelfPlayWorker for game generation
-│       ├── manager.py       # SelfPlayManager for parallel generation
-│       ├── replay_buffer.py # ReplayBuffer for experience replay
-│       └── config.py        # Configuration dataclasses
+│   ├── self_play/
+│   │   ├── worker.py        # SelfPlayWorker for game generation
+│   │   ├── manager.py       # SelfPlayManager for parallel generation
+│   │   ├── replay_buffer.py # ReplayBuffer for experience replay
+│   │   └── config.py        # Configuration dataclasses
+│   └── tracking/
+│       ├── experiment.py    # Experiment management
+│       ├── registry.py      # Experiment index and search
+│       └── visualization.py # Plotting utilities
 ├── tests/
 │   ├── test_encoding.py     # Encoding parity tests
 │   ├── test_game.py         # Game logic tests
@@ -530,7 +608,9 @@ training/
 │   ├── test_models.py       # Model architecture tests
 │   ├── test_self_play.py    # Self-play system tests
 │   ├── test_evaluation.py   # Evaluation harness tests
-│   └── test_export.py       # ONNX export tests
+│   ├── test_export.py       # ONNX export tests
+│   └── test_tracking.py     # Experiment tracking tests
+├── experiments/             # Experiment data (gitignored)
 ├── data/
 │   ├── games/               # Raw game records
 │   ├── self_play/           # Self-play generated data
@@ -544,7 +624,8 @@ training/
     ├── train.py             # CLI training script
     ├── self_play.py         # Self-play CLI script
     ├── evaluate.py          # Model evaluation CLI script
-    └── export.py            # ONNX export CLI script
+    ├── export.py            # ONNX export CLI script
+    └── experiments.py       # Experiment management CLI
 ```
 
 ## Related Issues
@@ -554,3 +635,4 @@ training/
 - Training Infrastructure: #84
 - ONNX Export Pipeline: #86
 - Model Evaluation: #87
+- Experiment Tracking: #88
