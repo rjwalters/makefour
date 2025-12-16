@@ -67,6 +67,16 @@ const MODEL_REGISTRY: ModelMetadata[] = [
     version: '1.0.0',
     encoding: 'flat-binary',
   },
+  {
+    id: 'selfplay-v3',
+    name: 'Self-Play v3',
+    architecture: 'mlp',
+    expectedElo: 1100, // 90% win rate vs random, trained with curriculum
+    sizeBytes: 16983,
+    url: `${MODELS_BASE_URL}/selfplay-v3.onnx`,
+    version: '1.0.0',
+    encoding: 'flat-binary',
+  },
 ]
 
 /** API endpoint for fetching available models */
