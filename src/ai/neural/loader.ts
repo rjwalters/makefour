@@ -23,6 +23,9 @@ import { evaluatePosition, findBestMove } from '../coach'
  * This registry is populated with built-in models and can be
  * extended by fetching from the API.
  */
+/** Base URL for model storage (Cloudflare R2 with public access) */
+const MODELS_BASE_URL = 'https://pub-dd38ba981172498a918d3b50f5ebae6c.r2.dev'
+
 const MODEL_REGISTRY: ModelMetadata[] = [
   {
     id: 'heuristic-v1',
@@ -34,7 +37,36 @@ const MODEL_REGISTRY: ModelMetadata[] = [
     version: '1.0.0',
     encoding: 'flat-binary',
   },
-  // Future models will be added here as they are trained
+  {
+    id: 'mlp-tiny-v1',
+    name: 'MLP Tiny v1',
+    architecture: 'mlp',
+    expectedElo: 800, // Weak model, trained on synthetic data
+    sizeBytes: 13733,
+    url: `${MODELS_BASE_URL}/mlp-tiny-v1.onnx`,
+    version: '1.0.0',
+    encoding: 'flat-binary',
+  },
+  {
+    id: 'selfplay-v1',
+    name: 'Self-Play v1',
+    architecture: 'mlp',
+    expectedElo: 900, // ~50% win rate vs random
+    sizeBytes: 13507,
+    url: `${MODELS_BASE_URL}/selfplay-v1.onnx`,
+    version: '1.0.0',
+    encoding: 'flat-binary',
+  },
+  {
+    id: 'selfplay-v2',
+    name: 'Self-Play v2',
+    architecture: 'mlp',
+    expectedElo: 1000, // 54-80% win rate vs random
+    sizeBytes: 13685,
+    url: `${MODELS_BASE_URL}/selfplay-v2.onnx`,
+    version: '1.0.0',
+    encoding: 'flat-binary',
+  },
 ]
 
 /** API endpoint for fetching available models */

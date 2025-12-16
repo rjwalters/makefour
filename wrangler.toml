@@ -17,6 +17,13 @@ binding = "AI"
 binding = "RATE_LIMIT"
 id = "a6799ad4f2b84bcb9323f5ddfb7f1714"
 
+# R2 bucket for neural network models
+# Note: Bucket must be created first with: wrangler r2 bucket create makefour-models
+# For public access, configure custom domain at models.makefour.app
+[[r2_buckets]]
+binding = "MODELS"
+bucket_name = "makefour-models"
+
 # Environment variables
 [vars]
 ENVIRONMENT = "production"

@@ -627,3 +627,319 @@ export async function getActiveBotGameCount(DB: D1Database): Promise<number> {
 
   return result?.count ?? 0
 }
+
+// ============================================================================
+// ON-DEMAND BOT VS BOT GAME GENERATION
+// ============================================================================
+
+export interface BotInfo {
+  id: string
+  personaId: string
+  name: string
+  rating: number
+  difficulty: DifficultyLevel
+  engine: EngineType
+}
+
+export interface GeneratedGame {
+  id: string
+  moves: number[]
+  winner: 'bot1' | 'bot2' | 'draw'
+  bot1: BotInfo
+  bot2: BotInfo
+  moveDelayMs: number
+  createdAt: number
+}
+
+/**
+ * Play a complete game between two bots instantly.
+ * Returns the full move sequence and result.
+ */
+export async function playFullGame(
+  bot1Config: { difficulty: DifficultyLevel; engine: EngineType },
+  bot2Config: { difficulty: DifficultyLevel; engine: EngineType },
+  timeBudgetPerMove: number = 100
+): Promise<{ moves: number[]; winner: 1 | 2 | 'draw' }> {
+  let state = createGameState()
+  const moves: number[] = []
+
+  while (state.winner === null) {
+    const currentConfig = state.currentPlayer === 1 ? bot1Config : bot2Config
+
+    const moveResult = await suggestMoveWithEngine(
+      state.board,
+      state.currentPlayer,
+      currentConfig,
+      timeBudgetPerMove
+    )
+
+    const newState = makeMove(state, moveResult.column)
+    if (!newState) {
+      throw new Error(`Invalid move ${moveResult.column} at position ${moves.length}`)
+    }
+
+    moves.push(moveResult.column)
+    state = newState
+  }
+
+  return {
+    moves,
+    winner: state.winner,
+  }
+}
+
+/**
+ * Map ELO rating to difficulty level
+ */
+function eloToDifficulty(elo: number): DifficultyLevel {
+  if (elo < 900) return 'beginner'
+  if (elo < 1300) return 'intermediate'
+  if (elo < 1700) return 'expert'
+  return 'perfect'
+}
+
+/**
+ * Generate a complete bot vs bot game on demand.
+ *
+ * This function:
+ * 1. Picks two random bot personas
+ * 2. Plays the game to completion instantly
+ * 3. Updates ELO ratings for both bots
+ * 4. Stores the game record
+ * 5. Returns the full game data for playback
+ */
+export async function generateBotGame(DB: D1Database): Promise<GeneratedGame> {
+  const db = createDb(DB)
+  const now = Date.now()
+
+  // Get two random active bot personas
+  const personas = await db.select({
+    id: botPersonas.id,
+    name: botPersonas.name,
+    currentElo: botPersonas.currentElo,
+    aiEngine: botPersonas.aiEngine,
+  })
+  .from(botPersonas)
+  .where(eq(botPersonas.isActive, 1))
+  .orderBy(sql`RANDOM()`)
+  .limit(2)
+
+  if (personas.length < 2) {
+    throw new Error('Not enough active bot personas to generate a game')
+  }
+
+  const [persona1, persona2] = personas
+
+  // Get bot user accounts and their current ratings
+  const bot1UserId = `bot_${persona1.id}`
+  const bot2UserId = `bot_${persona2.id}`
+
+  const [bot1User, bot2User] = await Promise.all([
+    db.query.users.findFirst({
+      where: and(eq(users.id, bot1UserId), eq(users.isBot, 1)),
+      columns: { rating: true, gamesPlayed: true, wins: true, losses: true, draws: true },
+    }),
+    db.query.users.findFirst({
+      where: and(eq(users.id, bot2UserId), eq(users.isBot, 1)),
+      columns: { rating: true, gamesPlayed: true, wins: true, losses: true, draws: true },
+    }),
+  ])
+
+  const bot1Rating = bot1User?.rating ?? persona1.currentElo
+  const bot2Rating = bot2User?.rating ?? persona2.currentElo
+
+  const bot1Difficulty = eloToDifficulty(bot1Rating)
+  const bot2Difficulty = eloToDifficulty(bot2Rating)
+
+  const bot1Engine = (persona1.aiEngine || 'minimax') as EngineType
+  const bot2Engine = (persona2.aiEngine || 'minimax') as EngineType
+
+  // Play the game to completion
+  const gameResult = await playFullGame(
+    { difficulty: bot1Difficulty, engine: bot1Engine },
+    { difficulty: bot2Difficulty, engine: bot2Engine },
+    100 // 100ms per move for quick generation
+  )
+
+  // Determine winner string for database
+  let winnerStr: string | null = null
+  let bot1Outcome: GameOutcome
+  let bot2Outcome: GameOutcome
+
+  if (gameResult.winner === 'draw') {
+    winnerStr = 'draw'
+    bot1Outcome = 'draw'
+    bot2Outcome = 'draw'
+  } else if (gameResult.winner === 1) {
+    winnerStr = '1'
+    bot1Outcome = 'win'
+    bot2Outcome = 'loss'
+  } else {
+    winnerStr = '2'
+    bot1Outcome = 'loss'
+    bot2Outcome = 'win'
+  }
+
+  // Calculate new ratings
+  const bot1NewRating = calculateNewRating(
+    bot1Rating,
+    bot2Rating,
+    bot1Outcome,
+    bot1User?.gamesPlayed ?? 0
+  )
+
+  const bot2NewRating = calculateNewRating(
+    bot2Rating,
+    bot1Rating,
+    bot2Outcome,
+    bot2User?.gamesPlayed ?? 0
+  )
+
+  // Generate game ID
+  const gameId = crypto.randomUUID()
+
+  // Store game records for both bots
+  const bot1GameId = crypto.randomUUID()
+  const bot2GameId = crypto.randomUUID()
+
+  await Promise.all([
+    // Bot 1's game record
+    db.insert(games).values({
+      id: bot1GameId,
+      userId: bot1UserId,
+      outcome: bot1Outcome,
+      moves: JSON.stringify(gameResult.moves),
+      moveCount: gameResult.moves.length,
+      ratingChange: bot1NewRating.ratingChange,
+      opponentType: 'ai',
+      opponentId: bot2UserId,
+      playerNumber: 1,
+      createdAt: now,
+    }),
+    // Bot 2's game record
+    db.insert(games).values({
+      id: bot2GameId,
+      userId: bot2UserId,
+      outcome: bot2Outcome,
+      moves: JSON.stringify(gameResult.moves),
+      moveCount: gameResult.moves.length,
+      ratingChange: bot2NewRating.ratingChange,
+      opponentType: 'ai',
+      opponentId: bot1UserId,
+      playerNumber: 2,
+      createdAt: now,
+    }),
+  ])
+
+  // Update bot user ratings
+  if (bot1User) {
+    await db.update(users)
+      .set({
+        rating: bot1NewRating.newRating,
+        gamesPlayed: bot1User.gamesPlayed + 1,
+        wins: bot1User.wins + (bot1Outcome === 'win' ? 1 : 0),
+        losses: bot1User.losses + (bot1Outcome === 'loss' ? 1 : 0),
+        draws: bot1User.draws + (bot1Outcome === 'draw' ? 1 : 0),
+        updatedAt: now,
+      })
+      .where(eq(users.id, bot1UserId))
+
+    await db.insert(ratingHistory).values({
+      id: crypto.randomUUID(),
+      userId: bot1UserId,
+      gameId: bot1GameId,
+      ratingBefore: bot1Rating,
+      ratingAfter: bot1NewRating.newRating,
+      ratingChange: bot1NewRating.ratingChange,
+      createdAt: now,
+    })
+  }
+
+  if (bot2User) {
+    await db.update(users)
+      .set({
+        rating: bot2NewRating.newRating,
+        gamesPlayed: bot2User.gamesPlayed + 1,
+        wins: bot2User.wins + (bot2Outcome === 'win' ? 1 : 0),
+        losses: bot2User.losses + (bot2Outcome === 'loss' ? 1 : 0),
+        draws: bot2User.draws + (bot2Outcome === 'draw' ? 1 : 0),
+        updatedAt: now,
+      })
+      .where(eq(users.id, bot2UserId))
+
+    await db.insert(ratingHistory).values({
+      id: crypto.randomUUID(),
+      userId: bot2UserId,
+      gameId: bot2GameId,
+      ratingBefore: bot2Rating,
+      ratingAfter: bot2NewRating.newRating,
+      ratingChange: bot2NewRating.ratingChange,
+      createdAt: now,
+    })
+  }
+
+  // Update bot persona stats
+  const [bot1Persona, bot2Persona] = await Promise.all([
+    db.query.botPersonas.findFirst({
+      where: eq(botPersonas.id, persona1.id),
+      columns: { gamesPlayed: true, wins: true, losses: true, draws: true },
+    }),
+    db.query.botPersonas.findFirst({
+      where: eq(botPersonas.id, persona2.id),
+      columns: { gamesPlayed: true, wins: true, losses: true, draws: true },
+    }),
+  ])
+
+  if (bot1Persona) {
+    await db.update(botPersonas)
+      .set({
+        currentElo: bot1NewRating.newRating,
+        gamesPlayed: bot1Persona.gamesPlayed + 1,
+        wins: bot1Persona.wins + (bot1Outcome === 'win' ? 1 : 0),
+        losses: bot1Persona.losses + (bot1Outcome === 'loss' ? 1 : 0),
+        draws: bot1Persona.draws + (bot1Outcome === 'draw' ? 1 : 0),
+        updatedAt: now,
+      })
+      .where(eq(botPersonas.id, persona1.id))
+  }
+
+  if (bot2Persona) {
+    await db.update(botPersonas)
+      .set({
+        currentElo: bot2NewRating.newRating,
+        gamesPlayed: bot2Persona.gamesPlayed + 1,
+        wins: bot2Persona.wins + (bot2Outcome === 'win' ? 1 : 0),
+        losses: bot2Persona.losses + (bot2Outcome === 'loss' ? 1 : 0),
+        draws: bot2Persona.draws + (bot2Outcome === 'draw' ? 1 : 0),
+        updatedAt: now,
+      })
+      .where(eq(botPersonas.id, persona2.id))
+  }
+
+  // Return the generated game for frontend playback
+  const moveDelayMs = 1500 + Math.floor(Math.random() * 1000) // 1.5-2.5s per move
+
+  return {
+    id: gameId,
+    moves: gameResult.moves,
+    winner: gameResult.winner === 'draw' ? 'draw' : gameResult.winner === 1 ? 'bot1' : 'bot2',
+    bot1: {
+      id: bot1UserId,
+      personaId: persona1.id,
+      name: persona1.name,
+      rating: bot1Rating,
+      difficulty: bot1Difficulty,
+      engine: bot1Engine,
+    },
+    bot2: {
+      id: bot2UserId,
+      personaId: persona2.id,
+      name: persona2.name,
+      rating: bot2Rating,
+      difficulty: bot2Difficulty,
+      engine: bot2Engine,
+    },
+    moveDelayMs,
+    createdAt: now,
+  }
+}

@@ -230,8 +230,8 @@ export class OnnxNeuralAgent implements NeuralAgent {
     // Create input tensor
     const inputTensor = new this.ort.Tensor('float32', encoded.input, encoded.shape)
 
-    // Run inference
-    const results = await this.session.run({ input: inputTensor })
+    // Run inference (input name is 'board' to match ONNX model export)
+    const results = await this.session.run({ board: inputTensor })
 
     // Parse outputs - model should output 'value' and 'policy'
     const valueOutput = results.value?.data || results.output_value?.data

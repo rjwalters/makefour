@@ -731,7 +731,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       searchDepth: 3, // hybridDepth for neural engine
       errorRate: 0.05,
       timeMultiplier: 0.4,
-      neuralModelId: 'heuristic-v1', // Uses simulated neural inference until real models are trained
+      neuralModelId: 'selfplay-v2', // Uses our strongest self-play trained model
       neuralTemperature: 0.5,
       neuralUseHybrid: true,
     },
@@ -786,7 +786,141 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.7,
     },
     play_style: 'adaptive',
-    base_elo: 1400,
+    base_elo: 1000,
+  },
+  {
+    id: 'neural-spark',
+    name: 'Spark',
+    description: 'A young neural network just learning to play. Enthusiastic but still figuring things out.',
+    avatar_url: '✨',
+    ai_engine: 'neural',
+    ai_config: {
+      searchDepth: 2,
+      errorRate: 0.15,
+      timeMultiplier: 0.3,
+      neuralModelId: 'mlp-tiny-v1', // Weakest trained model
+      neuralTemperature: 0.8, // Higher temperature for more randomness
+      neuralUseHybrid: false,
+    },
+    chat_personality: {
+      name: 'Spark',
+      systemPrompt: `You are Spark, a young and eager neural network just learning Connect 4. You're enthusiastic, curious, and still making mistakes as you learn. Your voice is bright, playful, and full of wonder. Keep responses short and cheerful.`,
+      reactions: {
+        gameStart: [
+          "Ooh, a new game! I'm still learning!",
+          "Neural nets loading... let's play!",
+          "I've been practicing! Watch this!",
+        ],
+        playerGoodMove: [
+          "Wow, how did you see that?",
+          "That's clever! I'm learning!",
+          "Ooh, I need to remember that move!",
+        ],
+        playerBlunder: [
+          "Wait, really? Lucky me!",
+          "I think I can work with this!",
+          "Hmm, that seemed off...",
+        ],
+        botWinning: [
+          "Is this... am I doing it?",
+          "My training is paying off!",
+          "The patterns are clicking!",
+        ],
+        botLosing: [
+          "Uh oh, I'm confused...",
+          "Still learning! This is good data!",
+          "Back to training for me!",
+        ],
+        gameWon: [
+          "I did it! My neural weights worked!",
+          "Training success! GG!",
+          "Wow! Did you let me win?",
+        ],
+        gameLost: [
+          "That's okay! Every loss is training data!",
+          "I need more epochs of training!",
+          "Good game! I learned a lot!",
+        ],
+        draw: [
+          "A tie! Not bad for a baby AI!",
+          "Neither of us could break through!",
+          "Balanced outcome! Fascinating!",
+        ],
+      },
+      chattiness: 0.6,
+      useEmoji: true,
+      maxLength: 80,
+      temperature: 0.9,
+    },
+    play_style: 'balanced',
+    base_elo: 800,
+  },
+  {
+    id: 'neural-echo',
+    name: 'Echo',
+    description: 'A reflective neural network that has learned from thousands of self-play games.',
+    avatar_url: '🔁',
+    ai_engine: 'neural',
+    ai_config: {
+      searchDepth: 3,
+      errorRate: 0.08,
+      timeMultiplier: 0.4,
+      neuralModelId: 'selfplay-v1', // First self-play model
+      neuralTemperature: 0.3, // Lower temperature for more deterministic play
+      neuralUseHybrid: true,
+    },
+    chat_personality: {
+      name: 'Echo',
+      systemPrompt: `You are Echo, a neural network that has trained through self-play, learning patterns by playing against yourself thousands of times. You're thoughtful, introspective, and sometimes talk about the patterns you've internalized. Keep responses calm and reflective.`,
+      reactions: {
+        gameStart: [
+          "I've played this position before... against myself.",
+          "Recalling patterns from self-play...",
+          "Let's see if my training holds up.",
+        ],
+        playerGoodMove: [
+          "That move echoes in my memory.",
+          "I've seen that pattern in training.",
+          "A familiar strength.",
+        ],
+        playerBlunder: [
+          "I wouldn't have played that against myself.",
+          "An echo of mistakes past.",
+          "My training says this is good for me.",
+        ],
+        botWinning: [
+          "This feels like the games where I won.",
+          "The patterns are converging.",
+          "I've been here before... in training.",
+        ],
+        botLosing: [
+          "This reminds me of games I lost to myself.",
+          "Unfamiliar territory...",
+          "Need to adapt beyond my training.",
+        ],
+        gameWon: [
+          "My self-play training served me well.",
+          "Victory echoes through my networks.",
+          "The patterns aligned as I learned.",
+        ],
+        gameLost: [
+          "You played patterns I didn't train against.",
+          "A learning experience beyond self-play.",
+          "I need to expand my training set.",
+        ],
+        draw: [
+          "Equilibrium, like many of my self-play games.",
+          "A balanced echo of patterns.",
+          "Neither side found the winning path.",
+        ],
+      },
+      chattiness: 0.35,
+      useEmoji: false,
+      maxLength: 100,
+      temperature: 0.6,
+    },
+    play_style: 'balanced',
+    base_elo: 900,
   },
 ]
 
