@@ -8,7 +8,6 @@ import Footer from './components/Footer'
 import LoginPage from './pages/LoginPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
-import DashboardPage from './pages/DashboardPage'
 import PlayPage from './pages/PlayPage'
 import GamesPage from './pages/GamesPage'
 import ReplayPage from './pages/ReplayPage'
@@ -43,14 +42,8 @@ function App() {
             <Route path="/bot/:id" element={<BotProfilePage />} />
 
             {/* Protected routes - require authentication */}
-            <Route
-              path="/dashboard"
-              element={
-                <ProtectedRoute>
-                  <DashboardPage />
-                </ProtectedRoute>
-              }
-            />
+            {/* Redirect old dashboard URL to profile */}
+            <Route path="/dashboard" element={<Navigate to="/profile" replace />} />
             <Route
               path="/games"
               element={

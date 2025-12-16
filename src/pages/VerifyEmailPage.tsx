@@ -84,10 +84,10 @@ export default function VerifyEmailPage() {
             </p>
             <div className="space-y-3">
               <Link
-                to="/dashboard"
+                to="/profile"
                 className="block w-full bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg transition-colors"
               >
-                Go to Dashboard
+                Go to Profile
               </Link>
               <Link
                 to="/play"
@@ -122,13 +122,13 @@ export default function VerifyEmailPage() {
             <p className="text-gray-600 dark:text-gray-400 mb-6">{errorMessage}</p>
             <div className="space-y-3">
               <Link
-                to="/dashboard"
+                to="/profile"
                 className="block w-full bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg transition-colors"
               >
-                Go to Dashboard
+                Go to Profile
               </Link>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                You can request a new verification email from your dashboard.
+                You can request a new verification email from your profile.
               </p>
             </div>
           </>
@@ -158,10 +158,10 @@ export default function VerifyEmailPage() {
               This link appears to be invalid. Please use the link from your verification email.
             </p>
             <Link
-              to="/dashboard"
+              to="/profile"
               className="block w-full bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg transition-colors"
             >
-              Go to Dashboard
+              Go to Profile
             </Link>
           </>
         )}

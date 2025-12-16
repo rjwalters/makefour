@@ -25,7 +25,7 @@ const MAX_TOLERANCE = 500
 const DEFAULT_TIME_CONTROL_MS = 300000
 
 // Time after which bot match becomes available
-const BOT_READY_THRESHOLD_MS = 60000 // 60 seconds
+const BOT_READY_THRESHOLD_MS = 5000 // 5 seconds
 
 export async function onRequestGet(context: EventContext<Env, any, any>) {
   const { DB } = context.env

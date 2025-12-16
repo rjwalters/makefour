@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
 import { usePlayerBotStats, getRecordIndicator } from '../hooks/usePlayerBotStats'
@@ -43,7 +43,17 @@ interface UserStats {
   }>
 }
 
-type TabType = 'overview' | 'statistics' | 'bot-records' | 'security' | 'settings'
+type TabType = 'overview' | 'account' | 'statistics' | 'bot-records' | 'security' | 'settings'
+
+interface RecentGame {
+  id: string
+  outcome: 'win' | 'loss' | 'draw'
+  moveCount: number
+  ratingChange: number
+  opponentType: 'human' | 'ai'
+  aiDifficulty: string | null
+  createdAt: number
+}
 
 export default function ProfilePage() {
   const { user, logout } = useAuth()
@@ -53,6 +63,7 @@ export default function ProfilePage() {
 
   const [activeTab, setActiveTab] = useState<TabType>('overview')
   const [stats, setStats] = useState<UserStats | null>(null)
+  const [recentGames, setRecentGames] = useState<RecentGame[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -82,21 +93,25 @@ export default function ProfilePage() {
   const [savingUsername, setSavingUsername] = useState(false)
 
   useEffect(() => {
-    const fetchStats = async () => {
+    const fetchData = async () => {
       try {
         setLoading(true)
-        const data = await apiCall<UserStats>('/api/users/me/stats')
-        setStats(data)
+        const [statsData, gamesData] = await Promise.all([
+          apiCall<UserStats>('/api/users/me/stats'),
+          apiCall<{ games: RecentGame[] }>('/api/games?limit=5'),
+        ])
+        setStats(statsData)
+        setRecentGames(gamesData.games)
         setError(null)
       } catch (err) {
         setError('Failed to load profile data')
-        console.error('Failed to fetch stats:', err)
+        console.error('Failed to fetch data:', err)
       } finally {
         setLoading(false)
       }
     }
 
-    fetchStats()
+    fetchData()
   }, [apiCall])
 
   // Fetch username status
@@ -239,11 +254,23 @@ export default function ProfilePage() {
 
   const tabs: Array<{ id: TabType; label: string }> = [
     { id: 'overview', label: 'Overview' },
+    { id: 'account', label: 'Account' },
     { id: 'statistics', label: 'Statistics' },
     { id: 'bot-records', label: 'Bot Records' },
     { id: 'security', label: 'Security' },
     { id: 'settings', label: 'Settings' },
   ]
+
+  const getOutcomeStyles = (outcome: RecentGame['outcome']) => {
+    switch (outcome) {
+      case 'win':
+        return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+      case 'loss':
+        return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+      case 'draw':
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
@@ -286,8 +313,136 @@ export default function ProfilePage() {
 
         {!loading && !error && stats && (
           <>
-            {/* Overview Tab */}
+            {/* Overview Tab - Summary Dashboard */}
             {activeTab === 'overview' && (
+              <div className="space-y-6">
+                {/* Performance Summary */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Performance Summary</CardTitle>
+                    <CardDescription>Your current rating and game statistics</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-6 items-center">
+                      <div className="text-center">
+                        <div className="text-4xl font-bold text-primary">{stats.user.rating}</div>
+                        <div className="text-sm text-muted-foreground">Rating</div>
+                        {stats.stats.ratingTrend !== 'stable' && (
+                          <div className={`text-xs ${
+                            stats.stats.ratingTrend === 'improving'
+                              ? 'text-green-600 dark:text-green-400'
+                              : 'text-red-600 dark:text-red-400'
+                          }`}>
+                            {stats.stats.ratingTrend === 'improving' ? '↑' : '↓'} {stats.stats.ratingTrend}
+                          </div>
+                        )}
+                      </div>
+                      <div className="h-16 w-px bg-border hidden sm:block" />
+                      <div className="flex gap-6 text-center">
+                        <div>
+                          <div className="text-2xl font-semibold">{stats.user.gamesPlayed}</div>
+                          <div className="text-sm text-muted-foreground">Games</div>
+                        </div>
+                        <div>
+                          <div className="text-2xl font-semibold text-green-600 dark:text-green-400">{stats.user.wins}</div>
+                          <div className="text-sm text-muted-foreground">Wins</div>
+                        </div>
+                        <div>
+                          <div className="text-2xl font-semibold text-red-600 dark:text-red-400">{stats.user.losses}</div>
+                          <div className="text-sm text-muted-foreground">Losses</div>
+                        </div>
+                        <div>
+                          <div className="text-2xl font-semibold text-yellow-600 dark:text-yellow-400">{stats.user.draws}</div>
+                          <div className="text-sm text-muted-foreground">Draws</div>
+                        </div>
+                        <div>
+                          <div className="text-2xl font-semibold">{winRate}%</div>
+                          <div className="text-sm text-muted-foreground">Win Rate</div>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Recent Games */}
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle>Recent Games</CardTitle>
+                        <CardDescription>Your latest matches</CardDescription>
+                      </div>
+                      <Link to="/games">
+                        <Button variant="outline" size="sm">View All</Button>
+                      </Link>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {recentGames.length === 0 ? (
+                      <div className="text-center py-4 text-muted-foreground">
+                        No games yet. <Link to="/play" className="underline">Play your first game!</Link>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {recentGames.map((game) => (
+                          <Link key={game.id} to={`/replay/${game.id}`} className="block">
+                            <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-accent transition-colors">
+                              <div className="flex items-center gap-3">
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${getOutcomeStyles(game.outcome)}`}>
+                                  {game.outcome.charAt(0).toUpperCase() + game.outcome.slice(1)}
+                                </span>
+                                <span className="text-sm">
+                                  {game.opponentType === 'human' ? 'Hotseat' : `AI${game.aiDifficulty ? ` (${game.aiDifficulty})` : ''}`}
+                                </span>
+                                <span className="text-xs text-muted-foreground">{game.moveCount} moves</span>
+                              </div>
+                              {game.ratingChange !== 0 && (
+                                <span className={`text-sm font-medium ${
+                                  game.ratingChange > 0
+                                    ? 'text-green-600 dark:text-green-400'
+                                    : 'text-red-600 dark:text-red-400'
+                                }`}>
+                                  {game.ratingChange > 0 ? '+' : ''}{game.ratingChange}
+                                </span>
+                              )}
+                            </div>
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Quick Links */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Card className="hover:shadow-md transition-shadow">
+                    <CardContent className="pt-6">
+                      <Link to="/stats" className="block">
+                        <div className="text-center">
+                          <div className="text-lg font-semibold mb-1">Detailed Statistics</div>
+                          <p className="text-sm text-muted-foreground mb-3">Charts, trends, and analysis</p>
+                          <Button variant="outline" size="sm">View Stats</Button>
+                        </div>
+                      </Link>
+                    </CardContent>
+                  </Card>
+                  <Card className="hover:shadow-md transition-shadow">
+                    <CardContent className="pt-6">
+                      <div className="text-center">
+                        <div className="text-lg font-semibold mb-1">Bot Records</div>
+                        <p className="text-sm text-muted-foreground mb-3">
+                          {botStatsData ? `${botStatsData.summary.botsDefeated} bots defeated` : 'Track your progress'}
+                        </p>
+                        <Button variant="outline" size="sm" onClick={() => setActiveTab('bot-records')}>View Records</Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+            )}
+
+            {/* Account Tab (renamed from Overview) */}
+            {activeTab === 'account' && (
               <div className="space-y-6">
                 {/* Profile Info Card */}
                 <Card>
@@ -379,54 +534,6 @@ export default function ProfilePage() {
                         {savingUsername ? 'Saving...' : usernameStatus?.username ? 'Change Username' : 'Set Username'}
                       </Button>
                     </form>
-                  </CardContent>
-                </Card>
-
-                {/* Quick Stats Card */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Performance Summary</CardTitle>
-                    <CardDescription>Your current rating and game statistics</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-wrap gap-6 items-center">
-                      <div className="text-center">
-                        <div className="text-4xl font-bold text-primary">{stats.user.rating}</div>
-                        <div className="text-sm text-muted-foreground">Rating</div>
-                        {stats.stats.ratingTrend !== 'stable' && (
-                          <div className={`text-xs ${
-                            stats.stats.ratingTrend === 'improving'
-                              ? 'text-green-600 dark:text-green-400'
-                              : 'text-red-600 dark:text-red-400'
-                          }`}>
-                            {stats.stats.ratingTrend === 'improving' ? '↑' : '↓'} {stats.stats.ratingTrend}
-                          </div>
-                        )}
-                      </div>
-                      <div className="h-16 w-px bg-border hidden sm:block" />
-                      <div className="flex gap-6 text-center">
-                        <div>
-                          <div className="text-2xl font-semibold">{stats.user.gamesPlayed}</div>
-                          <div className="text-sm text-muted-foreground">Games</div>
-                        </div>
-                        <div>
-                          <div className="text-2xl font-semibold text-green-600 dark:text-green-400">{stats.user.wins}</div>
-                          <div className="text-sm text-muted-foreground">Wins</div>
-                        </div>
-                        <div>
-                          <div className="text-2xl font-semibold text-red-600 dark:text-red-400">{stats.user.losses}</div>
-                          <div className="text-sm text-muted-foreground">Losses</div>
-                        </div>
-                        <div>
-                          <div className="text-2xl font-semibold text-yellow-600 dark:text-yellow-400">{stats.user.draws}</div>
-                          <div className="text-sm text-muted-foreground">Draws</div>
-                        </div>
-                        <div>
-                          <div className="text-2xl font-semibold">{winRate}%</div>
-                          <div className="text-sm text-muted-foreground">Win Rate</div>
-                        </div>
-                      </div>
-                    </div>
                   </CardContent>
                 </Card>
               </div>

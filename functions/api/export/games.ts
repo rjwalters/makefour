@@ -5,8 +5,8 @@
  */
 
 import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
-import { createDb } from '../../shared/db/client'
-import { games, users } from '../../shared/db/schema'
+import { createDb } from '../../../shared/db/client'
+import { games, users } from '../../../shared/db/schema'
 import { eq, and, gte, lte, lt, inArray, desc } from 'drizzle-orm'
 import { z } from 'zod'
 

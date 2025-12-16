@@ -17,7 +17,7 @@ interface AutomatchWaitingProps {
   onPlayBotNow: () => void
 }
 
-const BOT_READY_THRESHOLD = 60 // 60 seconds
+const BOT_READY_THRESHOLD = 5 // 5 seconds
 
 export default function AutomatchWaiting({
   waitTime,

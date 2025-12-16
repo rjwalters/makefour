@@ -7,7 +7,7 @@
 import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
 import { createDb } from '../../../shared/db/client'
 import { users, matchmakingQueue, activeGames, botPersonas } from '../../../shared/db/schema'
-import { eq, and, sql } from 'drizzle-orm'
+import { eq, and, or, sql } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -26,6 +26,27 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     const db = createDb(DB)
+
+    // First check if user is already in an active game
+    const activeGame = await db.query.activeGames.findFirst({
+      where: and(
+        or(
+          eq(activeGames.player1Id, session.userId),
+          eq(activeGames.player2Id, session.userId)
+        ),
+        eq(activeGames.status, 'active')
+      ),
+      columns: { id: true, player1Id: true, player2Id: true }
+    })
+
+    if (activeGame) {
+      // User already has an active game - return it instead of creating new one
+      return jsonResponse({
+        status: 'matched',
+        gameId: activeGame.id,
+        playerNumber: activeGame.player1Id === session.userId ? 1 : 2,
+      })
+    }
 
     // Check if user is in queue
     const queueEntry = await db.query.matchmakingQueue.findFirst({
@@ -56,6 +77,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       .then(rows => rows[0])
 
     if (!botPersona) {
+      console.error('No active bot personas found in database')
       return errorResponse('No bots available', 503)
     }
 
@@ -69,6 +91,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     })
 
     if (!botUser) {
+      console.error(`No bot user found for persona ${botPersona.id} (${botPersona.name})`)
       return errorResponse('Bot user not found', 503)
     }
 
@@ -117,7 +140,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         )
       }
 
-      await db.batch(statements)
+      await db.batch(statements as any)
 
       return jsonResponse({
         status: 'matched',
@@ -131,7 +154,13 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         mode: 'ranked',
       })
     } catch (dbError) {
-      console.error('Bot game creation failed:', dbError)
+      console.error('Bot game creation failed:', {
+        error: dbError,
+        gameId,
+        player1Id,
+        player2Id,
+        botPersonaId: botPersona.id,
+      })
       return errorResponse('Failed to create game', 500)
     }
   } catch (error) {

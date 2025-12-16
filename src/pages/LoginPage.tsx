@@ -27,7 +27,7 @@ export default function LoginPage() {
   }, [])
 
   if (isAuthenticated) {
-    navigate('/dashboard')
+    navigate('/play?mode=training')
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -41,7 +41,7 @@ export default function LoginPage() {
         : await login(email, password)
 
       if (result.success) {
-        navigate('/dashboard')
+        navigate('/play?mode=training')
       } else {
         setError(result.error || 'An error occurred. Please try again.')
       }

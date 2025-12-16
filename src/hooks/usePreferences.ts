@@ -29,7 +29,7 @@ export interface UserPreferences {
 }
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
-  soundEnabled: true,
+  soundEnabled: false,
   soundVolume: 50,
   defaultGameMode: 'ai',
   defaultDifficulty: 'intermediate',

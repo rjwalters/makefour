@@ -141,13 +141,6 @@ export default function Navbar() {
                   {userMenuOpen && (
                     <div className="absolute right-0 top-full mt-2 w-48 bg-background border rounded-lg shadow-lg py-1 z-50">
                       <Link
-                        to="/dashboard"
-                        onClick={() => setUserMenuOpen(false)}
-                        className="block px-4 py-2 text-sm hover:bg-muted"
-                      >
-                        Dashboard
-                      </Link>
-                      <Link
                         to="/profile"
                         onClick={() => setUserMenuOpen(false)}
                         className="block px-4 py-2 text-sm hover:bg-muted"
@@ -227,11 +220,6 @@ export default function Navbar() {
 
               <hr className="my-2 border-border" />
 
-              <Link to="/dashboard" className="block">
-                <Button variant="outline" className="w-full justify-start h-12 touch-manipulation">
-                  Dashboard
-                </Button>
-              </Link>
               <Link to="/profile" className="block">
                 <Button variant="outline" className="w-full justify-start h-12 touch-manipulation">
                   Profile
