@@ -3,7 +3,15 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { NeuralEngine, DEFAULT_NEURAL_CONFIG } from './neural-engine'
+import {
+  NeuralEngine,
+  DEFAULT_NEURAL_CONFIG,
+  MODEL_REGISTRY,
+  getModelMetadata,
+  listModels,
+  clearModelCache,
+  createNeuralEngine,
+} from './neural-engine'
 import { createEmptyBoard, applyMove, type Board, type Player } from '../game'
 
 describe('NeuralEngine', () => {
@@ -285,10 +293,101 @@ describe('NeuralEngine', () => {
   describe('DEFAULT_NEURAL_CONFIG', () => {
     it('should have sensible defaults', () => {
       expect(DEFAULT_NEURAL_CONFIG.modelPath).toBeNull()
+      expect(DEFAULT_NEURAL_CONFIG.modelId).toBeNull()
       expect(DEFAULT_NEURAL_CONFIG.temperature).toBeGreaterThan(0)
       expect(DEFAULT_NEURAL_CONFIG.temperature).toBeLessThan(2)
       expect(DEFAULT_NEURAL_CONFIG.useHybridSearch).toBe(true)
       expect(DEFAULT_NEURAL_CONFIG.hybridDepth).toBeGreaterThanOrEqual(1)
     })
+  })
+
+  describe('modelId configuration', () => {
+    it('should create engine with modelId from registry', () => {
+      const engine = new NeuralEngine({ modelId: 'heuristic-v1' })
+      expect(engine.isReady()).toBe(true)
+      expect(engine.getModelMetadata()).not.toBeNull()
+      expect(engine.getModelMetadata()?.id).toBe('heuristic-v1')
+    })
+
+    it('should fallback to simulated inference for unknown modelId', () => {
+      const engine = new NeuralEngine({ modelId: 'unknown-model-xyz' })
+      expect(engine.isReady()).toBe(true)
+      expect(engine.getModelMetadata()).toBeNull()
+    })
+
+    it('should prefer modelId over deprecated modelPath', () => {
+      const engine = new NeuralEngine({
+        modelId: 'heuristic-v1',
+        modelPath: '/some/path.onnx',
+      })
+      expect(engine.getModelMetadata()?.id).toBe('heuristic-v1')
+    })
+  })
+})
+
+describe('Model Registry', () => {
+  describe('MODEL_REGISTRY', () => {
+    it('should contain at least the heuristic baseline model', () => {
+      expect(MODEL_REGISTRY.length).toBeGreaterThanOrEqual(1)
+      const heuristic = MODEL_REGISTRY.find((m) => m.id === 'heuristic-v1')
+      expect(heuristic).toBeDefined()
+      expect(heuristic?.name).toBe('Heuristic Baseline')
+    })
+
+    it('should have valid model metadata for all models', () => {
+      for (const model of MODEL_REGISTRY) {
+        expect(model.id).toBeTruthy()
+        expect(model.name).toBeTruthy()
+        expect(model.architecture).toMatch(/^(mlp|cnn|transformer)$/)
+        expect(model.expectedElo).toBeGreaterThan(0)
+        expect(model.version).toBeTruthy()
+        expect(model.encoding).toMatch(/^(onehot-6x7x3|bitboard|flat-binary)$/)
+      }
+    })
+  })
+
+  describe('getModelMetadata', () => {
+    it('should return metadata for existing model', () => {
+      const metadata = getModelMetadata('heuristic-v1')
+      expect(metadata).not.toBeNull()
+      expect(metadata?.id).toBe('heuristic-v1')
+    })
+
+    it('should return null for non-existing model', () => {
+      const metadata = getModelMetadata('non-existent-model')
+      expect(metadata).toBeNull()
+    })
+  })
+
+  describe('listModels', () => {
+    it('should return a copy of the registry', () => {
+      const models1 = listModels()
+      const models2 = listModels()
+      expect(models1).toEqual(models2)
+      expect(models1).not.toBe(models2) // Different references
+    })
+  })
+
+  describe('clearModelCache', () => {
+    it('should clear without error', () => {
+      expect(() => clearModelCache()).not.toThrow()
+    })
+  })
+})
+
+describe('createNeuralEngine factory', () => {
+  it('should create engine with specified model', async () => {
+    const engine = await createNeuralEngine('heuristic-v1')
+    expect(engine.isReady()).toBe(true)
+    expect(engine.getModelMetadata()?.id).toBe('heuristic-v1')
+  })
+
+  it('should select valid moves', async () => {
+    const engine = await createNeuralEngine('heuristic-v1')
+    const board = createEmptyBoard()
+    const result = await engine.selectMove(board, 1, { searchDepth: 3, errorRate: 0 }, 1000)
+
+    expect(result.column).toBeGreaterThanOrEqual(0)
+    expect(result.column).toBeLessThan(7)
   })
 })

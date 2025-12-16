@@ -10,6 +10,8 @@ import {
   listAvailableModels,
   registerModel,
   disposeNeuralAgents,
+  initializeModelRegistry,
+  isRegistryInitialized,
 } from './loader'
 import { createGameState, makeMove } from '../../game/makefour'
 import type { ModelMetadata } from './interface'
@@ -251,6 +253,37 @@ describe('Module exports', () => {
       const found = models.find((m) => m.id === 'heuristic-v1')
       expect(found?.name).toBe('Updated Heuristic')
       expect(found?.version).toBe('2.0.0')
+    })
+  })
+})
+
+describe('Registry initialization', () => {
+  describe('initializeModelRegistry', () => {
+    it('should be safe to call multiple times', async () => {
+      // First call
+      await initializeModelRegistry()
+      const models1 = await listAvailableModels()
+
+      // Second call should not fail
+      await initializeModelRegistry()
+      const models2 = await listAvailableModels()
+
+      // Should have the same models
+      expect(models1.length).toBe(models2.length)
+    })
+
+    it('should mark registry as initialized even on API failure', async () => {
+      // Since we're testing client-side in vitest without a server,
+      // the API call will fail, but the registry should still be marked initialized
+      await initializeModelRegistry()
+      expect(isRegistryInitialized()).toBe(true)
+    })
+  })
+
+  describe('isRegistryInitialized', () => {
+    it('should return boolean', () => {
+      const result = isRegistryInitialized()
+      expect(typeof result).toBe('boolean')
     })
   })
 })

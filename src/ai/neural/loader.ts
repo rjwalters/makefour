@@ -20,6 +20,8 @@ import { evaluatePosition, findBestMove } from '../coach'
 /**
  * Registry of available models.
  * Models can be served from API or bundled with the app.
+ * This registry is populated with built-in models and can be
+ * extended by fetching from the API.
  */
 const MODEL_REGISTRY: ModelMetadata[] = [
   {
@@ -33,22 +35,16 @@ const MODEL_REGISTRY: ModelMetadata[] = [
     encoding: 'flat-binary',
   },
   // Future models will be added here as they are trained
-  // {
-  //   id: 'mlp-tiny-v1',
-  //   name: 'Tiny MLP',
-  //   architecture: 'mlp',
-  //   expectedElo: 1400,
-  //   sizeBytes: 50000,
-  //   url: '/models/mlp-tiny-v1.onnx',
-  //   version: '1.0.0',
-  //   encoding: 'flat-binary',
-  //   training: {
-  //     games: 100000,
-  //     epochs: 50,
-  //     date: '2024-01-01',
-  //   },
-  // },
 ]
+
+/** API endpoint for fetching available models */
+const MODELS_API_URL = '/api/models'
+
+/** Whether the registry has been initialized from the API */
+let registryInitialized = false
+
+/** Promise for initialization to avoid duplicate fetches */
+let initializationPromise: Promise<void> | null = null
 
 /**
  * Heuristic-based neural agent that uses the existing minimax evaluation.
@@ -236,22 +232,51 @@ export function registerModel(metadata: ModelMetadata): void {
  * Loads models from an API endpoint.
  * Merges with local registry.
  *
- * @param apiUrl - URL to fetch model list from
+ * @param apiUrl - URL to fetch model list from (defaults to /api/models)
  */
-export async function loadModelsFromApi(apiUrl: string): Promise<void> {
+export async function loadModelsFromApi(apiUrl: string = MODELS_API_URL): Promise<void> {
   try {
     const response = await fetch(apiUrl)
     if (!response.ok) {
       throw new Error(`Failed to fetch models: ${response.status}`)
     }
 
-    const models: ModelMetadata[] = await response.json()
+    const data = await response.json()
+    const models: ModelMetadata[] = data.models || data
     for (const model of models) {
       registerModel(model)
     }
+    registryInitialized = true
   } catch (error) {
     console.warn('Failed to load models from API:', error)
+    // Mark as initialized even on failure to prevent repeated attempts
+    registryInitialized = true
   }
+}
+
+/**
+ * Initialize the model registry by fetching from the API.
+ * Safe to call multiple times - only fetches once.
+ */
+export async function initializeModelRegistry(): Promise<void> {
+  if (registryInitialized) {
+    return
+  }
+
+  if (initializationPromise) {
+    return initializationPromise
+  }
+
+  initializationPromise = loadModelsFromApi()
+  await initializationPromise
+  initializationPromise = null
+}
+
+/**
+ * Check if the registry has been initialized.
+ */
+export function isRegistryInitialized(): boolean {
+  return registryInitialized
 }
 
 /** Cached neural agents for reuse */
