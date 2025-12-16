@@ -394,6 +394,39 @@ export default function PlayPage() {
     setViewMoveIndex(null)
   }, [])
 
+  // Play again against the same bot
+  const handleBotPlayAgain = useCallback(() => {
+    const game = botGame.game
+    if (!game) return
+
+    const personaId = game.botPersonaId
+    const playerColor = game.playerNumber
+
+    // Reset the game state first
+    botGame.reset()
+
+    // Start a new game with the same bot and player color
+    if (personaId) {
+      botGame.createGameWithPersona(personaId, playerColor)
+    } else if (game.botDifficulty) {
+      botGame.createGame(game.botDifficulty as BotDifficulty, playerColor)
+    }
+    sounds.playGameStart()
+  }, [botGame, sounds])
+
+  // Request a rematch against the same human opponent
+  const handleRequestRematch = useCallback(() => {
+    const game = matchmaking.game
+    if (!game || !game.opponentUsername) return
+
+    // Reset matchmaking and transition to challenging state
+    matchmaking.reset()
+    setGamePhase('challenging')
+
+    // Send challenge to the opponent
+    challenge.sendChallenge(game.opponentUsername)
+  }, [matchmaking, challenge])
+
   const handleSaveGame = useCallback(async () => {
     if (!gameState.winner || gameSaved) return
 
@@ -1073,8 +1106,8 @@ export default function PlayPage() {
             {isGameOver && (
               <div className="flex flex-col gap-2">
                 <div className="flex gap-2 justify-center">
-                  <Button onClick={handleNewGame} size="lg">
-                    New Game
+                  <Button onClick={handleBotPlayAgain} size="lg">
+                    Play Again
                   </Button>
                 </div>
               </div>
@@ -1169,7 +1202,7 @@ export default function PlayPage() {
                 className={`w-4 h-4 rounded-full ${game.playerNumber === 1 ? 'bg-yellow-400' : 'bg-red-500'}`}
               />
               <span className="text-sm font-medium">
-                Opponent ({opponentColor}) - {game.opponentRating}
+                {game.opponentUsername || 'Opponent'} ({opponentColor}) - {game.opponentRating}
               </span>
             </div>
           </div>
@@ -1219,9 +1252,15 @@ export default function PlayPage() {
             {isGameOver && (
               <div className="flex flex-col gap-2">
                 <div className="flex gap-2 justify-center">
-                  <Button onClick={handleNewGame} size="lg">
-                    New Game
-                  </Button>
+                  {game.opponentUsername && !game.isBotGame ? (
+                    <Button onClick={handleRequestRematch} size="lg">
+                      Request Rematch
+                    </Button>
+                  ) : (
+                    <Button onClick={handleNewGame} size="lg">
+                      New Game
+                    </Button>
+                  )}
                 </div>
               </div>
             )}
