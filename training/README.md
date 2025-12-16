@@ -290,6 +290,112 @@ batch = buffer.sample_batch(batch_size=64, encoding="flat-binary")
 # Returns: board, move, value, legal_mask, policy tensors
 ```
 
+## Model Evaluation
+
+Evaluate trained models against reference opponents to measure ELO rating.
+
+### Evaluate a Single Model
+
+```bash
+# Evaluate against default opponents (rookie, nova, scholar, titan)
+python scripts/evaluate.py \
+    --model models/cnn-tiny-v1.onnx \
+    --games-per-opponent 100 \
+    --output results/cnn-tiny-v1-eval.json
+
+# Choose specific opponents
+python scripts/evaluate.py \
+    --model models/cnn-tiny-v1.onnx \
+    --opponents random,rookie,blitz,nova,scholar \
+    --games-per-opponent 50
+
+# Quick sanity check (10 games vs random, rookie, nova)
+python scripts/evaluate.py --model models/cnn-tiny-v1.onnx --quick
+```
+
+### Run a Tournament
+
+```bash
+# Tournament with multiple models and reference agents
+python scripts/evaluate.py \
+    --tournament \
+    --models models/*.onnx \
+    --include-reference \
+    --games-per-match 50 \
+    --output results/tournament.json
+```
+
+### Evaluation API
+
+```python
+from src.evaluation import (
+    Arena, NeuralAgent, REFERENCE_AGENTS, REFERENCE_ELOS,
+    analyze_matches, format_evaluation_report
+)
+
+# Create neural agent from ONNX model
+agent = NeuralAgent("models/my-model.onnx", temperature=0)
+
+# Build arena with test agent and reference opponents
+agents = {"my-model": agent, "rookie": REFERENCE_AGENTS["rookie"]}
+arena = Arena(agents, seed=42)
+
+# Run evaluation
+results = arena.evaluate_agent(
+    "my-model",
+    opponent_ids=["rookie", "nova", "scholar"],
+    num_games_per_opponent=100,
+)
+
+# Generate report
+report = analyze_matches("my-model", results)
+print(format_evaluation_report(report))
+print(f"Estimated ELO: {report.estimated_elo:.0f}")
+```
+
+### Reference Agents
+
+Reference agents match the bot personas from the game:
+
+| Agent    | Depth | Error Rate | Expected ELO |
+|----------|-------|------------|--------------|
+| random   | -     | 1.0        | 0            |
+| rookie   | 2     | 0.35       | 700          |
+| rusty    | 3     | 0.25       | 900          |
+| blitz    | 4     | 0.18       | 1000         |
+| nova     | 4     | 0.15       | 1100         |
+| neuron   | 5     | 0.12       | 1200         |
+| scholar  | 6     | 0.08       | 1350         |
+| viper    | 5     | 0.10       | 1250         |
+| titan    | 7     | 0.04       | 1550         |
+| sentinel | 10    | 0.01       | 1800         |
+
+### Output Format
+
+Evaluation results are saved as JSON:
+
+```json
+{
+  "model": "cnn-tiny-v1",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "estimated_elo": 1247,
+  "confidence_interval": [1210, 1284],
+  "matches": [
+    {
+      "opponent": "rookie",
+      "opponent_elo": 700,
+      "games": 100,
+      "wins": 95,
+      "losses": 3,
+      "draws": 2,
+      "score": 0.96
+    }
+  ],
+  "total_games": 500,
+  "time_seconds": 45.2
+}
+```
+
 ## ONNX Export
 
 Export trained models to ONNX format for deployment in browsers and Cloudflare Workers.
@@ -386,6 +492,11 @@ training/
 │   │   ├── dataset.py       # PyTorch dataset classes
 │   │   ├── export.py        # Data export utilities
 │   │   └── validation.py    # Data validation
+│   ├── evaluation/
+│   │   ├── agents.py        # Agent classes (Random, Minimax, Neural)
+│   │   ├── arena.py         # Match/tournament management
+│   │   ├── elo.py           # ELO calculation
+│   │   └── analysis.py      # Result analysis and reporting
 │   ├── training/
 │   │   ├── losses.py        # Loss functions (policy, value, combined)
 │   │   ├── trainer.py       # Main Trainer class
@@ -418,6 +529,7 @@ training/
 │   ├── test_optimizers.py   # Optimizer/scheduler tests
 │   ├── test_models.py       # Model architecture tests
 │   ├── test_self_play.py    # Self-play system tests
+│   ├── test_evaluation.py   # Evaluation harness tests
 │   └── test_export.py       # ONNX export tests
 ├── data/
 │   ├── games/               # Raw game records
@@ -431,6 +543,7 @@ training/
 └── scripts/
     ├── train.py             # CLI training script
     ├── self_play.py         # Self-play CLI script
+    ├── evaluate.py          # Model evaluation CLI script
     └── export.py            # ONNX export CLI script
 ```
 
@@ -440,3 +553,4 @@ training/
 - Model Architectures: #83
 - Training Infrastructure: #84
 - ONNX Export Pipeline: #86
+- Model Evaluation: #87
