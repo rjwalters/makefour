@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!**/node_modules", "!**/dist", "!**/.wrangler", "!**/backups", "!**/*.log"]
+    "includes": ["**", "!**/node_modules", "!**/dist", "!**/.wrangler", "!**/backups", "!**/*.log", "!**/.loom/worktrees/**"]
   },
   "formatter": {
     "enabled": true,
@@ -21,14 +21,34 @@
       "recommended": true,
       "style": {
         "noNonNullAssertion": "off",
-        "useTemplate": "warn"
+        "useTemplate": "warn",
+        "useNodejsImportProtocol": "warn"
       },
       "suspicious": {
-        "noExplicitAny": "warn",
-        "noArrayIndexKey": "off"
+        "noExplicitAny": "off",
+        "noArrayIndexKey": "off",
+        "noUnknownAtRules": "warn"
       },
       "correctness": {
-        "useExhaustiveDependencies": "warn"
+        "useExhaustiveDependencies": "warn",
+        "noUnusedImports": "warn",
+        "noUnusedVariables": "warn",
+        "noUnusedFunctionParameters": "warn",
+        "useHookAtTopLevel": "warn",
+        "useParseIntRadix": "warn"
+      },
+      "complexity": {
+        "useLiteralKeys": "warn",
+        "noUselessSwitchCase": "warn",
+        "noUselessFragments": "warn"
+      },
+      "a11y": {
+        "noSvgWithoutTitle": "warn",
+        "useButtonType": "warn",
+        "noLabelWithoutControl": "warn",
+        "useKeyWithClickEvents": "warn",
+        "useAriaPropsSupportedByRole": "warn",
+        "noStaticElementInteractions": "warn"
       }
     }
   },
@@ -38,6 +58,14 @@
       "trailingCommas": "es5",
       "semicolons": "asNeeded",
       "arrowParentheses": "always"
+    }
+  },
+  "css": {
+    "parser": {
+      "cssModules": true
+    },
+    "linter": {
+      "enabled": false
     }
   },
   "assist": { "actions": { "source": { "organizeImports": "on" } } }
