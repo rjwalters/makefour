@@ -196,6 +196,7 @@ CREATE TABLE IF NOT EXISTS active_games (
   -- Bot game fields (for server-side ranked bot games)
   is_bot_game INTEGER NOT NULL DEFAULT 0,
   bot_difficulty TEXT,
+  bot_persona_id TEXT,
   -- Bot vs Bot game fields
   is_bot_vs_bot INTEGER NOT NULL DEFAULT 0,
   bot1_persona_id TEXT,
@@ -208,6 +209,7 @@ CREATE TABLE IF NOT EXISTS active_games (
   updated_at INTEGER NOT NULL,
   FOREIGN KEY (player1_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (player2_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (bot_persona_id) REFERENCES bot_personas(id),
   CHECK (current_turn IN (1, 2)),
   CHECK (status IN ('active', 'completed', 'abandoned')),
   CHECK (mode IN ('ranked', 'casual')),
