@@ -214,8 +214,9 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       createdAt: now,
     })
 
-    // Check if this is a bot game (player2 is 'bot' or 'bot-opponent')
-    const isVsBot = game.player2Id === 'bot' || game.player2Id === 'bot-opponent'
+    // Check if this is a bot game (player ID starts with 'bot_' or is legacy 'bot-opponent')
+    const isVsBot = game.player1Id.startsWith('bot_') || game.player2Id.startsWith('bot_') ||
+                    game.player2Id === 'bot-opponent'
 
     let botResponse: string | null = null
 

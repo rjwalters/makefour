@@ -8,6 +8,8 @@ import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
 import { createDb } from '../../../shared/db/client'
 import { users, matchmakingQueue, activeGames, botPersonas } from '../../../shared/db/schema'
 import { eq, and, or, sql } from 'drizzle-orm'
+import { createGameState, makeMove } from '../../lib/game'
+import { suggestMoveWithEngine, type BotPersonaConfig, type AIConfig } from '../../lib/bot'
 
 interface Env {
   DB: D1Database
@@ -106,6 +108,43 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     const player1Rating = userIsPlayer1 ? userRating : botPersona.currentElo
     const player2Rating = userIsPlayer1 ? botPersona.currentElo : userRating
 
+    // If bot is player 1, make the bot's first move
+    let initialMoves: number[] = []
+    let currentTurn = 1
+    let player1TimeMs = DEFAULT_TIME_CONTROL_MS
+
+    if (!userIsPlayer1) {
+      // Bot is player 1, make its first move
+      const gameState = createGameState()
+      const botConfig: BotPersonaConfig = {
+        difficulty: 'intermediate', // Will use persona config
+        engine: 'minimax',
+      }
+
+      // Parse persona AI config if available
+      let aiConfig: AIConfig | undefined
+      try {
+        aiConfig = JSON.parse(botPersona.aiConfig)
+      } catch {
+        // Use defaults
+      }
+
+      const moveResult = await suggestMoveWithEngine(
+        gameState.board,
+        1, // Bot is player 1
+        botConfig,
+        5000 // 5 second time budget for first move
+      )
+
+      const afterBotMove = makeMove(gameState, moveResult.column)
+      if (afterBotMove) {
+        initialMoves = [moveResult.column]
+        currentTurn = 2 // Now human's turn
+        // Deduct a small amount of time for the bot's move (simulated)
+        player1TimeMs = DEFAULT_TIME_CONTROL_MS - 1000
+      }
+    }
+
     try {
       // Create game and remove from queue in a batch
       const statements = [
@@ -113,8 +152,8 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
           id: gameId,
           player1Id,
           player2Id,
-          moves: '[]',
-          currentTurn: 1,
+          moves: JSON.stringify(initialMoves),
+          currentTurn,
           status: 'active',
           mode: 'ranked',
           player1Rating,
@@ -123,7 +162,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
           spectatorCount: 0,
           lastMoveAt: now,
           timeControlMs: DEFAULT_TIME_CONTROL_MS,
-          player1TimeMs: DEFAULT_TIME_CONTROL_MS,
+          player1TimeMs,
           player2TimeMs: DEFAULT_TIME_CONTROL_MS,
           turnStartedAt: now,
           isBotGame: 1,

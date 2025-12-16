@@ -25,6 +25,7 @@ export const publicUserSchema = userSchema.omit({
 export type PublicUser = z.infer<typeof publicUserSchema>
 
 // Username validation: 3-20 chars, alphanumeric + underscores, must start with letter
+// Reserved prefix 'bot_' is not allowed (used for bot user IDs)
 export const usernameSchema = z
   .string()
   .min(3, 'Username must be at least 3 characters')
@@ -32,6 +33,10 @@ export const usernameSchema = z
   .regex(
     /^[a-zA-Z][a-zA-Z0-9_]{2,19}$/,
     'Username must start with a letter and contain only letters, numbers, and underscores'
+  )
+  .refine(
+    (username) => !username.toLowerCase().startsWith('bot_'),
+    'Username cannot start with "bot_"'
   )
 
 // Registration schemas

@@ -184,8 +184,13 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       botPersonaId: game.botPersonaId,
     })
   } catch (error) {
-    console.error('GET /api/bot/game/:id error:', error)
-    return errorResponse('Internal server error', 500)
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error('GET /api/bot/game/:id error:', {
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      gameId,
+    })
+    return errorResponse(`Internal server error: ${errorMessage}`, 500)
   }
 }
 
@@ -466,8 +471,14 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       turnStartedAt,
     })
   } catch (error) {
-    console.error('POST /api/bot/game/:id error:', error)
-    return errorResponse('Internal server error', 500)
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const errorStack = error instanceof Error ? error.stack : undefined
+    console.error('POST /api/bot/game/:id error:', {
+      error: errorMessage,
+      stack: errorStack,
+      gameId,
+    })
+    return errorResponse(`Internal server error: ${errorMessage}`, 500)
   }
 }
 

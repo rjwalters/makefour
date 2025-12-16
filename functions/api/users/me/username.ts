@@ -29,6 +29,10 @@ function validateUsername(username: string): { valid: boolean; error?: string } 
       error: 'Username must start with a letter and contain only letters, numbers, and underscores',
     }
   }
+  // Reserved prefix for bot users
+  if (username.toLowerCase().startsWith('bot_')) {
+    return { valid: false, error: 'Username cannot start with "bot_"' }
+  }
   return { valid: true }
 }
 
