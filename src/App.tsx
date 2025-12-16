@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { PreferencesProvider } from './contexts/PreferencesContext'
 import { ToastProvider } from './contexts/ToastContext'
 import ToastContainer from './components/Toast'
+import Footer from './components/Footer'
 import LoginPage from './pages/LoginPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
@@ -84,6 +85,7 @@ function App() {
               }
             />
               </Routes>
+              <Footer />
               <ToastContainer />
             </BrowserRouter>
           </ToastProvider>
