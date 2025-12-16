@@ -135,27 +135,85 @@ pytest --cov=src
 pytest tests/test_encoding.py -v
 ```
 
+## Self-Play Data Generation
+
+Generate training data through self-play:
+
+```bash
+# Generate 10,000 self-play games
+python scripts/self_play.py --games 10000 --output data/self_play/
+
+# With custom configuration
+python scripts/self_play.py --config configs/self_play.yaml --games 10000
+
+# Parallel generation with 8 workers
+python scripts/self_play.py --games 10000 --workers 8
+```
+
+### Using the Self-Play API
+
+```python
+from src.self_play import SelfPlayWorker, SelfPlayManager, ReplayBuffer, SelfPlayConfig
+
+# Single worker for simple generation
+worker = SelfPlayWorker(
+    temperature=1.0,           # Exploration temperature
+    temperature_threshold=15,  # Greedy after 15 moves
+    add_noise=True,            # Dirichlet noise for exploration
+)
+games = worker.play_games(100)
+
+# Parallel generation with manager
+config = SelfPlayConfig(num_workers=4, games_per_iteration=100)
+manager = SelfPlayManager(config=config)
+games = manager.generate_batch(num_games=1000)
+
+# Save games to files
+saved_files = manager.generate_and_save(
+    total_games=10000,
+    output_dir="data/self_play/",
+    batch_size=1000,
+)
+
+# Use replay buffer for training
+buffer = ReplayBuffer(max_size=100000)
+buffer.add_games(games)
+
+# Sample training batches
+batch = buffer.sample_batch(batch_size=64, encoding="flat-binary")
+# Returns: board, move, value, legal_mask, policy tensors
+```
+
 ## Directory Structure
 
 ```
 training/
 ├── src/
-│   └── data/
-│       ├── encoding.py      # Position encoding (matches TypeScript)
-│       ├── game.py          # Connect Four game logic
-│       ├── dataset.py       # PyTorch dataset classes
-│       ├── export.py        # Data export utilities
-│       └── validation.py    # Data validation
+│   ├── data/
+│   │   ├── encoding.py      # Position encoding (matches TypeScript)
+│   │   ├── game.py          # Connect Four game logic
+│   │   ├── dataset.py       # PyTorch dataset classes
+│   │   ├── export.py        # Data export utilities
+│   │   └── validation.py    # Data validation
+│   └── self_play/
+│       ├── worker.py        # SelfPlayWorker for game generation
+│       ├── manager.py       # SelfPlayManager for parallel generation
+│       ├── replay_buffer.py # ReplayBuffer for experience replay
+│       └── config.py        # Configuration dataclasses
 ├── tests/
 │   ├── test_encoding.py     # Encoding parity tests
 │   ├── test_game.py         # Game logic tests
 │   ├── test_dataset.py      # Dataset tests
-│   └── test_validation.py   # Validation tests
+│   ├── test_validation.py   # Validation tests
+│   └── test_self_play.py    # Self-play system tests
 ├── data/
 │   ├── games/               # Raw game records
+│   ├── self_play/           # Self-play generated data
 │   └── processed/           # Processed tensors
-├── configs/                 # Training configs
-└── scripts/                 # CLI scripts
+├── configs/
+│   └── self_play.yaml       # Self-play configuration
+└── scripts/
+    └── self_play.py         # Self-play CLI script
 ```
 
 ## Related Issues
