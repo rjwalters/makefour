@@ -369,7 +369,8 @@ export function useMatchmaking() {
         if (!isMountedRef.current) return false
 
         // For bot games, add delay before showing bot's response
-        if (isBotGame && optimisticMoves && response.moves.length > optimisticMoves.length) {
+        const botMadeMove = isBotGame && optimisticMoves && response.moves.length > optimisticMoves.length
+        if (botMadeMove) {
           const elapsed = Date.now() - startTime
           const remainingDelay = Math.max(0, BOT_MIN_RESPONSE_TIME_MS - elapsed)
           if (remainingDelay > 0) {
@@ -378,26 +379,61 @@ export function useMatchmaking() {
           if (!isMountedRef.current) return false
         }
 
-        setState((prev) => ({
-          ...prev,
-          status: response.status === 'completed' ? 'completed' : 'playing',
-          game: prev.game
-            ? {
+        // For bot games where we did optimistic update, only update what changed
+        // to avoid re-rendering the human's piece
+        if (botMadeMove) {
+          // Apply only the bot's move to the current board state (which already has human's move)
+          const botMoveColumn = response.moves[response.moves.length - 1]
+          setState((prev) => {
+            if (!prev.game || !prev.game.board) return prev
+
+            // Replay current moves to get game state, then apply bot's move
+            const currentGameState = replayMoves(prev.game.moves)
+            if (!currentGameState) return prev
+
+            const afterBotMove = applyMove(currentGameState, botMoveColumn)
+            if (!afterBotMove) return prev
+
+            return {
+              ...prev,
+              status: response.status === 'completed' ? 'completed' : 'playing',
+              game: {
                 ...prev.game,
                 moves: response.moves,
-                board: response.board,
+                board: afterBotMove.board,
                 currentTurn: response.currentTurn,
                 status: response.status,
                 winner: response.winner,
                 isYourTurn: response.isYourTurn,
-                // Update timer fields
                 timeControlMs: response.timeControlMs,
                 player1TimeMs: response.player1TimeMs,
                 player2TimeMs: response.player2TimeMs,
                 turnStartedAt: response.turnStartedAt,
-              }
-            : null,
-        }))
+              },
+            }
+          })
+        } else {
+          // For non-bot games or when bot didn't move, use server response directly
+          setState((prev) => ({
+            ...prev,
+            status: response.status === 'completed' ? 'completed' : 'playing',
+            game: prev.game
+              ? {
+                  ...prev.game,
+                  moves: response.moves,
+                  board: response.board,
+                  currentTurn: response.currentTurn,
+                  status: response.status,
+                  winner: response.winner,
+                  isYourTurn: response.isYourTurn,
+                  timeControlMs: response.timeControlMs,
+                  player1TimeMs: response.player1TimeMs,
+                  player2TimeMs: response.player2TimeMs,
+                  turnStartedAt: response.turnStartedAt,
+                }
+              : null,
+          }))
+        }
 
         return true
       } catch (error) {
