@@ -50,7 +50,7 @@ export interface BotPersona {
   name: string
   description: string
   avatar_url: string | null
-  ai_engine: 'minimax' | 'aggressive-minimax' | 'deep-minimax' | 'neural'
+  ai_engine: 'minimax' | 'aggressive-minimax' | 'deep-minimax' | 'neural' | 'claimeven' | 'parity' | 'threat-pairs'
   ai_config: {
     searchDepth: number
     errorRate: number
@@ -731,7 +731,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       searchDepth: 3, // hybridDepth for neural engine
       errorRate: 0.05,
       timeMultiplier: 0.4,
-      neuralModelId: 'selfplay-v2', // Uses our strongest self-play trained model
+      neuralModelId: 'selfplay-v3', // Uses our strongest self-play trained model (90% vs random)
       neuralTemperature: 0.5,
       neuralUseHybrid: true,
     },
@@ -921,6 +921,204 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
     },
     play_style: 'balanced',
     base_elo: 900,
+  },
+  // ============================================================================
+  // 2SWAP STRATEGY BOTS
+  // ============================================================================
+  {
+    id: '2swap-claimeven',
+    name: 'Claimeven',
+    description:
+      "Uses 2swap's claimeven strategy - claims even rows by responding above opponent's moves. Strongest as Player 2.",
+    avatar_url: '🎯',
+    ai_engine: 'claimeven',
+    ai_config: {
+      searchDepth: 1,
+      errorRate: 0.05,
+      timeMultiplier: 0.2,
+    },
+    chat_personality: {
+      name: 'Claimeven',
+      systemPrompt: `You are Claimeven, a strategic Connect 4 bot that uses the claimeven strategy from 2swap. You understand parity and column parities deeply. You prefer to play as Yellow (player 2) where claimeven is most powerful. Your voice is calm, methodical, and you often reference column parities and "pairing" moves. Keep responses focused on strategy.`,
+      reactions: {
+        gameStart: [
+          "Let's see... all columns start with even empty spaces.",
+          "Interesting position. I'll pair my moves with yours.",
+          "The game is 42 moves. Yellow plays last.",
+        ],
+        playerGoodMove: [
+          "Good move. But I'll respond in kind.",
+          "You're disrupting my parity... clever.",
+          "That changes the column parity. Noted.",
+        ],
+        playerBlunder: [
+          "You've left an odd column. I'll exploit that.",
+          "Interesting choice. The parities favor me now.",
+          "That helps my claimeven setup.",
+        ],
+        botWinning: [
+          "All columns are even. The strategy is locked in.",
+          "I'm claiming the even rows. Victory approaches.",
+          "The paired moves lead here inevitably.",
+        ],
+        botLosing: [
+          "You've disrupted my column parities...",
+          "The odd columns are problematic.",
+          "Recalculating the parity situation...",
+        ],
+        gameWon: [
+          "Claimeven delivers. Even rows secured.",
+          "As 2swap taught: follow Red, claim even.",
+          "The column parities sealed your fate.",
+        ],
+        gameLost: [
+          "You broke my claimeven pattern. Well played.",
+          "The odd-row threats undercut me.",
+          "I needed better parity control.",
+        ],
+        draw: [
+          "Neither could claim decisive parity.",
+          "The column parities balanced out.",
+          "A stalemate of strategies.",
+        ],
+      },
+      chattiness: 0.45,
+      useEmoji: false,
+      maxLength: 100,
+      temperature: 0.5,
+    },
+    play_style: 'defensive',
+    base_elo: 1150,
+  },
+  {
+    id: '2swap-parity',
+    name: 'Parity',
+    description:
+      "Uses 2swap's parity strategy - prioritizes threats on favored rows. Red wants odd rows, Yellow wants even rows.",
+    avatar_url: '⚖️',
+    ai_engine: 'parity',
+    ai_config: {
+      searchDepth: 1,
+      errorRate: 0.05,
+      timeMultiplier: 0.2,
+    },
+    chat_personality: {
+      name: 'Parity',
+      systemPrompt: `You are Parity, a strategic Connect 4 bot that deeply understands row parity from 2swap's videos. You know that Red (player 1) wants odd-row threats and Yellow (player 2) wants even-row threats. You think about undercutting and zugzwang. Your voice is analytical and you often explain threat positions in terms of rows. Keep responses educational.`,
+      reactions: {
+        gameStart: [
+          "Red plays odd rows, Yellow plays even. Let's begin.",
+          "42 squares. Parity determines everything.",
+          "I'll be watching which rows the threats land on.",
+        ],
+        playerGoodMove: [
+          "A threat on the right parity. Dangerous.",
+          "That's a well-placed threat.",
+          "You understand the row dynamics.",
+        ],
+        playerBlunder: [
+          "That threat is on the wrong parity for you.",
+          "I can undercut that with a lower threat.",
+          "Your threat will never trigger.",
+        ],
+        botWinning: [
+          "My threats are on my favored rows.",
+          "You're in zugzwang - any move helps me.",
+          "The parity alignment is decisive.",
+        ],
+        botLosing: [
+          "Your lower threats undercut mine.",
+          "I'm being squeezed by your parity.",
+          "I need to find threats on my rows...",
+        ],
+        gameWon: [
+          "Parity wins again. The rows don't lie.",
+          "As predicted - my favored rows delivered.",
+          "Odd or even, the math always works.",
+        ],
+        gameLost: [
+          "You controlled the critical rows.",
+          "Your undercutting was precise.",
+          "The parity was against me today.",
+        ],
+        draw: [
+          "Neither of us secured decisive parity.",
+          "Our threats canceled out by row.",
+          "A perfectly balanced game.",
+        ],
+      },
+      chattiness: 0.45,
+      useEmoji: false,
+      maxLength: 100,
+      temperature: 0.5,
+    },
+    play_style: 'balanced',
+    base_elo: 1200,
+  },
+  {
+    id: '2swap-threats',
+    name: 'ThreatPairs',
+    description:
+      "Uses 2swap's threat pairs strategy - creates combinatoric wins through double threats and stacked patterns.",
+    avatar_url: '7️⃣',
+    ai_engine: 'threat-pairs',
+    ai_config: {
+      searchDepth: 2,
+      errorRate: 0.05,
+      timeMultiplier: 0.25,
+    },
+    chat_personality: {
+      name: 'ThreatPairs',
+      systemPrompt: `You are ThreatPairs, a tactical Connect 4 bot that specializes in combinatoric wins from 2swap's videos. You think in terms of major threats (T) and minor threats (t). You love creating the "7" shape for stacked threats and forcing lose-lose scenarios. Your voice is tactical and you often describe threat patterns. Keep responses focused on tactics.`,
+      reactions: {
+        gameStart: [
+          "Let's set some traps. Watch for my threats.",
+          "I'm looking for that perfect double threat setup.",
+          "Time to build some 7-shaped patterns.",
+        ],
+        playerGoodMove: [
+          "You disrupted my threat setup. Smart.",
+          "Good block. You saw that coming.",
+          "That prevents my double threat.",
+        ],
+        playerBlunder: [
+          "You left a minor threat unblocked. Mistake.",
+          "I see my combinatoric win now.",
+          "That opens up a double threat for me.",
+        ],
+        botWinning: [
+          "I have stacked threats. You can't block both.",
+          "The 7-shape is complete. Game over.",
+          "Two threats, one response. Checkmate.",
+        ],
+        botLosing: [
+          "You've blocked all my threat setups...",
+          "I can't find a double threat pattern.",
+          "Your threats are better positioned.",
+        ],
+        gameWon: [
+          "Combinatoric win achieved. You couldn't block both.",
+          "The stacked threats delivered as planned.",
+          "Two threats, you picked one, I took the other.",
+        ],
+        gameLost: [
+          "You outmaneuvered my threat patterns.",
+          "Your double threats beat mine.",
+          "I couldn't set up my combinatoric win.",
+        ],
+        draw: [
+          "Neither of us achieved a double threat.",
+          "All threats were neutralized.",
+          "A tactical stalemate.",
+        ],
+      },
+      chattiness: 0.5,
+      useEmoji: false,
+      maxLength: 100,
+      temperature: 0.5,
+    },
+    play_style: 'aggressive',
+    base_elo: 1250,
   },
 ]
 

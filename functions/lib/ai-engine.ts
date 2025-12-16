@@ -283,6 +283,9 @@ export type EngineType =
   | 'mcts' // Monte Carlo Tree Search
   | 'neural' // Neural network inference
   | 'hybrid' // Combines approaches (e.g., NN eval + minimax search)
+  | 'claimeven' // 2swap's claimeven strategy
+  | 'parity' // 2swap's parity strategy
+  | 'threat-pairs' // 2swap's threat pairs / combinatoric wins strategy
 
 /**
  * Default engine configurations by type.
@@ -313,4 +316,7 @@ export const DEFAULT_ENGINE_CONFIGS: Record<EngineType, Partial<EngineConfig>> =
     mcts: { searchDepth: 1000, errorRate: 0 }, // depth = simulations for MCTS
     neural: { searchDepth: 1, errorRate: 0 },
     hybrid: { searchDepth: 4, errorRate: 0 },
+    claimeven: { searchDepth: 1, errorRate: 0 }, // 2swap claimeven strategy
+    parity: { searchDepth: 1, errorRate: 0 }, // 2swap parity strategy
+    'threat-pairs': { searchDepth: 2, errorRate: 0 }, // 2swap threat pairs strategy
   }
