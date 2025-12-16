@@ -8,6 +8,9 @@
 import { validateSession, errorResponse, jsonResponse } from '../../../lib/auth'
 import { z } from 'zod'
 import type { ChatPersonality } from '../../../lib/botPersonas'
+import { createDb } from '../../../../shared/db/client'
+import { activeGames, gameMessages, botPersonas } from '../../../../shared/db/schema'
+import { eq, and, gt, count } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -73,6 +76,7 @@ function filterProfanity(text: string): string {
  */
 export async function onRequestGet(context: EventContext<Env, any, any>) {
   const { DB } = context.env
+  const db = createDb(DB)
   const gameId = context.params.id as string
 
   try {
@@ -82,19 +86,21 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     }
 
     // Verify user is a participant in this game
-    const game = await DB.prepare(`
-      SELECT id, player1_id, player2_id, status
-      FROM active_games
-      WHERE id = ?
-    `)
-      .bind(gameId)
-      .first<ActiveGameRow>()
+    const game = await db.query.activeGames.findFirst({
+      where: eq(activeGames.id, gameId),
+      columns: {
+        id: true,
+        player1Id: true,
+        player2Id: true,
+        status: true,
+      },
+    })
 
     if (!game) {
       return errorResponse('Game not found', 404)
     }
 
-    if (game.player1_id !== session.userId && game.player2_id !== session.userId) {
+    if (game.player1Id !== session.userId && game.player2Id !== session.userId) {
       return errorResponse('You are not a participant in this game', 403)
     }
 
@@ -102,18 +108,21 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     const url = new URL(context.request.url)
     const since = parseInt(url.searchParams.get('since') || '0', 10)
 
-    const messages = await DB.prepare(`
-      SELECT id, game_id, sender_id, sender_type, content, created_at
-      FROM game_messages
-      WHERE game_id = ? AND created_at > ?
-      ORDER BY created_at ASC
-      LIMIT 100
-    `)
-      .bind(gameId, since)
-      .all<GameMessageRow>()
+    const messages = await db.query.gameMessages.findMany({
+      where: and(eq(gameMessages.gameId, gameId), gt(gameMessages.createdAt, since)),
+      orderBy: (gameMessages, { asc }) => [asc(gameMessages.createdAt)],
+      limit: 100,
+    })
 
     return jsonResponse({
-      messages: messages.results || [],
+      messages: messages.map(msg => ({
+        id: msg.id,
+        game_id: msg.gameId,
+        sender_id: msg.senderId,
+        sender_type: msg.senderType,
+        content: msg.content,
+        created_at: msg.createdAt,
+      })),
       gameStatus: game.status,
     })
   } catch (error) {
@@ -127,6 +136,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
  */
 export async function onRequestPost(context: EventContext<Env, any, any>) {
   const { DB, AI } = context.env
+  const db = createDb(DB)
   const gameId = context.params.id as string
 
   try {
@@ -151,34 +161,43 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     // Get the game
-    const game = await DB.prepare(`
-      SELECT id, player1_id, player2_id, moves, current_turn, status, winner, bot_persona_id
-      FROM active_games
-      WHERE id = ?
-    `)
-      .bind(gameId)
-      .first<ActiveGameRow>()
+    const game = await db.query.activeGames.findFirst({
+      where: eq(activeGames.id, gameId),
+      columns: {
+        id: true,
+        player1Id: true,
+        player2Id: true,
+        moves: true,
+        currentTurn: true,
+        status: true,
+        winner: true,
+        botPersonaId: true,
+      },
+    })
 
     if (!game) {
       return errorResponse('Game not found', 404)
     }
 
     // Verify user is a participant
-    if (game.player1_id !== session.userId && game.player2_id !== session.userId) {
+    if (game.player1Id !== session.userId && game.player2Id !== session.userId) {
       return errorResponse('You are not a participant in this game', 403)
     }
 
     // Rate limiting: Check how many messages the user sent in the last minute
     const oneMinuteAgo = Date.now() - 60000
-    const recentMessages = await DB.prepare(`
-      SELECT COUNT(*) as count
-      FROM game_messages
-      WHERE game_id = ? AND sender_id = ? AND created_at > ?
-    `)
-      .bind(gameId, session.userId, oneMinuteAgo)
-      .first<{ count: number }>()
+    const recentMessages = await db
+      .select({ count: count() })
+      .from(gameMessages)
+      .where(
+        and(
+          eq(gameMessages.gameId, gameId),
+          eq(gameMessages.senderId, session.userId),
+          gt(gameMessages.createdAt, oneMinuteAgo)
+        )
+      )
 
-    if (recentMessages && recentMessages.count >= 10) {
+    if (recentMessages[0] && recentMessages[0].count >= 10) {
       return errorResponse('Rate limit exceeded. Please wait before sending more messages.', 429)
     }
 
@@ -186,48 +205,69 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     const messageId = crypto.randomUUID()
 
     // Store the user's message
-    await DB.prepare(`
-      INSERT INTO game_messages (id, game_id, sender_id, sender_type, content, created_at)
-      VALUES (?, ?, ?, 'human', ?, ?)
-    `).bind(messageId, gameId, session.userId, content, now).run()
+    await db.insert(gameMessages).values({
+      id: messageId,
+      gameId,
+      senderId: session.userId,
+      senderType: 'human',
+      content,
+      createdAt: now,
+    })
 
     // Check if this is a bot game (player2 is 'bot' or 'bot-opponent')
-    const isVsBot = game.player2_id === 'bot' || game.player2_id === 'bot-opponent'
+    const isVsBot = game.player2Id === 'bot' || game.player2Id === 'bot-opponent'
 
     let botResponse: string | null = null
 
     if (isVsBot && game.status === 'active') {
       // Load bot persona personality if available
       let personality: ChatPersonality | null = null
-      if (game.bot_persona_id) {
-        const persona = await DB.prepare(`
-          SELECT id, name, chat_personality
-          FROM bot_personas
-          WHERE id = ?
-        `)
-          .bind(game.bot_persona_id)
-          .first<BotPersonaRow>()
+      if (game.botPersonaId) {
+        const persona = await db.query.botPersonas.findFirst({
+          where: eq(botPersonas.id, game.botPersonaId),
+          columns: {
+            id: true,
+            name: true,
+            chatPersonality: true,
+          },
+        })
 
         if (persona) {
           try {
-            personality = JSON.parse(persona.chat_personality) as ChatPersonality
+            personality = JSON.parse(persona.chatPersonality) as ChatPersonality
           } catch {
             // Fall back to default personality
           }
         }
       }
 
+      // Convert to ActiveGameRow format for compatibility
+      const gameRow: ActiveGameRow = {
+        id: game.id,
+        player1_id: game.player1Id,
+        player2_id: game.player2Id,
+        moves: game.moves,
+        current_turn: game.currentTurn,
+        status: game.status,
+        winner: game.winner,
+        bot_persona_id: game.botPersonaId,
+      }
+
       // Generate bot response using Cloudflare Workers AI with Llama
-      botResponse = await generateBotResponse(AI, content, game, personality)
+      botResponse = await generateBotResponse(AI, content, gameRow, personality)
 
       if (botResponse) {
         const botMessageId = crypto.randomUUID()
         const botNow = Date.now()
 
-        await DB.prepare(`
-          INSERT INTO game_messages (id, game_id, sender_id, sender_type, content, created_at)
-          VALUES (?, ?, 'bot', 'bot', ?, ?)
-        `).bind(botMessageId, gameId, botResponse, botNow).run()
+        await db.insert(gameMessages).values({
+          id: botMessageId,
+          gameId,
+          senderId: 'bot',
+          senderType: 'bot',
+          content: botResponse,
+          createdAt: botNow,
+        })
       }
     }
 

@@ -6,6 +6,9 @@
 
 import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
 import { z } from 'zod'
+import { createDb } from '../../../shared/db/client'
+import { users, challenges, activeGames } from '../../../shared/db/schema'
+import { eq, and, or, gt, lt, sql, desc } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -16,33 +19,6 @@ const CHALLENGE_EXPIRY_MS = 5 * 60 * 1000 // 5 minutes
 const createChallengeSchema = z.object({
   targetUsername: z.string().min(1).max(100),
 })
-
-interface UserRow {
-  id: string
-  email: string
-  username: string | null
-  rating: number
-  email_verified: number
-  is_bot: number
-}
-
-interface ChallengeRow {
-  id: string
-  challenger_id: string
-  challenger_username: string
-  challenger_rating: number
-  target_id: string | null
-  target_username: string
-  target_rating: number | null
-  status: string
-  created_at: number
-  expires_at: number
-  game_id: string | null
-}
-
-interface ActiveGameRow {
-  id: string
-}
 
 // Get display name from user: prefer username, fall back to email prefix
 function getDisplayName(user: { username: string | null; email: string }): string {
@@ -67,20 +43,20 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     const { targetUsername } = parseResult.data
     const normalizedTarget = targetUsername.toLowerCase().trim()
+    const db = createDb(DB)
 
     // Get challenger info
-    const challenger = await DB.prepare(`
-      SELECT id, email, username, rating, email_verified, is_bot FROM users WHERE id = ?
-    `)
-      .bind(session.userId)
-      .first<UserRow>()
+    const challenger = await db.query.users.findFirst({
+      where: eq(users.id, session.userId),
+      columns: { id: true, email: true, username: true, rating: true, emailVerified: true, isBot: true }
+    })
 
     if (!challenger) {
       return errorResponse('User not found', 404)
     }
 
     // Require email verification
-    if (challenger.email_verified !== 1) {
+    if (challenger.emailVerified !== 1) {
       return errorResponse('Email verification required for challenges', 403)
     }
 
@@ -92,53 +68,59 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     // Check if already in an active game
-    const activeGame = await DB.prepare(`
-      SELECT id FROM active_games
-      WHERE (player1_id = ? OR player2_id = ?)
-      AND status = 'active'
-    `)
-      .bind(session.userId, session.userId)
-      .first<ActiveGameRow>()
+    const activeGame = await db.query.activeGames.findFirst({
+      where: and(
+        or(
+          eq(activeGames.player1Id, session.userId),
+          eq(activeGames.player2Id, session.userId)
+        ),
+        eq(activeGames.status, 'active')
+      ),
+      columns: { id: true }
+    })
 
     if (activeGame) {
       return errorResponse('You are already in an active game', 409)
     }
 
     // Check for existing pending challenge to this user
-    const existingChallenge = await DB.prepare(`
-      SELECT id FROM challenges
-      WHERE challenger_id = ?
-      AND LOWER(target_username) = ?
-      AND status = 'pending'
-      AND expires_at > ?
-    `)
-      .bind(session.userId, normalizedTarget, Date.now())
-      .first<ChallengeRow>()
+    const existingChallenge = await db.query.challenges.findFirst({
+      where: and(
+        eq(challenges.challengerId, session.userId),
+        sql`LOWER(${challenges.targetUsername}) = ${normalizedTarget}`,
+        eq(challenges.status, 'pending'),
+        gt(challenges.expiresAt, Date.now())
+      ),
+      columns: { id: true }
+    })
 
     if (existingChallenge) {
       return errorResponse('You already have a pending challenge to this user', 409)
     }
 
     // Find target user by username or email prefix
-    const targetUser = await DB.prepare(`
-      SELECT id, email, username, rating, is_bot FROM users
-      WHERE (LOWER(username) = ? OR LOWER(SUBSTR(email, 1, INSTR(email, '@') - 1)) = ?)
-      AND is_bot = 0
-    `)
-      .bind(normalizedTarget, normalizedTarget)
-      .first<UserRow>()
+    const targetUser = await db.query.users.findFirst({
+      where: and(
+        or(
+          sql`LOWER(${users.username}) = ${normalizedTarget}`,
+          sql`LOWER(SUBSTR(${users.email}, 1, INSTR(${users.email}, '@') - 1)) = ${normalizedTarget}`
+        ),
+        eq(users.isBot, 0)
+      ),
+      columns: { id: true, email: true, username: true, rating: true, isBot: true }
+    })
 
     // Check if target has a pending challenge TO the challenger (mutual challenge = start game)
     if (targetUser) {
-      const mutualChallenge = await DB.prepare(`
-        SELECT id FROM challenges
-        WHERE challenger_id = ?
-        AND target_id = ?
-        AND status = 'pending'
-        AND expires_at > ?
-      `)
-        .bind(targetUser.id, session.userId, Date.now())
-        .first<ChallengeRow>()
+      const mutualChallenge = await db.query.challenges.findFirst({
+        where: and(
+          eq(challenges.challengerId, targetUser.id),
+          eq(challenges.targetId, session.userId),
+          eq(challenges.status, 'pending'),
+          gt(challenges.expiresAt, Date.now())
+        ),
+        columns: { id: true }
+      })
 
       if (mutualChallenge) {
         // Mutual challenge! Create game immediately
@@ -147,33 +129,30 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         const TIME_CONTROL_MS = 300000 // 5 minutes
 
         // Create active game
-        await DB.prepare(`
-          INSERT INTO active_games (
-            id, player1_id, player2_id, moves, current_turn, status, mode,
-            player1_rating, player2_rating, spectatable, last_move_at,
-            time_control_ms, player1_time_ms, player2_time_ms, turn_started_at,
-            created_at, updated_at
-          )
-          VALUES (?, ?, ?, '[]', 1, 'active', 'ranked', ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(
-          gameId,
-          session.userId,
-          targetUser.id,
-          challenger.rating,
-          targetUser.rating,
-          now,
-          TIME_CONTROL_MS,
-          TIME_CONTROL_MS,
-          TIME_CONTROL_MS,
-          now,
-          now,
-          now
-        ).run()
+        await db.insert(activeGames).values({
+          id: gameId,
+          player1Id: session.userId,
+          player2Id: targetUser.id,
+          moves: '[]',
+          currentTurn: 1,
+          status: 'active',
+          mode: 'ranked',
+          player1Rating: challenger.rating,
+          player2Rating: targetUser.rating,
+          spectatable: 1,
+          lastMoveAt: now,
+          timeControlMs: TIME_CONTROL_MS,
+          player1TimeMs: TIME_CONTROL_MS,
+          player2TimeMs: TIME_CONTROL_MS,
+          turnStartedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        })
 
         // Update the mutual challenge as accepted
-        await DB.prepare(`
-          UPDATE challenges SET status = 'accepted', game_id = ? WHERE id = ?
-        `).bind(gameId, mutualChallenge.id).run()
+        await db.update(challenges)
+          .set({ status: 'accepted', gameId })
+          .where(eq(challenges.id, mutualChallenge.id))
 
         return jsonResponse({
           status: 'matched',
@@ -192,24 +171,18 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     const now = Date.now()
     const expiresAt = now + CHALLENGE_EXPIRY_MS
 
-    await DB.prepare(`
-      INSERT INTO challenges (
-        id, challenger_id, challenger_username, challenger_rating,
-        target_id, target_username, target_rating,
-        status, created_at, expires_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
-    `).bind(
-      challengeId,
-      session.userId,
+    await db.insert(challenges).values({
+      id: challengeId,
+      challengerId: session.userId,
       challengerUsername,
-      challenger.rating,
-      targetUser?.id || null,
+      challengerRating: challenger.rating,
+      targetId: targetUser?.id || null,
       targetUsername, // Keep original casing for display
-      targetUser?.rating || null,
-      now,
-      expiresAt
-    ).run()
+      targetRating: targetUser?.rating || null,
+      status: 'pending',
+      createdAt: now,
+      expiresAt,
+    })
 
     return jsonResponse({
       status: 'pending',
@@ -236,31 +209,38 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       return errorResponse(session.error, session.status)
     }
 
+    const db = createDb(DB)
     const now = Date.now()
 
     // Get user's outgoing challenges
-    const outgoing = await DB.prepare(`
-      SELECT id, challenger_id, challenger_username, challenger_rating,
-             target_id, target_username, target_rating, status, created_at, expires_at, game_id
-      FROM challenges
-      WHERE challenger_id = ?
-      AND (status = 'pending' OR (status = 'accepted' AND created_at > ?))
-      ORDER BY created_at DESC
-      LIMIT 10
-    `)
-      .bind(session.userId, now - 60000) // Include recently accepted
-      .all<ChallengeRow>()
+    const outgoing = await db
+      .select()
+      .from(challenges)
+      .where(
+        and(
+          eq(challenges.challengerId, session.userId),
+          or(
+            eq(challenges.status, 'pending'),
+            and(
+              eq(challenges.status, 'accepted'),
+              gt(challenges.createdAt, now - 60000)
+            )
+          )
+        )
+      )
+      .orderBy(desc(challenges.createdAt))
+      .limit(10)
 
     return jsonResponse({
-      challenges: outgoing.results.map((c) => ({
+      challenges: outgoing.map((c) => ({
         id: c.id,
-        targetUsername: c.target_username,
-        targetRating: c.target_rating,
-        targetExists: !!c.target_id,
+        targetUsername: c.targetUsername,
+        targetRating: c.targetRating,
+        targetExists: !!c.targetId,
         status: c.status,
-        createdAt: c.created_at,
-        expiresAt: c.expires_at,
-        gameId: c.game_id,
+        createdAt: c.createdAt,
+        expiresAt: c.expiresAt,
+        gameId: c.gameId,
       })),
     })
   } catch (error) {

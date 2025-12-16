@@ -4,6 +4,9 @@
 
 import { validateSession, errorResponse, jsonResponse } from '../../../lib/auth'
 import { calculateNewRating, type GameOutcome } from '../../../lib/elo'
+import { createDb } from '../../../../shared/db/client'
+import { users, games, activeGames, ratingHistory } from '../../../../shared/db/schema'
+import { eq } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -30,6 +33,7 @@ interface UserRow {
 
 export async function onRequestPost(context: EventContext<Env, any, any>) {
   const { DB } = context.env
+  const db = createDb(DB)
   const gameId = context.params.id as string
 
   try {
@@ -39,21 +43,16 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     // Get the game
-    const game = await DB.prepare(`
-      SELECT id, player1_id, player2_id, moves, current_turn, status, mode,
-             winner, player1_rating, player2_rating
-      FROM active_games
-      WHERE id = ?
-    `)
-      .bind(gameId)
-      .first<ActiveGameRow>()
+    const game = await db.query.activeGames.findFirst({
+      where: eq(activeGames.id, gameId),
+    })
 
     if (!game) {
       return errorResponse('Game not found', 404)
     }
 
     // Verify user is a participant
-    if (game.player1_id !== session.userId && game.player2_id !== session.userId) {
+    if (game.player1Id !== session.userId && game.player2Id !== session.userId) {
       return errorResponse('You are not a participant in this game', 403)
     }
 
@@ -62,20 +61,36 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse('Game is not active', 400)
     }
 
-    const playerNumber = game.player1_id === session.userId ? 1 : 2
+    const playerNumber = game.player1Id === session.userId ? 1 : 2
     const winner = playerNumber === 1 ? '2' : '1' // Opponent wins
     const now = Date.now()
 
     // Update the game
-    await DB.prepare(`
-      UPDATE active_games
-      SET status = 'completed', winner = ?, updated_at = ?
-      WHERE id = ?
-    `).bind(winner, now, gameId).run()
+    await db.update(activeGames)
+      .set({
+        status: 'completed',
+        winner,
+        updatedAt: now,
+      })
+      .where(eq(activeGames.id, gameId))
+
+    // Convert to ActiveGameRow format for compatibility
+    const gameRow: ActiveGameRow = {
+      id: game.id,
+      player1_id: game.player1Id,
+      player2_id: game.player2Id,
+      moves: game.moves,
+      current_turn: game.currentTurn,
+      status: game.status,
+      mode: game.mode,
+      winner: game.winner,
+      player1_rating: game.player1Rating,
+      player2_rating: game.player2Rating,
+    }
 
     // Update ELO ratings for ranked games
     if (game.mode === 'ranked') {
-      await updateRatingsOnResign(DB, game, playerNumber, now)
+      await updateRatingsOnResign(DB, gameRow, playerNumber, now)
     }
 
     return jsonResponse({
@@ -96,16 +111,19 @@ async function updateRatingsOnResign(
   resigningPlayer: number,
   now: number
 ) {
+  const db = createDb(DB)
   const moves = JSON.parse(game.moves) as number[]
 
   // Get both players' current stats
   const [player1, player2] = await Promise.all([
-    DB.prepare('SELECT id, rating, games_played FROM users WHERE id = ?')
-      .bind(game.player1_id)
-      .first<UserRow>(),
-    DB.prepare('SELECT id, rating, games_played FROM users WHERE id = ?')
-      .bind(game.player2_id)
-      .first<UserRow>(),
+    db.query.users.findFirst({
+      where: eq(users.id, game.player1_id),
+      columns: { id: true, rating: true, gamesPlayed: true, wins: true, losses: true, draws: true },
+    }),
+    db.query.users.findFirst({
+      where: eq(users.id, game.player2_id),
+      columns: { id: true, rating: true, gamesPlayed: true, wins: true, losses: true, draws: true },
+    }),
   ])
 
   if (!player1 || !player2) {
@@ -121,13 +139,13 @@ async function updateRatingsOnResign(
     game.player1_rating,
     game.player2_rating,
     player1Outcome,
-    player1.games_played
+    player1.gamesPlayed
   )
   const player2Result = calculateNewRating(
     game.player2_rating,
     game.player1_rating,
     player2Outcome,
-    player2.games_played
+    player2.gamesPlayed
   )
 
   const game1Id = crypto.randomUUID()
@@ -135,96 +153,76 @@ async function updateRatingsOnResign(
   const ratingHistory1Id = crypto.randomUUID()
   const ratingHistory2Id = crypto.randomUUID()
 
-  await DB.batch([
+  await db.batch([
     // Player 1 game record
-    DB.prepare(`
-      INSERT INTO games (id, user_id, outcome, moves, move_count, rating_change, opponent_type, player_number, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'human', 1, ?)
-    `).bind(
-      game1Id,
-      game.player1_id,
-      player1Outcome,
-      JSON.stringify(moves),
-      moves.length,
-      player1Result.ratingChange,
-      now
-    ),
+    db.insert(games).values({
+      id: game1Id,
+      userId: game.player1_id,
+      outcome: player1Outcome,
+      moves: JSON.stringify(moves),
+      moveCount: moves.length,
+      ratingChange: player1Result.ratingChange,
+      opponentType: 'human',
+      playerNumber: 1,
+      createdAt: now,
+    }),
 
     // Player 2 game record
-    DB.prepare(`
-      INSERT INTO games (id, user_id, outcome, moves, move_count, rating_change, opponent_type, player_number, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'human', 2, ?)
-    `).bind(
-      game2Id,
-      game.player2_id,
-      player2Outcome,
-      JSON.stringify(moves),
-      moves.length,
-      player2Result.ratingChange,
-      now
-    ),
+    db.insert(games).values({
+      id: game2Id,
+      userId: game.player2_id,
+      outcome: player2Outcome,
+      moves: JSON.stringify(moves),
+      moveCount: moves.length,
+      ratingChange: player2Result.ratingChange,
+      opponentType: 'human',
+      playerNumber: 2,
+      createdAt: now,
+    }),
 
     // Update player 1 stats
-    DB.prepare(`
-      UPDATE users SET
-        rating = ?,
-        games_played = games_played + 1,
-        wins = wins + ?,
-        losses = losses + ?,
-        updated_at = ?
-      WHERE id = ?
-    `).bind(
-      player1Result.newRating,
-      player1Outcome === 'win' ? 1 : 0,
-      player1Outcome === 'loss' ? 1 : 0,
-      now,
-      game.player1_id
-    ),
+    db.update(users)
+      .set({
+        rating: player1Result.newRating,
+        gamesPlayed: player1.gamesPlayed + 1,
+        wins: player1.wins + (player1Outcome === 'win' ? 1 : 0),
+        losses: player1.losses + (player1Outcome === 'loss' ? 1 : 0),
+        updatedAt: now,
+      })
+      .where(eq(users.id, game.player1_id)),
 
     // Update player 2 stats
-    DB.prepare(`
-      UPDATE users SET
-        rating = ?,
-        games_played = games_played + 1,
-        wins = wins + ?,
-        losses = losses + ?,
-        updated_at = ?
-      WHERE id = ?
-    `).bind(
-      player2Result.newRating,
-      player2Outcome === 'win' ? 1 : 0,
-      player2Outcome === 'loss' ? 1 : 0,
-      now,
-      game.player2_id
-    ),
+    db.update(users)
+      .set({
+        rating: player2Result.newRating,
+        gamesPlayed: player2.gamesPlayed + 1,
+        wins: player2.wins + (player2Outcome === 'win' ? 1 : 0),
+        losses: player2.losses + (player2Outcome === 'loss' ? 1 : 0),
+        updatedAt: now,
+      })
+      .where(eq(users.id, game.player2_id)),
 
     // Rating history
-    DB.prepare(`
-      INSERT INTO rating_history (id, user_id, game_id, rating_before, rating_after, rating_change, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      ratingHistory1Id,
-      game.player1_id,
-      game1Id,
-      game.player1_rating,
-      player1Result.newRating,
-      player1Result.ratingChange,
-      now
-    ),
+    db.insert(ratingHistory).values({
+      id: ratingHistory1Id,
+      userId: game.player1_id,
+      gameId: game1Id,
+      ratingBefore: game.player1_rating,
+      ratingAfter: player1Result.newRating,
+      ratingChange: player1Result.ratingChange,
+      createdAt: now,
+    }),
 
-    DB.prepare(`
-      INSERT INTO rating_history (id, user_id, game_id, rating_before, rating_after, rating_change, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      ratingHistory2Id,
-      game.player2_id,
-      game2Id,
-      game.player2_rating,
-      player2Result.newRating,
-      player2Result.ratingChange,
-      now
-    ),
-  ])
+    db.insert(ratingHistory).values({
+      id: ratingHistory2Id,
+      userId: game.player2_id,
+      gameId: game2Id,
+      ratingBefore: game.player2_rating,
+      ratingAfter: player2Result.newRating,
+      ratingChange: player2Result.ratingChange,
+      createdAt: now,
+    }),
+  ] as any)
 }
 
 export async function onRequestOptions() {

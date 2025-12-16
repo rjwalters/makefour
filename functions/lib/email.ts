@@ -5,6 +5,10 @@
  * Set EMAIL_PROVIDER to 'resend', 'sendgrid', 'mailgun', or 'console' (for development)
  */
 
+import { createDb } from '../../shared/db/client'
+import { users, emailVerificationTokens } from '../../shared/db/schema'
+import { eq, and } from 'drizzle-orm'
+
 interface EmailOptions {
   to: string
   subject: string
@@ -369,14 +373,18 @@ export async function createVerificationToken(
   userId: string,
   expiresInMs: number = 24 * 60 * 60 * 1000 // 24 hours
 ): Promise<string> {
+  const drizzleDb = createDb(db)
   const tokenId = crypto.randomUUID()
   const now = Date.now()
   const expiresAt = now + expiresInMs
 
-  await db.prepare(`
-    INSERT INTO email_verification_tokens (id, user_id, expires_at, used, created_at)
-    VALUES (?, ?, ?, 0, ?)
-  `).bind(tokenId, userId, expiresAt, now).run()
+  await drizzleDb.insert(emailVerificationTokens).values({
+    id: tokenId,
+    userId,
+    expiresAt,
+    used: 0,
+    createdAt: now,
+  })
 
   return tokenId
 }
@@ -389,16 +397,11 @@ export async function validateVerificationToken(
   db: D1Database,
   tokenId: string
 ): Promise<{ valid: true; userId: string } | { valid: false; error: string }> {
-  const token = await db.prepare(`
-    SELECT id, user_id, expires_at, used
-    FROM email_verification_tokens
-    WHERE id = ?
-  `).bind(tokenId).first<{
-    id: string
-    user_id: string
-    expires_at: number
-    used: number
-  }>()
+  const drizzleDb = createDb(db)
+
+  const token = await drizzleDb.query.emailVerificationTokens.findFirst({
+    where: eq(emailVerificationTokens.id, tokenId),
+  })
 
   if (!token) {
     return { valid: false, error: 'Invalid verification token' }
@@ -408,18 +411,16 @@ export async function validateVerificationToken(
     return { valid: false, error: 'Token has already been used' }
   }
 
-  if (token.expires_at < Date.now()) {
+  if (token.expiresAt < Date.now()) {
     return { valid: false, error: 'Token has expired' }
   }
 
   // Mark token as used
-  await db.prepare(`
-    UPDATE email_verification_tokens
-    SET used = 1
-    WHERE id = ?
-  `).bind(tokenId).run()
+  await drizzleDb.update(emailVerificationTokens)
+    .set({ used: 1 })
+    .where(eq(emailVerificationTokens.id, tokenId))
 
-  return { valid: true, userId: token.user_id }
+  return { valid: true, userId: token.userId }
 }
 
 /**
@@ -429,11 +430,10 @@ export async function markEmailVerified(
   db: D1Database,
   userId: string
 ): Promise<void> {
-  await db.prepare(`
-    UPDATE users
-    SET email_verified = 1, updated_at = ?
-    WHERE id = ?
-  `).bind(Date.now(), userId).run()
+  const drizzleDb = createDb(db)
+  await drizzleDb.update(users)
+    .set({ emailVerified: 1, updatedAt: Date.now() })
+    .where(eq(users.id, userId))
 }
 
 /**
@@ -443,11 +443,13 @@ export async function isEmailVerified(
   db: D1Database,
   userId: string
 ): Promise<boolean> {
-  const user = await db.prepare(`
-    SELECT email_verified FROM users WHERE id = ?
-  `).bind(userId).first<{ email_verified: number }>()
+  const drizzleDb = createDb(db)
+  const user = await drizzleDb.query.users.findFirst({
+    where: eq(users.id, userId),
+    columns: { emailVerified: true },
+  })
 
-  return user?.email_verified === 1
+  return user?.emailVerified === 1
 }
 
 /**
@@ -457,8 +459,10 @@ export async function deleteUnusedTokens(
   db: D1Database,
   userId: string
 ): Promise<void> {
-  await db.prepare(`
-    DELETE FROM email_verification_tokens
-    WHERE user_id = ? AND used = 0
-  `).bind(userId).run()
+  const drizzleDb = createDb(db)
+  await drizzleDb.delete(emailVerificationTokens)
+    .where(and(
+      eq(emailVerificationTokens.userId, userId),
+      eq(emailVerificationTokens.used, 0)
+    ))
 }

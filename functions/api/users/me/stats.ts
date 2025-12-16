@@ -1,3 +1,6 @@
+import { eq, asc } from 'drizzle-orm'
+import { createDb } from '../../../../shared/db/client'
+import { users, games, ratingHistory } from '../../../../shared/db/schema'
 import { validateSession, errorResponse, jsonResponse } from '../../../lib/auth'
 
 interface Env {
@@ -35,6 +38,7 @@ interface RatingHistoryRow {
 
 export async function onRequestGet(context: EventContext<Env, any, any>) {
   const { DB } = context.env
+  const db = createDb(DB)
 
   try {
     // Validate session
@@ -46,37 +50,51 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     const userId = session.userId
 
     // Get user data including oauth_provider
-    const user = await DB.prepare(
-      `SELECT id, email, email_verified, oauth_provider, rating, games_played, wins, losses, draws,
-              created_at, last_login, updated_at
-       FROM users WHERE id = ?`
-    )
-      .bind(userId)
-      .first<UserRow>()
+    const user = await db.query.users.findFirst({
+      columns: {
+        id: true,
+        email: true,
+        emailVerified: true,
+        oauthProvider: true,
+        rating: true,
+        gamesPlayed: true,
+        wins: true,
+        losses: true,
+        draws: true,
+        createdAt: true,
+        lastLogin: true,
+        updatedAt: true,
+      },
+      where: eq(users.id, userId),
+    })
 
     if (!user) {
       return errorResponse('User not found', 404)
     }
 
     // Get all games for stats calculation
-    const gamesResult = await DB.prepare(
-      `SELECT outcome, player_number, opponent_type, move_count, rating_change, created_at
-       FROM games WHERE user_id = ? ORDER BY created_at ASC`
-    )
-      .bind(userId)
-      .all<GameRow>()
-
-    const games = gamesResult.results || []
+    const userGames = await db
+      .select({
+        outcome: games.outcome,
+        player_number: games.playerNumber,
+        opponent_type: games.opponentType,
+        move_count: games.moveCount,
+        rating_change: games.ratingChange,
+        created_at: games.createdAt,
+      })
+      .from(games)
+      .where(eq(games.userId, userId))
+      .orderBy(asc(games.createdAt))
 
     // Get rating history
-    const ratingHistoryResult = await DB.prepare(
-      `SELECT rating_after, created_at
-       FROM rating_history WHERE user_id = ? ORDER BY created_at ASC`
-    )
-      .bind(userId)
-      .all<RatingHistoryRow>()
-
-    const ratingHistory = ratingHistoryResult.results || []
+    const userRatingHistory = await db
+      .select({
+        rating_after: ratingHistory.ratingAfter,
+        created_at: ratingHistory.createdAt,
+      })
+      .from(ratingHistory)
+      .where(eq(ratingHistory.userId, userId))
+      .orderBy(asc(ratingHistory.createdAt))
 
     // Calculate advanced stats
     let peakRating = user.rating
@@ -94,19 +112,19 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     let recentRatingChange = 0
 
     // Process rating history for peak/lowest
-    for (const entry of ratingHistory) {
+    for (const entry of userRatingHistory) {
       if (entry.rating_after > peakRating) peakRating = entry.rating_after
       if (entry.rating_after < lowestRating) lowestRating = entry.rating_after
     }
 
     // If no history, use current rating
-    if (ratingHistory.length === 0) {
+    if (userRatingHistory.length === 0) {
       peakRating = 1200
       lowestRating = 1200
     }
 
     // Process games for other stats
-    for (const game of games) {
+    for (const game of userGames) {
       // Player number stats
       if (game.player_number === 1) gamesAsPlayer1++
       else gamesAsPlayer2++
@@ -135,8 +153,8 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     }
 
     // Current streak (from most recent games)
-    if (games.length > 0) {
-      const recentGames = [...games].reverse()
+    if (userGames.length > 0) {
+      const recentGames = [...userGames].reverse()
       let streakType: 'win' | 'loss' | null = null
       currentStreak = 0
 
@@ -159,7 +177,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     }
 
     // Recent rating change (last 10 games)
-    const recentGames = games.slice(-10)
+    const recentGames = userGames.slice(-10)
     recentRatingChange = recentGames.reduce((sum, game) => sum + (game.rating_change || 0), 0)
 
     // Determine rating trend
@@ -168,10 +186,10 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     else if (recentRatingChange < -20) ratingTrend = 'declining'
 
     // Calculate average move count
-    const avgMoveCount = games.length > 0 ? totalMoveCount / games.length : 0
+    const avgMoveCount = userGames.length > 0 ? totalMoveCount / userGames.length : 0
 
     // Format rating history for chart
-    const formattedRatingHistory = ratingHistory.map(entry => ({
+    const formattedRatingHistory = userRatingHistory.map(entry => ({
       rating: entry.rating_after,
       createdAt: entry.created_at,
     }))
@@ -180,16 +198,16 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       user: {
         id: user.id,
         email: user.email,
-        email_verified: user.email_verified === 1,
-        oauth_provider: user.oauth_provider,
+        email_verified: user.emailVerified === 1,
+        oauth_provider: user.oauthProvider,
         rating: user.rating,
-        gamesPlayed: user.games_played,
+        gamesPlayed: user.gamesPlayed,
         wins: user.wins,
         losses: user.losses,
         draws: user.draws,
-        createdAt: user.created_at,
-        lastLogin: user.last_login,
-        updatedAt: user.updated_at,
+        createdAt: user.createdAt,
+        lastLogin: user.lastLogin,
+        updatedAt: user.updatedAt,
       },
       stats: {
         peakRating,

@@ -25,6 +25,9 @@ import {
   type ChatPersonality,
   type ReactionType,
 } from './botPersonas'
+import { createDb } from '../../shared/db/client'
+import { users, activeGames, botPersonas, games, ratingHistory, gameMessages } from '../../shared/db/schema'
+import { eq, and, lte, sql, desc } from 'drizzle-orm'
 
 // Maximum games to process per tick/run
 export const MAX_GAMES_PER_TICK = 10
@@ -93,6 +96,8 @@ export async function advanceGame(
   game: ActiveGameRow,
   now: number
 ): Promise<AdvanceGameResult> {
+  const db = createDb(DB)
+
   // Get the current bot's persona
   const currentBotPersonaId = game.current_turn === 1
     ? game.bot1_persona_id
@@ -106,13 +111,17 @@ export async function advanceGame(
     }
   }
 
-  const persona = await DB.prepare(`
-    SELECT id, name, current_elo, ai_engine, ai_config, chat_personality
-    FROM bot_personas
-    WHERE id = ?
-  `)
-    .bind(currentBotPersonaId)
-    .first<BotPersonaRow>()
+  const persona = await db.query.botPersonas.findFirst({
+    where: eq(botPersonas.id, currentBotPersonaId),
+    columns: {
+      id: true,
+      name: true,
+      currentElo: true,
+      aiEngine: true,
+      aiConfig: true,
+      chatPersonality: true,
+    },
+  })
 
   if (!persona) {
     return {
@@ -122,7 +131,7 @@ export async function advanceGame(
     }
   }
 
-  const chatPersonality = parseChatPersonality(persona.chat_personality)
+  const chatPersonality = parseChatPersonality(persona.chatPersonality)
 
   // Reconstruct the current board state
   const moves = JSON.parse(game.moves) as number[]
@@ -143,9 +152,9 @@ export async function advanceGame(
 
   // Map persona rating to difficulty level
   const difficulty: DifficultyLevel =
-    persona.current_elo < 900 ? 'beginner' :
-    persona.current_elo < 1300 ? 'intermediate' :
-    persona.current_elo < 1700 ? 'expert' : 'perfect'
+    persona.currentElo < 900 ? 'beginner' :
+    persona.currentElo < 1300 ? 'intermediate' :
+    persona.currentElo < 1700 ? 'expert' : 'perfect'
 
   const timeBudget = calculateTimeBudget(botTimeRemaining ?? 60000, moves.length, difficulty)
   const startTime = Date.now()
@@ -153,7 +162,7 @@ export async function advanceGame(
   // Get bot's move using the engine
   const botPersonaConfig: BotPersonaConfig = {
     difficulty,
-    engine: (persona.ai_engine || 'minimax') as EngineType,
+    engine: (persona.aiEngine || 'minimax') as EngineType,
   }
 
   const moveResult = await suggestMoveWithEngine(
@@ -197,26 +206,20 @@ export async function advanceGame(
   const nextMoveAt = newStatus === 'active' ? now + (game.move_delay_ms ?? 2000) : null
 
   // Update the game
-  await DB.prepare(`
-    UPDATE active_games
-    SET moves = ?, current_turn = ?, status = ?, winner = ?,
-        last_move_at = ?, updated_at = ?,
-        player1_time_ms = ?, player2_time_ms = ?,
-        turn_started_at = ?, next_move_at = ?
-    WHERE id = ?
-  `).bind(
-    JSON.stringify(newMoves),
-    nextTurn,
-    newStatus,
-    winner,
-    now,
-    now,
-    player1Time,
-    player2Time,
-    newStatus === 'active' ? now : game.turn_started_at,
-    nextMoveAt,
-    game.id
-  ).run()
+  await db.update(activeGames)
+    .set({
+      moves: JSON.stringify(newMoves),
+      currentTurn: nextTurn,
+      status: newStatus,
+      winner,
+      lastMoveAt: now,
+      updatedAt: now,
+      player1TimeMs: player1Time,
+      player2TimeMs: player2Time,
+      turnStartedAt: newStatus === 'active' ? now : game.turn_started_at,
+      nextMoveAt,
+    })
+    .where(eq(activeGames.id, game.id))
 
   // Generate bot chat message if appropriate
   let chatMessage: string | null = null
@@ -248,16 +251,20 @@ export async function advanceGame(
       const messageId = crypto.randomUUID()
       const botUserId = game.current_turn === 1 ? game.player1_id : game.player2_id
 
-      await DB.prepare(`
-        INSERT INTO game_messages (id, game_id, sender_id, sender_type, content, created_at)
-        VALUES (?, ?, ?, 'bot', ?, ?)
-      `).bind(messageId, game.id, botUserId, chatMessage, now).run()
+      await db.insert(gameMessages).values({
+        id: messageId,
+        gameId: game.id,
+        senderId: botUserId,
+        senderType: 'bot',
+        content: chatMessage,
+        createdAt: now,
+      })
     }
   }
 
   // Update ratings if game is complete
   if (newStatus === 'completed') {
-    await updateBotRatings(DB, game, winner, now)
+    await updateBotRatings(db, game, winner, now)
   }
 
   return {
@@ -273,7 +280,7 @@ export async function advanceGame(
  * Update both bots' ratings after a bot vs bot game
  */
 export async function updateBotRatings(
-  DB: D1Database,
+  db: ReturnType<typeof createDb>,
   game: ActiveGameRow,
   winner: string | null,
   now: number
@@ -295,87 +302,96 @@ export async function updateBotRatings(
   }
 
   const [bot1User, bot2User] = await Promise.all([
-    DB.prepare('SELECT rating, games_played FROM users WHERE id = ? AND is_bot = 1')
-      .bind(game.player1_id)
-      .first<{ rating: number; games_played: number }>(),
-    DB.prepare('SELECT rating, games_played FROM users WHERE id = ? AND is_bot = 1')
-      .bind(game.player2_id)
-      .first<{ rating: number; games_played: number }>(),
+    db.query.users.findFirst({
+      where: and(eq(users.id, game.player1_id), eq(users.isBot, 1)),
+      columns: {
+        rating: true,
+        gamesPlayed: true,
+        wins: true,
+        losses: true,
+        draws: true,
+      },
+    }),
+    db.query.users.findFirst({
+      where: and(eq(users.id, game.player2_id), eq(users.isBot, 1)),
+      columns: {
+        rating: true,
+        gamesPlayed: true,
+        wins: true,
+        losses: true,
+        draws: true,
+      },
+    }),
   ])
-
-  const statements: D1PreparedStatement[] = []
 
   if (bot1User) {
     const bot1Result = calculateNewRating(
       game.player1_rating,
       game.player2_rating,
       bot1Outcome,
-      bot1User.games_played
+      bot1User.gamesPlayed
     )
 
     const bot1GameId = crypto.randomUUID()
     const bot1RatingHistoryId = crypto.randomUUID()
 
-    statements.push(
-      DB.prepare(`
-        INSERT INTO games (id, user_id, outcome, moves, move_count, rating_change,
-                          opponent_type, opponent_id, player_number, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'ai', ?, 1, ?)
-      `).bind(
-        bot1GameId,
-        game.player1_id,
-        bot1Outcome,
-        JSON.stringify(moves),
-        moves.length,
-        bot1Result.ratingChange,
-        game.player2_id,
-        now
-      ),
-      DB.prepare(`
-        UPDATE users SET
-          rating = ?, games_played = games_played + 1,
-          wins = wins + ?, losses = losses + ?, draws = draws + ?,
-          updated_at = ?
-        WHERE id = ? AND is_bot = 1
-      `).bind(
-        bot1Result.newRating,
-        bot1Outcome === 'win' ? 1 : 0,
-        bot1Outcome === 'loss' ? 1 : 0,
-        bot1Outcome === 'draw' ? 1 : 0,
-        now,
-        game.player1_id
-      ),
-      DB.prepare(`
-        INSERT INTO rating_history (id, user_id, game_id, rating_before, rating_after, rating_change, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).bind(
-        bot1RatingHistoryId,
-        game.player1_id,
-        bot1GameId,
-        game.player1_rating,
-        bot1Result.newRating,
-        bot1Result.ratingChange,
-        now
-      )
-    )
+    await db.insert(games).values({
+      id: bot1GameId,
+      userId: game.player1_id,
+      outcome: bot1Outcome,
+      moves: JSON.stringify(moves),
+      moveCount: moves.length,
+      ratingChange: bot1Result.ratingChange,
+      opponentType: 'ai',
+      opponentId: game.player2_id,
+      playerNumber: 1,
+      createdAt: now,
+    })
+
+    await db.update(users)
+      .set({
+        rating: bot1Result.newRating,
+        gamesPlayed: bot1User.gamesPlayed + 1,
+        wins: bot1User.wins + (bot1Outcome === 'win' ? 1 : 0),
+        losses: bot1User.losses + (bot1Outcome === 'loss' ? 1 : 0),
+        draws: bot1User.draws + (bot1Outcome === 'draw' ? 1 : 0),
+        updatedAt: now,
+      })
+      .where(and(eq(users.id, game.player1_id), eq(users.isBot, 1)))
+
+    await db.insert(ratingHistory).values({
+      id: bot1RatingHistoryId,
+      userId: game.player1_id,
+      gameId: bot1GameId,
+      ratingBefore: game.player1_rating,
+      ratingAfter: bot1Result.newRating,
+      ratingChange: bot1Result.ratingChange,
+      createdAt: now,
+    })
 
     if (game.bot1_persona_id) {
-      statements.push(
-        DB.prepare(`
-          UPDATE bot_personas SET
-            current_elo = ?, games_played = games_played + 1,
-            wins = wins + ?, losses = losses + ?, draws = draws + ?,
-            updated_at = ?
-          WHERE id = ?
-        `).bind(
-          bot1Result.newRating,
-          bot1Outcome === 'win' ? 1 : 0,
-          bot1Outcome === 'loss' ? 1 : 0,
-          bot1Outcome === 'draw' ? 1 : 0,
-          now,
-          game.bot1_persona_id
-        )
-      )
+      const bot1Persona = await db.query.botPersonas.findFirst({
+        where: eq(botPersonas.id, game.bot1_persona_id),
+        columns: {
+          gamesPlayed: true,
+          wins: true,
+          losses: true,
+          draws: true,
+        },
+      })
+
+      if (bot1Persona) {
+        await db.update(botPersonas)
+          .set({
+            currentElo: bot1Result.newRating,
+            gamesPlayed: bot1Persona.gamesPlayed + 1,
+            wins: bot1Persona.wins + (bot1Outcome === 'win' ? 1 : 0),
+            losses: bot1Persona.losses + (bot1Outcome === 'loss' ? 1 : 0),
+            draws: bot1Persona.draws + (bot1Outcome === 'draw' ? 1 : 0),
+            updatedAt: now,
+          })
+          .where(eq(botPersonas.id, game.bot1_persona_id))
+      }
     }
   }
 
@@ -384,77 +400,70 @@ export async function updateBotRatings(
       game.player2_rating,
       game.player1_rating,
       bot2Outcome,
-      bot2User.games_played
+      bot2User.gamesPlayed
     )
 
     const bot2GameId = crypto.randomUUID()
     const bot2RatingHistoryId = crypto.randomUUID()
 
-    statements.push(
-      DB.prepare(`
-        INSERT INTO games (id, user_id, outcome, moves, move_count, rating_change,
-                          opponent_type, opponent_id, player_number, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'ai', ?, 2, ?)
-      `).bind(
-        bot2GameId,
-        game.player2_id,
-        bot2Outcome,
-        JSON.stringify(moves),
-        moves.length,
-        bot2Result.ratingChange,
-        game.player1_id,
-        now
-      ),
-      DB.prepare(`
-        UPDATE users SET
-          rating = ?, games_played = games_played + 1,
-          wins = wins + ?, losses = losses + ?, draws = draws + ?,
-          updated_at = ?
-        WHERE id = ? AND is_bot = 1
-      `).bind(
-        bot2Result.newRating,
-        bot2Outcome === 'win' ? 1 : 0,
-        bot2Outcome === 'loss' ? 1 : 0,
-        bot2Outcome === 'draw' ? 1 : 0,
-        now,
-        game.player2_id
-      ),
-      DB.prepare(`
-        INSERT INTO rating_history (id, user_id, game_id, rating_before, rating_after, rating_change, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).bind(
-        bot2RatingHistoryId,
-        game.player2_id,
-        bot2GameId,
-        game.player2_rating,
-        bot2Result.newRating,
-        bot2Result.ratingChange,
-        now
-      )
-    )
+    await db.insert(games).values({
+      id: bot2GameId,
+      userId: game.player2_id,
+      outcome: bot2Outcome,
+      moves: JSON.stringify(moves),
+      moveCount: moves.length,
+      ratingChange: bot2Result.ratingChange,
+      opponentType: 'ai',
+      opponentId: game.player1_id,
+      playerNumber: 2,
+      createdAt: now,
+    })
+
+    await db.update(users)
+      .set({
+        rating: bot2Result.newRating,
+        gamesPlayed: bot2User.gamesPlayed + 1,
+        wins: bot2User.wins + (bot2Outcome === 'win' ? 1 : 0),
+        losses: bot2User.losses + (bot2Outcome === 'loss' ? 1 : 0),
+        draws: bot2User.draws + (bot2Outcome === 'draw' ? 1 : 0),
+        updatedAt: now,
+      })
+      .where(and(eq(users.id, game.player2_id), eq(users.isBot, 1)))
+
+    await db.insert(ratingHistory).values({
+      id: bot2RatingHistoryId,
+      userId: game.player2_id,
+      gameId: bot2GameId,
+      ratingBefore: game.player2_rating,
+      ratingAfter: bot2Result.newRating,
+      ratingChange: bot2Result.ratingChange,
+      createdAt: now,
+    })
 
     if (game.bot2_persona_id) {
-      statements.push(
-        DB.prepare(`
-          UPDATE bot_personas SET
-            current_elo = ?, games_played = games_played + 1,
-            wins = wins + ?, losses = losses + ?, draws = draws + ?,
-            updated_at = ?
-          WHERE id = ?
-        `).bind(
-          bot2Result.newRating,
-          bot2Outcome === 'win' ? 1 : 0,
-          bot2Outcome === 'loss' ? 1 : 0,
-          bot2Outcome === 'draw' ? 1 : 0,
-          now,
-          game.bot2_persona_id
-        )
-      )
-    }
-  }
+      const bot2Persona = await db.query.botPersonas.findFirst({
+        where: eq(botPersonas.id, game.bot2_persona_id),
+        columns: {
+          gamesPlayed: true,
+          wins: true,
+          losses: true,
+          draws: true,
+        },
+      })
 
-  if (statements.length > 0) {
-    await DB.batch(statements)
+      if (bot2Persona) {
+        await db.update(botPersonas)
+          .set({
+            currentElo: bot2Result.newRating,
+            gamesPlayed: bot2Persona.gamesPlayed + 1,
+            wins: bot2Persona.wins + (bot2Outcome === 'win' ? 1 : 0),
+            losses: bot2Persona.losses + (bot2Outcome === 'loss' ? 1 : 0),
+            draws: bot2Persona.draws + (bot2Outcome === 'draw' ? 1 : 0),
+            updatedAt: now,
+          })
+          .where(eq(botPersonas.id, game.bot2_persona_id))
+      }
+    }
   }
 }
 
@@ -466,30 +475,34 @@ export async function createRandomBotGames(
   count: number,
   now: number
 ): Promise<string[]> {
-  // Get active bot personas
-  const personas = await DB.prepare(`
-    SELECT id, name, current_elo
-    FROM bot_personas
-    WHERE is_active = 1
-    ORDER BY RANDOM()
-    LIMIT ?
-  `).bind(count * 2 + 4).all<{ id: string; name: string; current_elo: number }>()
+  const db = createDb(DB)
 
-  if (personas.results.length < 2) {
+  // Get active bot personas
+  const personas = await db.select({
+    id: botPersonas.id,
+    name: botPersonas.name,
+    currentElo: botPersonas.currentElo,
+  })
+  .from(botPersonas)
+  .where(eq(botPersonas.isActive, 1))
+  .orderBy(sql`RANDOM()`)
+  .limit(count * 2 + 4)
+
+  if (personas.length < 2) {
     return []
   }
 
   const createdGameIds: string[] = []
   const usedPersonas = new Set<string>()
 
-  for (let i = 0; i < count && usedPersonas.size < personas.results.length - 1; i++) {
+  for (let i = 0; i < count && usedPersonas.size < personas.length - 1; i++) {
     // Find two personas that haven't been used and have similar ratings
-    const availablePersonas = personas.results.filter(p => !usedPersonas.has(p.id))
+    const availablePersonas = personas.filter(p => !usedPersonas.has(p.id))
 
     if (availablePersonas.length < 2) break
 
     // Sort by rating and pick adjacent ones for more interesting matches
-    availablePersonas.sort((a, b) => a.current_elo - b.current_elo)
+    availablePersonas.sort((a, b) => a.currentElo - b.currentElo)
 
     // Pick a random index and get that persona and the next one
     const idx = Math.floor(Math.random() * (availablePersonas.length - 1))
@@ -504,45 +517,52 @@ export async function createRandomBotGames(
 
     // Get actual ratings from users table
     const [bot1User, bot2User] = await Promise.all([
-      DB.prepare('SELECT rating FROM users WHERE id = ? AND is_bot = 1')
-        .bind(bot1UserId)
-        .first<{ rating: number }>(),
-      DB.prepare('SELECT rating FROM users WHERE id = ? AND is_bot = 1')
-        .bind(bot2UserId)
-        .first<{ rating: number }>(),
+      db.query.users.findFirst({
+        where: and(eq(users.id, bot1UserId), eq(users.isBot, 1)),
+        columns: {
+          rating: true,
+        },
+      }),
+      db.query.users.findFirst({
+        where: and(eq(users.id, bot2UserId), eq(users.isBot, 1)),
+        columns: {
+          rating: true,
+        },
+      }),
     ])
 
-    const bot1Rating = bot1User?.rating ?? bot1.current_elo
-    const bot2Rating = bot2User?.rating ?? bot2.current_elo
+    const bot1Rating = bot1User?.rating ?? bot1.currentElo
+    const bot2Rating = bot2User?.rating ?? bot2.currentElo
 
     const gameId = crypto.randomUUID()
     const moveDelayMs = 2000 + Math.floor(Math.random() * 1000) // 2-3 seconds
 
-    await DB.prepare(`
-      INSERT INTO active_games (
-        id, player1_id, player2_id, moves, current_turn, status, mode,
-        player1_rating, player2_rating, spectatable, spectator_count,
-        last_move_at, time_control_ms, player1_time_ms, player2_time_ms,
-        turn_started_at, is_bot_game, is_bot_vs_bot,
-        bot1_persona_id, bot2_persona_id, move_delay_ms, next_move_at,
-        created_at, updated_at
-      )
-      VALUES (?, ?, ?, '[]', 1, 'active', 'ranked', ?, ?, 1, 0, ?, 120000, 120000, 120000, ?, 1, 1, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      gameId,
-      bot1UserId,
-      bot2UserId,
-      bot1Rating,
-      bot2Rating,
-      now,
-      now,
-      bot1.id,
-      bot2.id,
+    await db.insert(activeGames).values({
+      id: gameId,
+      player1Id: bot1UserId,
+      player2Id: bot2UserId,
+      moves: '[]',
+      currentTurn: 1,
+      status: 'active',
+      mode: 'ranked',
+      player1Rating: bot1Rating,
+      player2Rating: bot2Rating,
+      spectatable: 1,
+      spectatorCount: 0,
+      lastMoveAt: now,
+      timeControlMs: 120000,
+      player1TimeMs: 120000,
+      player2TimeMs: 120000,
+      turnStartedAt: now,
+      isBotGame: 1,
+      isBotVsBot: 1,
+      bot1PersonaId: bot1.id,
+      bot2PersonaId: bot2.id,
       moveDelayMs,
-      now + moveDelayMs,
-      now,
-      now
-    ).run()
+      nextMoveAt: now + moveDelayMs,
+      createdAt: now,
+      updatedAt: now,
+    })
 
     createdGameIds.push(gameId)
   }
@@ -558,35 +578,52 @@ export async function findReadyGames(
   now: number,
   limit: number = MAX_GAMES_PER_TICK
 ): Promise<ActiveGameRow[]> {
-  const readyGames = await DB.prepare(`
-    SELECT
-      id, player1_id, player2_id, moves, current_turn,
-      status, winner, player1_rating, player2_rating,
-      player1_time_ms, player2_time_ms, turn_started_at,
-      bot1_persona_id, bot2_persona_id,
-      move_delay_ms, next_move_at
-    FROM active_games
-    WHERE is_bot_vs_bot = 1
-      AND status = 'active'
-      AND (next_move_at IS NULL OR next_move_at <= ?)
-    ORDER BY next_move_at ASC
-    LIMIT ?
-  `)
-    .bind(now, limit)
-    .all<ActiveGameRow>()
+  const db = createDb(DB)
 
-  return readyGames.results
+  const readyGames = await db.select({
+    id: activeGames.id,
+    player1_id: activeGames.player1Id,
+    player2_id: activeGames.player2Id,
+    moves: activeGames.moves,
+    current_turn: activeGames.currentTurn,
+    status: activeGames.status,
+    winner: activeGames.winner,
+    player1_rating: activeGames.player1Rating,
+    player2_rating: activeGames.player2Rating,
+    player1_time_ms: activeGames.player1TimeMs,
+    player2_time_ms: activeGames.player2TimeMs,
+    turn_started_at: activeGames.turnStartedAt,
+    bot1_persona_id: activeGames.bot1PersonaId,
+    bot2_persona_id: activeGames.bot2PersonaId,
+    move_delay_ms: activeGames.moveDelayMs,
+    next_move_at: activeGames.nextMoveAt,
+  })
+  .from(activeGames)
+  .where(
+    and(
+      eq(activeGames.isBotVsBot, 1),
+      eq(activeGames.status, 'active'),
+      sql`(${activeGames.nextMoveAt} IS NULL OR ${activeGames.nextMoveAt} <= ${now})`
+    )
+  )
+  .orderBy(activeGames.nextMoveAt)
+  .limit(limit)
+
+  return readyGames as ActiveGameRow[]
 }
 
 /**
  * Get count of active bot vs bot games
  */
 export async function getActiveBotGameCount(DB: D1Database): Promise<number> {
-  const result = await DB.prepare(`
-    SELECT COUNT(*) as count
-    FROM active_games
-    WHERE is_bot_vs_bot = 1 AND status = 'active'
-  `).first<{ count: number }>()
+  const db = createDb(DB)
+
+  const result = await db.select({
+    count: sql<number>`COUNT(*)`,
+  })
+  .from(activeGames)
+  .where(and(eq(activeGames.isBotVsBot, 1), eq(activeGames.status, 'active')))
+  .then(rows => rows[0])
 
   return result?.count ?? 0
 }

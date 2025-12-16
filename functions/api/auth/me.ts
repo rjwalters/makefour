@@ -1,9 +1,14 @@
+import { createDb } from '../../../shared/db/client'
+import { sessionTokens, users } from '../../../shared/db/schema'
+import { eq } from 'drizzle-orm'
+
 interface Env {
   DB: D1Database
 }
 
 export async function onRequestGet(context: EventContext<Env, any, any>) {
   const { DB } = context.env
+  const db = createDb(DB)
 
   try {
     // Get session token from Authorization header or query param
@@ -24,11 +29,9 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     }
 
     // Find session token and check if it's expired
-    const session = await DB.prepare(
-      'SELECT * FROM session_tokens WHERE id = ?'
-    )
-      .bind(session_token)
-      .first()
+    const session = await db.query.sessionTokens.findFirst({
+      where: eq(sessionTokens.id, session_token),
+    })
 
     if (!session) {
       return new Response(
@@ -43,9 +46,9 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     }
 
     // Check if expired
-    if (session.expires_at < Date.now()) {
+    if (session.expiresAt < Date.now()) {
       // Delete expired token
-      await DB.prepare('DELETE FROM session_tokens WHERE id = ?').bind(session_token).run()
+      await db.delete(sessionTokens).where(eq(sessionTokens.id, session_token))
 
       return new Response(
         JSON.stringify({
@@ -59,26 +62,23 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     }
 
     // Get user with rating information
-    const user = await DB.prepare(
-      `SELECT id, email, email_verified, username, rating, games_played, wins, losses, draws,
-              created_at, last_login, updated_at
-       FROM users WHERE id = ?`
-    )
-      .bind(session.user_id)
-      .first<{
-        id: string
-        email: string
-        email_verified: number
-        username: string | null
-        rating: number
-        games_played: number
-        wins: number
-        losses: number
-        draws: number
-        created_at: number
-        last_login: number
-        updated_at: number
-      }>()
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, session.userId),
+      columns: {
+        id: true,
+        email: true,
+        emailVerified: true,
+        username: true,
+        rating: true,
+        gamesPlayed: true,
+        wins: true,
+        losses: true,
+        draws: true,
+        createdAt: true,
+        lastLogin: true,
+        updatedAt: true,
+      },
+    })
 
     if (!user) {
       return new Response(
@@ -97,17 +97,17 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
         user: {
           id: user.id,
           email: user.email,
-          email_verified: user.email_verified === 1,
+          email_verified: user.emailVerified === 1,
           username: user.username,
           displayName: user.username || user.email.split('@')[0],
           rating: user.rating,
-          gamesPlayed: user.games_played,
+          gamesPlayed: user.gamesPlayed,
           wins: user.wins,
           losses: user.losses,
           draws: user.draws,
-          createdAt: user.created_at,
-          lastLogin: user.last_login,
-          updatedAt: user.updated_at,
+          createdAt: user.createdAt,
+          lastLogin: user.lastLogin,
+          updatedAt: user.updatedAt,
         },
       }),
       {

@@ -1,4 +1,7 @@
-import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
+import { and, eq, or } from 'drizzle-orm'
+import { createDb } from '../../../shared/db/client'
+import { activeGames, users } from '../../../shared/db/schema'
+import { errorResponse, jsonResponse, validateSession } from '../../lib/auth'
 
 interface Env {
   DB: D1Database
@@ -26,34 +29,44 @@ export async function onRequestDelete(context: EventContext<Env, any, any>) {
     }
 
     const userId = session.userId
+    const db = createDb(DB)
 
     // Check if user exists
-    const user = await DB.prepare('SELECT id FROM users WHERE id = ?')
-      .bind(userId)
-      .first()
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+      columns: {
+        id: true,
+      },
+    })
 
     if (!user) {
       return errorResponse('User not found', 404)
     }
 
     // Handle any active games (forfeit them)
-    const activeGamesResult = await DB.prepare(
-      `SELECT id, player1_id, player2_id FROM active_games
-       WHERE (player1_id = ? OR player2_id = ?) AND status = 'active'`
-    )
-      .bind(userId, userId)
-      .all()
+    const activeGamesList = await db.query.activeGames.findMany({
+      where: and(
+        or(eq(activeGames.player1Id, userId), eq(activeGames.player2Id, userId)),
+        eq(activeGames.status, 'active')
+      ),
+      columns: {
+        id: true,
+        player1Id: true,
+        player2Id: true,
+      },
+    })
 
-    const activeGames = activeGamesResult.results || []
-
-    for (const game of activeGames) {
+    for (const game of activeGamesList) {
       // Mark game as abandoned with the other player winning
-      const winner = game.player1_id === userId ? '2' : '1'
-      await DB.prepare(
-        `UPDATE active_games SET status = 'abandoned', winner = ?, updated_at = ? WHERE id = ?`
-      )
-        .bind(winner, Date.now(), game.id)
-        .run()
+      const winner = game.player1Id === userId ? '2' : '1'
+      await db
+        .update(activeGames)
+        .set({
+          status: 'abandoned',
+          winner: winner,
+          updatedAt: Date.now(),
+        })
+        .where(eq(activeGames.id, game.id))
     }
 
     // Delete user - CASCADE will handle related records
@@ -64,9 +77,7 @@ export async function onRequestDelete(context: EventContext<Env, any, any>) {
     // - games
     // - rating_history
     // - matchmaking_queue entries
-    await DB.prepare('DELETE FROM users WHERE id = ?')
-      .bind(userId)
-      .run()
+    await db.delete(users).where(eq(users.id, userId))
 
     return jsonResponse({ message: 'Account deleted successfully' })
   } catch (error) {

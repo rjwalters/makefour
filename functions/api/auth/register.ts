@@ -3,6 +3,9 @@ import * as bcrypt from 'bcryptjs'
 import { registerRequestSchema, formatZodError } from '../../lib/schemas'
 import { generateDEK, encryptDEK } from '../../lib/crypto'
 import { createVerificationToken, sendVerificationEmail } from '../../lib/email'
+import { createDb } from '../../../shared/db/client'
+import { users } from '../../../shared/db/schema'
+import { eq } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -13,6 +16,7 @@ interface Env {
 
 export async function onRequestPost(context: EventContext<Env, any, any>) {
   const { DB, RESEND_API_KEY, FROM_EMAIL, BASE_URL } = context.env
+  const db = createDb(DB)
 
   try {
     // Parse and validate request body
@@ -20,7 +24,10 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     const { email, password } = registerRequestSchema.parse(body)
 
     // Check if user already exists
-    const existingUser = await DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first()
+    const existingUser = await db.query.users.findFirst({
+      where: eq(users.email, email),
+      columns: { id: true },
+    })
 
     if (existingUser) {
       return new Response(
@@ -52,13 +59,16 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     const email_verified = 0
 
     // Create user with encrypted_dek
-    await DB.prepare(
-      `INSERT INTO users
-      (id, email, email_verified, password_hash, encrypted_dek, created_at, last_login, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-      .bind(user_id, email, email_verified, password_hash, encrypted_dek, now, now, now)
-      .run()
+    await db.insert(users).values({
+      id: user_id,
+      email,
+      emailVerified: email_verified,
+      passwordHash: password_hash,
+      encryptedDek: encrypted_dek,
+      createdAt: now,
+      lastLogin: now,
+      updatedAt: now,
+    })
 
     // Send verification email if RESEND_API_KEY is configured
     let verificationSent = false
@@ -87,15 +97,28 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     // Fetch created user
-    const user = await DB.prepare(
-      'SELECT id, email, email_verified, created_at, last_login, updated_at FROM users WHERE id = ?'
-    )
-      .bind(user_id)
-      .first()
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, user_id),
+      columns: {
+        id: true,
+        email: true,
+        emailVerified: true,
+        createdAt: true,
+        lastLogin: true,
+        updatedAt: true,
+      },
+    })
 
     return new Response(
       JSON.stringify({
-        user,
+        user: {
+          id: user?.id,
+          email: user?.email,
+          email_verified: user?.emailVerified,
+          created_at: user?.createdAt,
+          last_login: user?.lastLogin,
+          updated_at: user?.updatedAt,
+        },
         message: 'Registration successful',
         verificationEmailSent: verificationSent,
       }),

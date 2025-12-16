@@ -4,6 +4,9 @@
  * GET /api/bot/personas - Get all active bot personas
  */
 
+import { eq, asc } from 'drizzle-orm'
+import { createDb } from '../../../shared/db/client'
+import { botPersonas } from '../../../shared/db/schema'
 import { jsonResponse, errorResponse } from '../../lib/auth'
 
 interface Env {
@@ -51,20 +54,34 @@ interface PublicBotPersona {
  */
 export async function onRequestGet(context: EventContext<Env, any, any>) {
   const { DB } = context.env
+  const db = createDb(DB)
 
   try {
     // Fetch all active personas, ordered by current ELO
-    const personas = await DB.prepare(`
-      SELECT id, name, description, avatar_url, ai_engine, ai_config,
-             chat_personality, play_style, base_elo, current_elo,
-             games_played, wins, losses, draws, is_active
-      FROM bot_personas
-      WHERE is_active = 1
-      ORDER BY current_elo ASC
-    `).all<BotPersonaRow>()
+    const personas = await db
+      .select({
+        id: botPersonas.id,
+        name: botPersonas.name,
+        description: botPersonas.description,
+        avatar_url: botPersonas.avatarUrl,
+        ai_engine: botPersonas.aiEngine,
+        ai_config: botPersonas.aiConfig,
+        chat_personality: botPersonas.chatPersonality,
+        play_style: botPersonas.playStyle,
+        base_elo: botPersonas.baseElo,
+        current_elo: botPersonas.currentElo,
+        games_played: botPersonas.gamesPlayed,
+        wins: botPersonas.wins,
+        losses: botPersonas.losses,
+        draws: botPersonas.draws,
+        is_active: botPersonas.isActive,
+      })
+      .from(botPersonas)
+      .where(eq(botPersonas.isActive, 1))
+      .orderBy(asc(botPersonas.currentElo))
 
     // Map to public persona format
-    const publicPersonas: PublicBotPersona[] = personas.results.map((persona) => ({
+    const publicPersonas: PublicBotPersona[] = personas.map((persona) => ({
       id: persona.id,
       name: persona.name,
       description: persona.description,

@@ -3,23 +3,12 @@
  */
 
 import { validateSession, errorResponse, jsonResponse } from '../../../lib/auth'
+import { createDb } from '../../../../shared/db/client'
+import { users, challenges } from '../../../../shared/db/schema'
+import { eq, sql } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
-}
-
-interface UserRow {
-  id: string
-  email: string
-  username: string | null
-}
-
-interface ChallengeRow {
-  id: string
-  challenger_id: string
-  target_id: string | null
-  target_username: string
-  status: string
 }
 
 // Get display name from user: prefer username, fall back to email prefix
@@ -37,13 +26,13 @@ export async function onRequestDelete(context: EventContext<Env, any, any>) {
       return errorResponse(session.error, session.status)
     }
 
+    const db = createDb(DB)
+
     // Get the challenge
-    const challenge = await DB.prepare(`
-      SELECT id, challenger_id, target_id, target_username, status
-      FROM challenges WHERE id = ?
-    `)
-      .bind(challengeId)
-      .first<ChallengeRow>()
+    const challenge = await db.query.challenges.findFirst({
+      where: eq(challenges.id, challengeId),
+      columns: { id: true, challengerId: true, targetId: true, targetUsername: true, status: true }
+    })
 
     if (!challenge) {
       return errorResponse('Challenge not found', 404)
@@ -54,9 +43,10 @@ export async function onRequestDelete(context: EventContext<Env, any, any>) {
     }
 
     // Get user info
-    const user = await DB.prepare(`SELECT id, email, username FROM users WHERE id = ?`)
-      .bind(session.userId)
-      .first<UserRow>()
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, session.userId),
+      columns: { id: true, email: true, username: true }
+    })
 
     if (!user) {
       return errorResponse('User not found', 404)
@@ -65,10 +55,10 @@ export async function onRequestDelete(context: EventContext<Env, any, any>) {
     const displayName = getDisplayName(user).toLowerCase()
 
     // Check if user is challenger or target
-    const isChallenger = challenge.challenger_id === session.userId
+    const isChallenger = challenge.challengerId === session.userId
     const isTarget =
-      challenge.target_id === session.userId ||
-      challenge.target_username.toLowerCase() === displayName
+      challenge.targetId === session.userId ||
+      challenge.targetUsername.toLowerCase() === displayName
 
     if (!isChallenger && !isTarget) {
       return errorResponse('You are not part of this challenge', 403)
@@ -77,9 +67,9 @@ export async function onRequestDelete(context: EventContext<Env, any, any>) {
     // Update status based on who cancelled
     const newStatus = isChallenger ? 'cancelled' : 'declined'
 
-    await DB.prepare(`UPDATE challenges SET status = ? WHERE id = ?`)
-      .bind(newStatus, challengeId)
-      .run()
+    await db.update(challenges)
+      .set({ status: newStatus })
+      .where(eq(challenges.id, challengeId))
 
     return jsonResponse({
       status: newStatus,

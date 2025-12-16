@@ -8,32 +8,12 @@
  */
 
 import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
+import { createDb } from '../../../shared/db/client'
+import { users, matchmakingQueue, activeGames } from '../../../shared/db/schema'
+import { eq, and, or, ne, sql } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
-}
-
-interface QueueEntry {
-  id: string
-  user_id: string
-  rating: number
-  mode: string
-  initial_tolerance: number
-  spectatable: number
-  joined_at: number
-}
-
-interface UserRow {
-  id: string
-  email: string
-  rating: number
-}
-
-interface ActiveGameRow {
-  id: string
-  player1_id: string
-  player2_id: string
-  status: string
 }
 
 // Tolerance expands by 50 rating points every 10 seconds
@@ -56,33 +36,33 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       return errorResponse(session.error, session.status)
     }
 
+    const db = createDb(DB)
+
     // First check if user is already in an active game
-    const activeGame = await DB.prepare(`
-      SELECT id, player1_id, player2_id, status
-      FROM active_games
-      WHERE (player1_id = ? OR player2_id = ?)
-      AND status = 'active'
-    `)
-      .bind(session.userId, session.userId)
-      .first<ActiveGameRow>()
+    const activeGame = await db.query.activeGames.findFirst({
+      where: and(
+        or(
+          eq(activeGames.player1Id, session.userId),
+          eq(activeGames.player2Id, session.userId)
+        ),
+        eq(activeGames.status, 'active')
+      ),
+      columns: { id: true, player1Id: true, player2Id: true }
+    })
 
     if (activeGame) {
       // User already has an active game - return it
       return jsonResponse({
         status: 'matched',
         gameId: activeGame.id,
-        playerNumber: activeGame.player1_id === session.userId ? 1 : 2,
+        playerNumber: activeGame.player1Id === session.userId ? 1 : 2,
       })
     }
 
     // Check if user is in queue
-    const queueEntry = await DB.prepare(`
-      SELECT id, user_id, rating, mode, initial_tolerance, spectatable, joined_at
-      FROM matchmaking_queue
-      WHERE user_id = ?
-    `)
-      .bind(session.userId)
-      .first<QueueEntry>()
+    const queueEntry = await db.query.matchmakingQueue.findFirst({
+      where: eq(matchmakingQueue.userId, session.userId)
+    })
 
     if (!queueEntry) {
       return jsonResponse({
@@ -91,44 +71,42 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     }
 
     const now = Date.now()
-    const waitTime = now - queueEntry.joined_at
+    const waitTime = now - queueEntry.joinedAt
 
     // Calculate current tolerance based on wait time
     const toleranceExpansions = Math.floor(waitTime / TOLERANCE_EXPANSION_INTERVAL)
     const currentTolerance = Math.min(
-      queueEntry.initial_tolerance + toleranceExpansions * TOLERANCE_EXPANSION_RATE,
+      queueEntry.initialTolerance + toleranceExpansions * TOLERANCE_EXPANSION_RATE,
       MAX_TOLERANCE
     )
 
     // Try to find a match
     // Look for other players in the same mode within rating tolerance
     // Exclude self, order by closest rating then longest wait
-    const potentialMatches = await DB.prepare(`
-      SELECT id, user_id, rating, mode, initial_tolerance, spectatable, joined_at
-      FROM matchmaking_queue
-      WHERE user_id != ?
-      AND mode = ?
-      AND ABS(rating - ?) <= ?
-      ORDER BY ABS(rating - ?) ASC, joined_at ASC
-      LIMIT 10
-    `)
-      .bind(
-        session.userId,
-        queueEntry.mode,
-        queueEntry.rating,
-        currentTolerance,
-        queueEntry.rating
+    const potentialMatches = await db
+      .select()
+      .from(matchmakingQueue)
+      .where(
+        and(
+          ne(matchmakingQueue.userId, session.userId),
+          eq(matchmakingQueue.mode, queueEntry.mode),
+          sql`ABS(${matchmakingQueue.rating} - ${queueEntry.rating}) <= ${currentTolerance}`
+        )
       )
-      .all<QueueEntry>()
+      .orderBy(
+        sql`ABS(${matchmakingQueue.rating} - ${queueEntry.rating}) ASC`,
+        matchmakingQueue.joinedAt
+      )
+      .limit(10)
 
     // Find first match where both players are within each other's tolerance
-    let matchedOpponent: QueueEntry | null = null
+    let matchedOpponent = null
 
-    for (const opponent of potentialMatches.results) {
-      const opponentWaitTime = now - opponent.joined_at
+    for (const opponent of potentialMatches) {
+      const opponentWaitTime = now - opponent.joinedAt
       const opponentExpansions = Math.floor(opponentWaitTime / TOLERANCE_EXPANSION_INTERVAL)
       const opponentTolerance = Math.min(
-        opponent.initial_tolerance + opponentExpansions * TOLERANCE_EXPANSION_RATE,
+        opponent.initialTolerance + opponentExpansions * TOLERANCE_EXPANSION_RATE,
         MAX_TOLERANCE
       )
 
@@ -160,52 +138,48 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 
     // Randomly assign player 1 and player 2
     const player1IsUser = Math.random() < 0.5
-    const player1Id = player1IsUser ? session.userId : matchedOpponent.user_id
-    const player2Id = player1IsUser ? matchedOpponent.user_id : session.userId
+    const player1Id = player1IsUser ? session.userId : matchedOpponent.userId
+    const player2Id = player1IsUser ? matchedOpponent.userId : session.userId
     const player1Rating = player1IsUser ? queueEntry.rating : matchedOpponent.rating
     const player2Rating = player1IsUser ? matchedOpponent.rating : queueEntry.rating
     // Game is spectatable only if both players allow it
     const gameSpectatable = queueEntry.spectatable === 1 && matchedOpponent.spectatable === 1 ? 1 : 0
 
     // Get opponent info for response
-    const opponent = await DB.prepare(`
-      SELECT id, email, rating FROM users WHERE id = ?
-    `)
-      .bind(matchedOpponent.user_id)
-      .first<UserRow>()
+    const opponent = await db.query.users.findFirst({
+      where: eq(users.id, matchedOpponent.userId),
+      columns: { id: true, rating: true }
+    })
 
     try {
       // Use a batch to atomically create game and remove both from queue
-      await DB.batch([
+      await db.batch([
         // Create the active game with timer initialized
-        DB.prepare(`
-          INSERT INTO active_games (
-            id, player1_id, player2_id, moves, current_turn, status, mode,
-            player1_rating, player2_rating, spectatable, spectator_count,
-            last_move_at, time_control_ms, player1_time_ms, player2_time_ms,
-            turn_started_at, is_bot_game, created_at, updated_at
-          )
-          VALUES (?, ?, ?, '[]', 1, 'active', ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 0, ?, ?)
-        `).bind(
-          gameId,
+        db.insert(activeGames).values({
+          id: gameId,
           player1Id,
           player2Id,
-          queueEntry.mode,
+          moves: '[]',
+          currentTurn: 1,
+          status: 'active',
+          mode: queueEntry.mode,
           player1Rating,
           player2Rating,
-          gameSpectatable,
-          now,
-          DEFAULT_TIME_CONTROL_MS,
-          DEFAULT_TIME_CONTROL_MS,
-          DEFAULT_TIME_CONTROL_MS,
-          now, // turn_started_at - clock starts immediately
-          now,
-          now
-        ),
+          spectatable: gameSpectatable,
+          spectatorCount: 0,
+          lastMoveAt: now,
+          timeControlMs: DEFAULT_TIME_CONTROL_MS,
+          player1TimeMs: DEFAULT_TIME_CONTROL_MS,
+          player2TimeMs: DEFAULT_TIME_CONTROL_MS,
+          turnStartedAt: now,
+          isBotGame: 0,
+          createdAt: now,
+          updatedAt: now,
+        }),
 
         // Remove both players from queue
-        DB.prepare(`DELETE FROM matchmaking_queue WHERE user_id = ?`).bind(session.userId),
-        DB.prepare(`DELETE FROM matchmaking_queue WHERE user_id = ?`).bind(matchedOpponent.user_id),
+        db.delete(matchmakingQueue).where(eq(matchmakingQueue.userId, session.userId)),
+        db.delete(matchmakingQueue).where(eq(matchmakingQueue.userId, matchedOpponent.userId)),
       ])
 
       return jsonResponse({

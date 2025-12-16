@@ -3,28 +3,12 @@
  */
 
 import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
+import { createDb } from '../../../shared/db/client'
+import { users, challenges } from '../../../shared/db/schema'
+import { eq, and, or, gt, lt, sql, desc } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
-}
-
-interface UserRow {
-  id: string
-  email: string
-  username: string | null
-}
-
-interface ChallengeRow {
-  id: string
-  challenger_id: string
-  challenger_username: string
-  challenger_rating: number
-  target_id: string | null
-  target_username: string
-  status: string
-  created_at: number
-  expires_at: number
-  game_id: string | null
 }
 
 // Get display name from user: prefer username, fall back to email prefix
@@ -41,12 +25,14 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       return errorResponse(session.error, session.status)
     }
 
+    const db = createDb(DB)
     const now = Date.now()
 
     // Get user info to find challenges by username
-    const user = await DB.prepare(`SELECT id, email, username FROM users WHERE id = ?`)
-      .bind(session.userId)
-      .first<UserRow>()
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, session.userId),
+      columns: { id: true, email: true, username: true }
+    })
 
     if (!user) {
       return errorResponse('User not found', 404)
@@ -55,54 +41,57 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     const displayName = getDisplayName(user).toLowerCase()
 
     // Expire old challenges first
-    await DB.prepare(`
-      UPDATE challenges
-      SET status = 'expired'
-      WHERE status = 'pending'
-      AND expires_at < ?
-    `).bind(now).run()
+    await db.update(challenges)
+      .set({ status: 'expired' })
+      .where(
+        and(
+          eq(challenges.status, 'pending'),
+          lt(challenges.expiresAt, now)
+        )
+      )
 
     // Get incoming challenges (where this user is the target)
-    const incoming = await DB.prepare(`
-      SELECT id, challenger_id, challenger_username, challenger_rating,
-             target_id, target_username, status, created_at, expires_at, game_id
-      FROM challenges
-      WHERE (target_id = ? OR LOWER(target_username) = ?)
-      AND status = 'pending'
-      AND expires_at > ?
-      ORDER BY created_at DESC
-      LIMIT 10
-    `)
-      .bind(session.userId, displayName, now)
-      .all<ChallengeRow>()
+    const incoming = await db
+      .select()
+      .from(challenges)
+      .where(
+        and(
+          or(
+            eq(challenges.targetId, session.userId),
+            sql`LOWER(${challenges.targetUsername}) = ${displayName}`
+          ),
+          eq(challenges.status, 'pending'),
+          gt(challenges.expiresAt, now)
+        )
+      )
+      .orderBy(desc(challenges.createdAt))
+      .limit(10)
 
     // Also check if any of our outgoing challenges were matched
-    const matched = await DB.prepare(`
-      SELECT id, target_username, target_rating, game_id
-      FROM challenges
-      WHERE challenger_id = ?
-      AND status = 'accepted'
-      AND game_id IS NOT NULL
-      AND created_at > ?
-      ORDER BY created_at DESC
-      LIMIT 1
-    `)
-      .bind(session.userId, now - 60000) // Check last minute
-      .first<ChallengeRow>()
+    const matched = await db.query.challenges.findFirst({
+      where: and(
+        eq(challenges.challengerId, session.userId),
+        eq(challenges.status, 'accepted'),
+        sql`${challenges.gameId} IS NOT NULL`,
+        gt(challenges.createdAt, now - 60000)
+      ),
+      columns: { id: true, targetUsername: true, targetRating: true, gameId: true },
+      orderBy: desc(challenges.createdAt)
+    })
 
     return jsonResponse({
-      incoming: incoming.results.map((c) => ({
+      incoming: incoming.map((c) => ({
         id: c.id,
-        challengerUsername: c.challenger_username,
-        challengerRating: c.challenger_rating,
-        createdAt: c.created_at,
-        expiresAt: c.expires_at,
+        challengerUsername: c.challengerUsername,
+        challengerRating: c.challengerRating,
+        createdAt: c.createdAt,
+        expiresAt: c.expiresAt,
       })),
       matchedGame: matched
         ? {
-            gameId: matched.game_id,
-            opponentUsername: matched.target_username,
-            opponentRating: matched.target_rating,
+            gameId: matched.gameId,
+            opponentUsername: matched.targetUsername,
+            opponentRating: matched.targetRating,
           }
         : null,
     })

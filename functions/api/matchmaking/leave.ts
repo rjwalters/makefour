@@ -3,6 +3,9 @@
  */
 
 import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
+import { createDb } from '../../../shared/db/client'
+import { matchmakingQueue } from '../../../shared/db/schema'
+import { eq } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -17,12 +20,13 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse(session.error, session.status)
     }
 
-    // Remove user from queue
-    const result = await DB.prepare(`
-      DELETE FROM matchmaking_queue WHERE user_id = ?
-    `).bind(session.userId).run()
+    const db = createDb(DB)
 
-    if (result.meta.changes === 0) {
+    // Remove user from queue
+    const result = await db.delete(matchmakingQueue)
+      .where(eq(matchmakingQueue.userId, session.userId))
+
+    if (result.rowsAffected === 0) {
       return errorResponse('Not in matchmaking queue', 404)
     }
 

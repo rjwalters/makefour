@@ -2,6 +2,10 @@
  * Authentication helpers for Cloudflare Workers
  */
 
+import { createDb } from '../../shared/db/client'
+import { sessionTokens } from '../../shared/db/schema'
+import { eq, lt } from 'drizzle-orm'
+
 interface SessionValidationResult {
   valid: true
   userId: string
@@ -24,6 +28,8 @@ export async function validateSession(
   request: Request,
   db: D1Database
 ): Promise<SessionResult> {
+  const drizzleDb = createDb(db)
+
   // Get session token from Authorization header
   const authHeader = request.headers.get('Authorization')
   const sessionToken = authHeader?.replace('Bearer ', '')
@@ -37,10 +43,9 @@ export async function validateSession(
   }
 
   // Find session token
-  const session = await db
-    .prepare('SELECT * FROM session_tokens WHERE id = ?')
-    .bind(sessionToken)
-    .first<{ id: string; user_id: string; expires_at: number }>()
+  const session = await drizzleDb.query.sessionTokens.findFirst({
+    where: eq(sessionTokens.id, sessionToken),
+  })
 
   if (!session) {
     return {
@@ -51,9 +56,10 @@ export async function validateSession(
   }
 
   // Check if expired
-  if (session.expires_at < Date.now()) {
+  if (session.expiresAt < Date.now()) {
     // Delete expired token
-    await db.prepare('DELETE FROM session_tokens WHERE id = ?').bind(sessionToken).run()
+    await drizzleDb.delete(sessionTokens)
+      .where(eq(sessionTokens.id, sessionToken))
     return {
       valid: false,
       error: 'Session expired',
@@ -63,7 +69,7 @@ export async function validateSession(
 
   return {
     valid: true,
-    userId: session.user_id,
+    userId: session.userId,
     sessionId: session.id,
   }
 }

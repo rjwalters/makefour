@@ -3,25 +3,14 @@ import * as bcrypt from 'bcryptjs'
 import { validateResetPasswordRequest, formatZodError } from '../../lib/schemas'
 import { errorResponse, jsonResponse } from '../../lib/auth'
 import { generateDEK, encryptDEK } from '../../lib/crypto'
+import { createDb } from '../../../shared/db/client'
+import { users, passwordResetTokens, sessionTokens } from '../../../shared/db/schema'
+import { eq, and } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
 }
 
-interface TokenRow {
-  id: string
-  user_id: string
-  expires_at: number
-  used: number
-  created_at: number
-}
-
-interface UserRow {
-  id: string
-  email: string
-  password_hash: string | null
-  oauth_provider: string | null
-}
 
 /**
  * POST /api/auth/reset-password
@@ -34,6 +23,7 @@ interface UserRow {
  */
 export async function onRequestPost(context: EventContext<Env, any, any>) {
   const { DB } = context.env
+  const db = createDb(DB)
 
   try {
     // Parse and validate request body
@@ -60,9 +50,9 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     const { token, new_password } = validatedData
 
     // Find the reset token
-    const resetToken = await DB.prepare(
-      'SELECT * FROM password_reset_tokens WHERE id = ?'
-    ).bind(token).first<TokenRow>()
+    const resetToken = await db.query.passwordResetTokens.findFirst({
+      where: eq(passwordResetTokens.id, token),
+    })
 
     if (!resetToken) {
       return errorResponse('Invalid or expired reset link', 400)
@@ -74,25 +64,31 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     // Check if token has expired
-    if (resetToken.expires_at < Date.now()) {
+    if (resetToken.expiresAt < Date.now()) {
       // Clean up expired token
-      await DB.prepare('DELETE FROM password_reset_tokens WHERE id = ?').bind(token).run()
+      await db.delete(passwordResetTokens).where(eq(passwordResetTokens.id, token))
       return errorResponse('This reset link has expired', 400)
     }
 
     // Get the user
-    const user = await DB.prepare(
-      'SELECT id, email, password_hash, oauth_provider FROM users WHERE id = ?'
-    ).bind(resetToken.user_id).first<UserRow>()
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, resetToken.userId),
+      columns: {
+        id: true,
+        email: true,
+        passwordHash: true,
+        oauthProvider: true,
+      },
+    })
 
     if (!user) {
       // User was deleted after requesting reset
-      await DB.prepare('DELETE FROM password_reset_tokens WHERE id = ?').bind(token).run()
+      await db.delete(passwordResetTokens).where(eq(passwordResetTokens.id, token))
       return errorResponse('Account not found', 404)
     }
 
     // Prevent OAuth-only users from setting a password this way
-    if (user.oauth_provider && !user.password_hash) {
+    if (user.oauthProvider && !user.passwordHash) {
       return errorResponse(
         'Cannot set password for OAuth accounts. Please manage your password through your OAuth provider.',
         400
@@ -111,25 +107,30 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     // Update user's password and DEK in a transaction
     // D1 doesn't support true transactions, so we'll do this in sequence
-    await DB.prepare(
-      'UPDATE users SET password_hash = ?, encrypted_dek = ?, updated_at = ? WHERE id = ?'
-    ).bind(newPasswordHash, encryptedDEK, now, user.id).run()
+    await db.update(users)
+      .set({
+        passwordHash: newPasswordHash,
+        encryptedDek: encryptedDEK,
+        updatedAt: now,
+      })
+      .where(eq(users.id, user.id))
 
     // Mark token as used
-    await DB.prepare(
-      'UPDATE password_reset_tokens SET used = 1 WHERE id = ?'
-    ).bind(token).run()
+    await db.update(passwordResetTokens)
+      .set({ used: 1 })
+      .where(eq(passwordResetTokens.id, token))
 
     // Invalidate ALL existing sessions for security
     // This forces the user to log in with their new password
-    await DB.prepare(
-      'DELETE FROM session_tokens WHERE user_id = ?'
-    ).bind(user.id).run()
+    await db.delete(sessionTokens)
+      .where(eq(sessionTokens.userId, user.id))
 
     // Clean up any other unused reset tokens for this user
-    await DB.prepare(
-      'DELETE FROM password_reset_tokens WHERE user_id = ? AND used = 0'
-    ).bind(user.id).run()
+    await db.delete(passwordResetTokens)
+      .where(and(
+        eq(passwordResetTokens.userId, user.id),
+        eq(passwordResetTokens.used, 0)
+      ))
 
     return jsonResponse({
       message: 'Password reset successfully. Please log in with your new password.',

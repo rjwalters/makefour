@@ -7,6 +7,9 @@
 import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
 import { z } from 'zod'
 import type { EngineType } from '../../lib/ai-engine'
+import { createDb } from '../../../shared/db/client'
+import { users, activeGames, botPersonas } from '../../../shared/db/schema'
+import { eq, and, or } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -93,15 +96,19 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     let botUserId: string
     let effectiveDifficulty: string | null = difficulty || null
 
+    const db = createDb(DB)
+
     if (personaId) {
       // Look up the persona
-      const persona = await DB.prepare(`
-        SELECT id, name, current_elo, ai_config
-        FROM bot_personas
-        WHERE id = ? AND is_active = 1
-      `)
-        .bind(personaId)
-        .first<BotPersonaRow>()
+      const persona = await db.query.botPersonas.findFirst({
+        where: and(eq(botPersonas.id, personaId), eq(botPersonas.isActive, 1)),
+        columns: {
+          id: true,
+          name: true,
+          currentElo: true,
+          aiConfig: true,
+        },
+      })
 
       if (!persona) {
         return errorResponse('Bot persona not found', 404)
@@ -111,14 +118,15 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       botUserId = getBotUserId(persona.id)
 
       // Get the bot's current rating from users table
-      const botUser = await DB.prepare(`
-        SELECT rating FROM users WHERE id = ? AND is_bot = 1
-      `)
-        .bind(botUserId)
-        .first<{ rating: number }>()
+      const botUser = await db.query.users.findFirst({
+        where: and(eq(users.id, botUserId), eq(users.isBot, 1)),
+        columns: {
+          rating: true,
+        },
+      })
 
       // Use bot user's rating if exists, otherwise fall back to persona's current_elo
-      botRating = botUser?.rating ?? persona.current_elo
+      botRating = botUser?.rating ?? persona.currentElo
 
       // Map persona to difficulty based on rating for backward compatibility
       if (botRating < 900) effectiveDifficulty = 'beginner'
@@ -131,11 +139,12 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       if (botPersonaId) {
         botUserId = getBotUserId(botPersonaId)
         // Try to get rating from bot user, fall back to legacy rating
-        const botUser = await DB.prepare(`
-          SELECT rating FROM users WHERE id = ? AND is_bot = 1
-        `)
-          .bind(botUserId)
-          .first<{ rating: number }>()
+        const botUser = await db.query.users.findFirst({
+          where: and(eq(users.id, botUserId), eq(users.isBot, 1)),
+          columns: {
+            rating: true,
+          },
+        })
         botRating = botUser?.rating ?? BOT_RATINGS[difficulty]
       } else {
         // Fallback if no persona mapping exists
@@ -147,24 +156,27 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     // Check if user already has an active game
-    const existingGame = await DB.prepare(`
-      SELECT id FROM active_games
-      WHERE (player1_id = ? OR player2_id = ?)
-      AND status = 'active'
-    `)
-      .bind(session.userId, session.userId)
-      .first()
+    const existingGame = await db.query.activeGames.findFirst({
+      where: and(
+        or(eq(activeGames.player1Id, session.userId), eq(activeGames.player2Id, session.userId)),
+        eq(activeGames.status, 'active')
+      ),
+      columns: {
+        id: true,
+      },
+    })
 
     if (existingGame) {
       return errorResponse('You already have an active game', 400)
     }
 
     // Get user's current rating
-    const user = await DB.prepare(`
-      SELECT rating FROM users WHERE id = ?
-    `)
-      .bind(session.userId)
-      .first<{ rating: number }>()
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, session.userId),
+      columns: {
+        rating: true,
+      },
+    })
 
     if (!user) {
       return errorResponse('User not found', 404)
@@ -183,30 +195,29 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     const botPlayer = playerColor === 1 ? 2 : 1
 
     // Create the game
-    await DB.prepare(`
-      INSERT INTO active_games (
-        id, player1_id, player2_id, moves, current_turn, status, mode,
-        player1_rating, player2_rating, spectatable, spectator_count,
-        last_move_at, time_control_ms, player1_time_ms, player2_time_ms,
-        turn_started_at, is_bot_game, bot_difficulty, bot_persona_id, created_at, updated_at
-      )
-      VALUES (?, ?, ?, '[]', 1, 'active', 'ranked', ?, ?, 0, 0, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
-    `).bind(
-      gameId,
+    await db.insert(activeGames).values({
+      id: gameId,
       player1Id,
       player2Id,
+      moves: '[]',
+      currentTurn: 1,
+      status: 'active',
+      mode: 'ranked',
       player1Rating,
       player2Rating,
-      now,
-      DEFAULT_TIME_CONTROL_MS,
-      DEFAULT_TIME_CONTROL_MS,
-      DEFAULT_TIME_CONTROL_MS,
-      now, // turn_started_at
-      effectiveDifficulty,
-      botPersonaId,
-      now,
-      now
-    ).run()
+      spectatable: 0,
+      spectatorCount: 0,
+      lastMoveAt: now,
+      timeControlMs: DEFAULT_TIME_CONTROL_MS,
+      player1TimeMs: DEFAULT_TIME_CONTROL_MS,
+      player2TimeMs: DEFAULT_TIME_CONTROL_MS,
+      turnStartedAt: now,
+      isBotGame: 1,
+      botDifficulty: effectiveDifficulty,
+      bot1PersonaId: botPersonaId,
+      createdAt: now,
+      updatedAt: now,
+    })
 
     // If bot goes first (player is yellow), make bot's first move
     if (botPlayer === 1) {
@@ -226,19 +237,16 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       // Update game with bot's first move
       const newPlayer1Time = DEFAULT_TIME_CONTROL_MS - elapsedMs
 
-      await DB.prepare(`
-        UPDATE active_games
-        SET moves = ?, current_turn = 2, last_move_at = ?,
-            player1_time_ms = ?, turn_started_at = ?, updated_at = ?
-        WHERE id = ?
-      `).bind(
-        JSON.stringify([moveResult.column]),
-        now,
-        newPlayer1Time,
-        now,
-        now,
-        gameId
-      ).run()
+      await db.update(activeGames)
+        .set({
+          moves: JSON.stringify([moveResult.column]),
+          currentTurn: 2,
+          lastMoveAt: now,
+          player1TimeMs: newPlayer1Time,
+          turnStartedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(activeGames.id, gameId))
 
       return jsonResponse({
         gameId,

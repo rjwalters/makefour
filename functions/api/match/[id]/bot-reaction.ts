@@ -11,6 +11,9 @@
 import { validateSession, errorResponse, jsonResponse } from '../../../lib/auth'
 import type { ChatPersonality, ReactionType } from '../../../lib/botPersonas'
 import { getRandomReaction, shouldBotSpeak } from '../../../lib/botPersonas'
+import { createDb } from '../../../../shared/db/client'
+import { activeGames, gameMessages, botPersonas } from '../../../../shared/db/schema'
+import { eq, and, count } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -49,6 +52,7 @@ type Player = 1 | 2
  */
 export async function onRequestPost(context: EventContext<Env, any, any>) {
   const { DB, AI } = context.env
+  const db = createDb(DB)
   const gameId = context.params.id as string
 
   try {
@@ -58,26 +62,33 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     // Get the game
-    const game = await DB.prepare(`
-      SELECT id, player1_id, player2_id, moves, current_turn, status, winner,
-             is_bot_game, bot_difficulty, bot_persona_id
-      FROM active_games
-      WHERE id = ?
-    `)
-      .bind(gameId)
-      .first<ActiveGameRow>()
+    const game = await db.query.activeGames.findFirst({
+      where: eq(activeGames.id, gameId),
+      columns: {
+        id: true,
+        player1Id: true,
+        player2Id: true,
+        moves: true,
+        currentTurn: true,
+        status: true,
+        winner: true,
+        isBotGame: true,
+        botDifficulty: true,
+        botPersonaId: true,
+      },
+    })
 
     if (!game) {
       return errorResponse('Game not found', 404)
     }
 
     // Verify this is a bot game
-    if (game.is_bot_game !== 1) {
+    if (game.isBotGame !== 1) {
       return jsonResponse({ message: null, reason: 'not_bot_game' })
     }
 
     // Verify user is the player (not the bot)
-    if (game.player1_id !== session.userId) {
+    if (game.player1Id !== session.userId) {
       return errorResponse('You are not the player in this game', 403)
     }
 
@@ -96,18 +107,19 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     // Load bot persona personality if available
     let personality: ChatPersonality | null = null
-    if (game.bot_persona_id) {
-      const persona = await DB.prepare(`
-        SELECT id, name, chat_personality
-        FROM bot_personas
-        WHERE id = ?
-      `)
-        .bind(game.bot_persona_id)
-        .first<BotPersonaRow>()
+    if (game.botPersonaId) {
+      const persona = await db.query.botPersonas.findFirst({
+        where: eq(botPersonas.id, game.botPersonaId),
+        columns: {
+          id: true,
+          name: true,
+          chatPersonality: true,
+        },
+      })
 
       if (persona) {
         try {
-          personality = JSON.parse(persona.chat_personality) as ChatPersonality
+          personality = JSON.parse(persona.chatPersonality) as ChatPersonality
         } catch {
           // Fall back to default personality
         }
@@ -139,7 +151,20 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     // Fall back to LLM if no canned response
     if (!botMessage) {
-      botMessage = await generateReactionMessage(AI, context_analysis, game, personality)
+      // Convert to ActiveGameRow format for compatibility
+      const gameRow: ActiveGameRow = {
+        id: game.id,
+        player1_id: game.player1Id,
+        player2_id: game.player2Id,
+        moves: game.moves,
+        current_turn: game.currentTurn,
+        status: game.status,
+        winner: game.winner,
+        is_bot_game: game.isBotGame,
+        bot_difficulty: game.botDifficulty,
+        bot_persona_id: game.botPersonaId,
+      }
+      botMessage = await generateReactionMessage(AI, context_analysis, gameRow, personality)
     }
 
     if (!botMessage) {
@@ -150,10 +175,14 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     const messageId = crypto.randomUUID()
     const now = Date.now()
 
-    await DB.prepare(`
-      INSERT INTO game_messages (id, game_id, sender_id, sender_type, content, created_at)
-      VALUES (?, ?, 'bot', 'bot', ?, ?)
-    `).bind(messageId, gameId, botMessage, now).run()
+    await db.insert(gameMessages).values({
+      id: messageId,
+      gameId,
+      senderId: 'bot',
+      senderType: 'bot',
+      content: botMessage,
+      createdAt: now,
+    })
 
     return jsonResponse({
       message: botMessage,
@@ -494,12 +523,13 @@ async function shouldCommentWithPersonality(
   personality: ChatPersonality | null
 ): Promise<{ shouldComment: boolean; reason: string }> {
   // Query database for bot reaction message count
-  const messageCountResult = await DB.prepare(`
-    SELECT COUNT(*) as count FROM game_messages
-    WHERE game_id = ? AND sender_type = 'bot'
-  `).bind(gameId).first<{ count: number }>()
+  const db = createDb(DB)
+  const messageCountResult = await db
+    .select({ count: count() })
+    .from(gameMessages)
+    .where(and(eq(gameMessages.gameId, gameId), eq(gameMessages.senderType, 'bot')))
 
-  const botMessageCount = messageCountResult?.count ?? 0
+  const botMessageCount = messageCountResult[0]?.count ?? 0
 
   // Get chattiness from persona (default 0.5)
   const chattiness = personality?.chattiness ?? 0.5

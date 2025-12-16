@@ -8,6 +8,9 @@ import { z } from 'zod'
 import { validateVerificationToken, markEmailVerified } from '../../lib/email'
 import { errorResponse, jsonResponse } from '../../lib/auth'
 import { formatZodError } from '../../lib/schemas'
+import { createDb } from '../../../shared/db/client'
+import { users } from '../../../shared/db/schema'
+import { eq } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -43,23 +46,23 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     await markEmailVerified(DB, result.userId)
 
     // Get user info for response
-    const user = await DB.prepare(`
-      SELECT id, email, email_verified, rating, games_played, wins, losses, draws,
-             created_at, last_login, updated_at
-      FROM users WHERE id = ?
-    `).bind(result.userId).first<{
-      id: string
-      email: string
-      email_verified: number
-      rating: number
-      games_played: number
-      wins: number
-      losses: number
-      draws: number
-      created_at: number
-      last_login: number
-      updated_at: number
-    }>()
+    const db = createDb(DB)
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, result.userId),
+      columns: {
+        id: true,
+        email: true,
+        emailVerified: true,
+        rating: true,
+        gamesPlayed: true,
+        wins: true,
+        losses: true,
+        draws: true,
+        createdAt: true,
+        lastLogin: true,
+        updatedAt: true,
+      },
+    })
 
     if (!user) {
       return errorResponse('User not found', 404)
@@ -71,15 +74,15 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       user: {
         id: user.id,
         email: user.email,
-        email_verified: user.email_verified === 1,
+        email_verified: user.emailVerified === 1,
         rating: user.rating,
-        gamesPlayed: user.games_played,
+        gamesPlayed: user.gamesPlayed,
         wins: user.wins,
         losses: user.losses,
         draws: user.draws,
-        createdAt: user.created_at,
-        lastLogin: user.last_login,
-        updatedAt: user.updated_at,
+        createdAt: user.createdAt,
+        lastLogin: user.lastLogin,
+        updatedAt: user.updatedAt,
       },
     })
   } catch (error) {

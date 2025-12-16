@@ -11,6 +11,9 @@ import {
   deleteUnusedTokens,
   isEmailVerified,
 } from '../../lib/email'
+import { createDb } from '../../../shared/db/client'
+import { users } from '../../../shared/db/schema'
+import { eq } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -65,9 +68,11 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     // Get user email
-    const user = await DB.prepare(`
-      SELECT email FROM users WHERE id = ?
-    `).bind(session.userId).first<{ email: string }>()
+    const db = createDb(DB)
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, session.userId),
+      columns: { email: true },
+    })
 
     if (!user) {
       return errorResponse('User not found', 404)

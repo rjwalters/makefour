@@ -5,6 +5,9 @@
  */
 
 import { validateSession, errorResponse, jsonResponse } from '../../../../lib/auth'
+import { createDb } from '../../../../../shared/db/client'
+import { playerBotStats, botPersonas } from '../../../../../shared/db/schema'
+import { eq, and } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -33,6 +36,7 @@ interface BotPersonaRow {
  */
 export async function onRequestGet(context: EventContext<Env, any, any>) {
   const { DB } = context.env
+  const db = createDb(DB)
   const botId = context.params.botId as string
 
   try {
@@ -42,26 +46,31 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     }
 
     // Get bot info
-    const bot = await DB.prepare(`
-      SELECT id, name, play_style, current_elo, description
-      FROM bot_personas
-      WHERE id = ? AND is_active = 1
-    `)
-      .bind(botId)
-      .first<BotPersonaRow>()
+    const bot = await db.query.botPersonas.findFirst({
+      where: and(
+        eq(botPersonas.id, botId),
+        eq(botPersonas.isActive, 1)
+      ),
+      columns: {
+        id: true,
+        name: true,
+        playStyle: true,
+        currentElo: true,
+        description: true,
+      },
+    })
 
     if (!bot) {
       return errorResponse('Bot not found', 404)
     }
 
     // Get stats for this user against this bot
-    const stats = await DB.prepare(`
-      SELECT wins, losses, draws, current_streak, best_win_streak, first_win_at, last_played_at
-      FROM player_bot_stats
-      WHERE user_id = ? AND bot_persona_id = ?
-    `)
-      .bind(session.userId, botId)
-      .first<PlayerBotStatsRow>()
+    const stats = await db.query.playerBotStats.findFirst({
+      where: and(
+        eq(playerBotStats.userId, session.userId),
+        eq(playerBotStats.botPersonaId, botId)
+      ),
+    })
 
     // If no stats exist, return default values
     const wins = stats?.wins ?? 0
@@ -73,18 +82,18 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     return jsonResponse({
       botId: bot.id,
       botName: bot.name,
-      botPlayStyle: bot.play_style,
-      botRating: bot.current_elo,
+      botPlayStyle: bot.playStyle,
+      botRating: bot.currentElo,
       botDescription: bot.description,
       wins,
       losses,
       draws,
       totalGames,
       winRate: Math.round(winRate * 10) / 10,
-      currentStreak: stats?.current_streak ?? 0,
-      bestWinStreak: stats?.best_win_streak ?? 0,
-      firstWinAt: stats?.first_win_at ?? null,
-      lastPlayedAt: stats?.last_played_at ?? null,
+      currentStreak: stats?.currentStreak ?? 0,
+      bestWinStreak: stats?.bestWinStreak ?? 0,
+      firstWinAt: stats?.firstWinAt ?? null,
+      lastPlayedAt: stats?.lastPlayedAt ?? null,
       hasPositiveRecord: wins > losses,
       isUndefeated: losses === 0 && wins > 0,
       isMastered: wins >= 10 && winRate > 60,

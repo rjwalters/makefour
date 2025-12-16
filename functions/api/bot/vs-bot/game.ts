@@ -8,6 +8,9 @@
 import { jsonResponse } from '../../../lib/auth'
 import { z } from 'zod'
 import { DEFAULT_BOT_PERSONAS } from '../../../lib/botPersonas'
+import { createDb } from '../../../../shared/db/client'
+import { users, activeGames, botPersonas } from '../../../../shared/db/schema'
+import { eq, and, sql } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -60,6 +63,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
   const { DB } = context.env
 
   try {
+    const db = createDb(DB)
     const body = await context.request.json()
     const parseResult = createGameSchema.safeParse(body)
 
@@ -71,20 +75,26 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     // Validate personas exist
     const [persona1, persona2] = await Promise.all([
-      DB.prepare(`
-        SELECT id, name, current_elo, ai_engine, ai_config
-        FROM bot_personas
-        WHERE id = ? AND is_active = 1
-      `)
-        .bind(bot1PersonaId)
-        .first<BotPersonaRow>(),
-      DB.prepare(`
-        SELECT id, name, current_elo, ai_engine, ai_config
-        FROM bot_personas
-        WHERE id = ? AND is_active = 1
-      `)
-        .bind(bot2PersonaId)
-        .first<BotPersonaRow>(),
+      db.query.botPersonas.findFirst({
+        where: and(eq(botPersonas.id, bot1PersonaId), eq(botPersonas.isActive, 1)),
+        columns: {
+          id: true,
+          name: true,
+          currentElo: true,
+          aiEngine: true,
+          aiConfig: true,
+        },
+      }),
+      db.query.botPersonas.findFirst({
+        where: and(eq(botPersonas.id, bot2PersonaId), eq(botPersonas.isActive, 1)),
+        columns: {
+          id: true,
+          name: true,
+          currentElo: true,
+          aiEngine: true,
+          aiConfig: true,
+        },
+      }),
     ])
 
     if (!persona1) {
@@ -96,11 +106,12 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     // Check concurrent game limit
-    const activeGamesCount = await DB.prepare(`
-      SELECT COUNT(*) as count
-      FROM active_games
-      WHERE is_bot_vs_bot = 1 AND status = 'active'
-    `).first<{ count: number }>()
+    const activeGamesCount = await db.select({
+      count: sql<number>`COUNT(*)`,
+    })
+    .from(activeGames)
+    .where(and(eq(activeGames.isBotVsBot, 1), eq(activeGames.status, 'active')))
+    .then(rows => rows[0])
 
     if ((activeGamesCount?.count ?? 0) >= MAX_CONCURRENT_BOT_GAMES) {
       return jsonResponse(
@@ -115,49 +126,55 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     // Get bot ratings from users table (or fall back to persona)
     const [bot1User, bot2User] = await Promise.all([
-      DB.prepare('SELECT id, rating FROM users WHERE id = ? AND is_bot = 1')
-        .bind(bot1UserId)
-        .first<BotUserRow>(),
-      DB.prepare('SELECT id, rating FROM users WHERE id = ? AND is_bot = 1')
-        .bind(bot2UserId)
-        .first<BotUserRow>(),
+      db.query.users.findFirst({
+        where: and(eq(users.id, bot1UserId), eq(users.isBot, 1)),
+        columns: {
+          id: true,
+          rating: true,
+        },
+      }),
+      db.query.users.findFirst({
+        where: and(eq(users.id, bot2UserId), eq(users.isBot, 1)),
+        columns: {
+          id: true,
+          rating: true,
+        },
+      }),
     ])
 
-    const bot1Rating = bot1User?.rating ?? persona1.current_elo
-    const bot2Rating = bot2User?.rating ?? persona2.current_elo
+    const bot1Rating = bot1User?.rating ?? persona1.currentElo
+    const bot2Rating = bot2User?.rating ?? persona2.currentElo
 
     const now = Date.now()
     const gameId = crypto.randomUUID()
 
     // Create the game
-    await DB.prepare(`
-      INSERT INTO active_games (
-        id, player1_id, player2_id, moves, current_turn, status, mode,
-        player1_rating, player2_rating, spectatable, spectator_count,
-        last_move_at, time_control_ms, player1_time_ms, player2_time_ms,
-        turn_started_at, is_bot_game, is_bot_vs_bot,
-        bot1_persona_id, bot2_persona_id, move_delay_ms, next_move_at,
-        created_at, updated_at
-      )
-      VALUES (?, ?, ?, '[]', 1, 'active', 'ranked', ?, ?, 1, 0, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      gameId,
-      bot1UserId,
-      bot2UserId,
-      bot1Rating,
-      bot2Rating,
-      now,
+    await db.insert(activeGames).values({
+      id: gameId,
+      player1Id: bot1UserId,
+      player2Id: bot2UserId,
+      moves: '[]',
+      currentTurn: 1,
+      status: 'active',
+      mode: 'ranked',
+      player1Rating: bot1Rating,
+      player2Rating: bot2Rating,
+      spectatable: 1,
+      spectatorCount: 0,
+      lastMoveAt: now,
       timeControlMs,
-      timeControlMs,
-      timeControlMs,
-      now, // turn_started_at
+      player1TimeMs: timeControlMs,
+      player2TimeMs: timeControlMs,
+      turnStartedAt: now,
+      isBotGame: 1,
+      isBotVsBot: 1,
       bot1PersonaId,
       bot2PersonaId,
       moveDelayMs,
-      now + moveDelayMs, // next_move_at - first move after delay
-      now,
-      now
-    ).run()
+      nextMoveAt: now + moveDelayMs,
+      createdAt: now,
+      updatedAt: now,
+    })
 
     return jsonResponse({
       gameId,
@@ -198,78 +215,74 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
   const status = url.searchParams.get('status') || 'active'
 
   try {
-    let whereClause = 'ag.is_bot_vs_bot = 1'
-    const params: (string | number)[] = []
+    const db = createDb(DB)
 
+    const whereConditions = [eq(activeGames.isBotVsBot, 1)]
     if (status !== 'all') {
-      whereClause += ' AND ag.status = ?'
-      params.push(status)
+      whereConditions.push(eq(activeGames.status, status))
     }
 
     // Get total count
-    const countResult = await DB.prepare(`
-      SELECT COUNT(*) as total
-      FROM active_games ag
-      WHERE ${whereClause}
-    `)
-      .bind(...params)
-      .first<{ total: number }>()
+    const countResult = await db.select({
+      total: sql<number>`COUNT(*)`,
+    })
+    .from(activeGames)
+    .where(and(...whereConditions))
+    .then(rows => rows[0])
 
     const total = countResult?.total ?? 0
 
-    // Get games with persona info
-    const games = await DB.prepare(`
-      SELECT
-        ag.id,
-        ag.player1_id,
-        ag.player2_id,
-        ag.moves,
-        ag.current_turn,
-        ag.status,
-        ag.winner,
-        ag.player1_rating,
-        ag.player2_rating,
-        ag.spectator_count,
-        ag.move_delay_ms,
-        ag.next_move_at,
-        ag.created_at,
-        ag.updated_at,
-        ag.bot1_persona_id,
-        ag.bot2_persona_id,
-        bp1.name as bot1_name,
-        bp2.name as bot2_name
-      FROM active_games ag
-      LEFT JOIN bot_personas bp1 ON ag.bot1_persona_id = bp1.id
-      LEFT JOIN bot_personas bp2 ON ag.bot2_persona_id = bp2.id
-      WHERE ${whereClause}
-      ORDER BY ag.spectator_count DESC, ag.updated_at DESC
-      LIMIT ? OFFSET ?
-    `)
-      .bind(...params, limit, offset)
-      .all()
+    // Get games with persona info using a join
+    const gamesData = await db.select({
+      id: activeGames.id,
+      player1Id: activeGames.player1Id,
+      player2Id: activeGames.player2Id,
+      moves: activeGames.moves,
+      currentTurn: activeGames.currentTurn,
+      status: activeGames.status,
+      winner: activeGames.winner,
+      player1Rating: activeGames.player1Rating,
+      player2Rating: activeGames.player2Rating,
+      spectatorCount: activeGames.spectatorCount,
+      moveDelayMs: activeGames.moveDelayMs,
+      nextMoveAt: activeGames.nextMoveAt,
+      createdAt: activeGames.createdAt,
+      updatedAt: activeGames.updatedAt,
+      bot1PersonaId: activeGames.bot1PersonaId,
+      bot2PersonaId: activeGames.bot2PersonaId,
+      bot1Name: sql<string>`bp1.name`,
+      bot2Name: sql<string>`bp2.name`,
+    })
+    .from(activeGames)
+    .leftJoin(sql`bot_personas bp1`, sql`${activeGames.bot1PersonaId} = bp1.id`)
+    .leftJoin(sql`bot_personas bp2`, sql`${activeGames.bot2PersonaId} = bp2.id`)
+    .where(and(...whereConditions))
+    .orderBy(sql`${activeGames.spectatorCount} DESC, ${activeGames.updatedAt} DESC`)
+    .limit(limit)
+    .offset(offset)
 
-    const botGames = games.results.map((game: any) => {
+    const botGames = gamesData.map((game) => {
       const moves = JSON.parse(game.moves) as number[]
       return {
         id: game.id,
         bot1: {
-          personaId: game.bot1_persona_id,
-          name: game.bot1_name || 'Bot 1',
-          rating: game.player1_rating,
+          personaId: game.bot1PersonaId,
+          name: game.bot1Name || 'Bot 1',
+          rating: game.player1Rating,
         },
         bot2: {
-          personaId: game.bot2_persona_id,
-          name: game.bot2_name || 'Bot 2',
-          rating: game.player2_rating,
+          personaId: game.bot2PersonaId,
+          name: game.bot2Name || 'Bot 2',
+          rating: game.player2Rating,
         },
         moveCount: moves.length,
-        currentTurn: game.current_turn,
+        currentTurn: game.currentTurn,
         status: game.status,
         winner: game.winner,
-        spectatorCount: game.spectator_count,
-        nextMoveAt: game.next_move_at,
-        createdAt: game.created_at,
-        updatedAt: game.updated_at,
+        spectatorCount: game.spectatorCount,
+        nextMoveAt: game.nextMoveAt,
+        createdAt: game.createdAt,
+        updatedAt: game.updatedAt,
       }
     })
 

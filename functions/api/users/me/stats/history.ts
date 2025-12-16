@@ -1,3 +1,6 @@
+import { eq, and, gte, lte, asc } from 'drizzle-orm'
+import { createDb } from '../../../../../shared/db/client'
+import { games } from '../../../../../shared/db/schema'
 import { validateSession, errorResponse, jsonResponse } from '../../../../lib/auth'
 
 interface Env {
@@ -49,6 +52,7 @@ interface RecentGame {
 
 export async function onRequestGet(context: EventContext<Env, any, any>) {
   const { DB } = context.env
+  const db = createDb(DB)
 
   try {
     const session = await validateSession(context.request, DB)
@@ -70,16 +74,27 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     const endDate = endDateParam ? Number.parseInt(endDateParam, 10) : now
 
     // Get games within date range
-    const gamesResult = await DB.prepare(
-      `SELECT id, outcome, player_number, opponent_type, ai_difficulty, move_count, moves, rating_change, created_at
-       FROM games
-       WHERE user_id = ? AND created_at >= ? AND created_at <= ?
-       ORDER BY created_at ASC`
-    )
-      .bind(userId, startDate, endDate)
-      .all<GameRow>()
-
-    const games = gamesResult.results || []
+    const userGames = await db
+      .select({
+        id: games.id,
+        outcome: games.outcome,
+        player_number: games.playerNumber,
+        opponent_type: games.opponentType,
+        ai_difficulty: games.aiDifficulty,
+        move_count: games.moveCount,
+        moves: games.moves,
+        rating_change: games.ratingChange,
+        created_at: games.createdAt,
+      })
+      .from(games)
+      .where(
+        and(
+          eq(games.userId, userId),
+          gte(games.createdAt, startDate),
+          lte(games.createdAt, endDate)
+        )
+      )
+      .orderBy(asc(games.createdAt))
 
     // Calculate daily aggregated stats
     const dailyMap = new Map<string, DailyStats>()
@@ -97,7 +112,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     let player2Wins = 0
     let player2Games = 0
 
-    for (const game of games) {
+    for (const game of userGames) {
       // Daily aggregation
       const date = new Date(game.created_at).toISOString().split('T')[0]
       const existing = dailyMap.get(date) || {
@@ -193,7 +208,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     openingStats.sort((a, b) => b.games - a.games)
 
     // Recent games (last 10)
-    const recentGames: RecentGame[] = games.slice(-10).reverse().map((game) => {
+    const recentGames: RecentGame[] = userGames.slice(-10).reverse().map((game) => {
       let firstMove: number | null = null
       try {
         const moves = JSON.parse(game.moves) as number[]
@@ -218,7 +233,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 
     // Calculate weekly aggregation
     const weeklyMap = new Map<string, { games: number; wins: number; losses: number; draws: number }>()
-    for (const game of games) {
+    for (const game of userGames) {
       const date = new Date(game.created_at)
       // Get ISO week number
       const startOfYear = new Date(date.getFullYear(), 0, 1)
@@ -243,10 +258,10 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
         end: endDate,
       },
       summary: {
-        totalGames: games.length,
-        wins: games.filter((g) => g.outcome === 'win').length,
-        losses: games.filter((g) => g.outcome === 'loss').length,
-        draws: games.filter((g) => g.outcome === 'draw').length,
+        totalGames: userGames.length,
+        wins: userGames.filter((g) => g.outcome === 'win').length,
+        losses: userGames.filter((g) => g.outcome === 'loss').length,
+        draws: userGames.filter((g) => g.outcome === 'draw').length,
         avgMovesToWin: winCount > 0 ? Math.round((totalWinMoves / winCount) * 10) / 10 : 0,
         avgMovesToLoss: lossCount > 0 ? Math.round((totalLossMoves / lossCount) * 10) / 10 : 0,
         player1WinRate: player1Games > 0 ? Math.round((player1Wins / player1Games) * 1000) / 10 : 0,

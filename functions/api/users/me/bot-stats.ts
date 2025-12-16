@@ -5,6 +5,9 @@
  */
 
 import { validateSession, errorResponse, jsonResponse } from '../../../lib/auth'
+import { createDb } from '../../../../shared/db/client'
+import { playerBotStats, botPersonas } from '../../../../shared/db/schema'
+import { eq, and, notInArray, sql } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -51,6 +54,7 @@ interface BotStatsResponse {
  */
 export async function onRequestGet(context: EventContext<Env, any, any>) {
   const { DB } = context.env
+  const db = createDb(DB)
 
   try {
     const session = await validateSession(context.request, DB)
@@ -58,72 +62,80 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       return errorResponse(session.error, session.status)
     }
 
-    // Get all bot stats for this user, joined with bot personas for names
-    const stats = await DB.prepare(`
-      SELECT
-        pbs.user_id,
-        pbs.bot_persona_id,
-        pbs.wins,
-        pbs.losses,
-        pbs.draws,
-        pbs.current_streak,
-        pbs.best_win_streak,
-        pbs.first_win_at,
-        pbs.last_played_at,
-        bp.name as bot_name,
-        bp.play_style as bot_play_style,
-        bp.current_elo as bot_current_elo
-      FROM player_bot_stats pbs
-      JOIN bot_personas bp ON pbs.bot_persona_id = bp.id
-      WHERE pbs.user_id = ?
-      ORDER BY pbs.last_played_at DESC
-    `)
-      .bind(session.userId)
-      .all<PlayerBotStatsRow>()
+    // Get all bot stats for this user with bot persona info
+    const stats = await db.query.playerBotStats.findMany({
+      where: eq(playerBotStats.userId, session.userId),
+      with: {
+        botPersona: {
+          columns: {
+            name: true,
+            playStyle: true,
+            currentElo: true,
+          },
+        },
+      },
+      orderBy: (playerBotStats, { desc }) => [desc(playerBotStats.lastPlayedAt)],
+    })
 
     // Transform to response format
-    const botStats: BotStatsResponse[] = stats.results.map((row) => {
+    const botStats: BotStatsResponse[] = stats.map((row) => {
       const totalGames = row.wins + row.losses + row.draws
       const winRate = totalGames > 0 ? (row.wins / totalGames) * 100 : 0
 
       return {
-        botId: row.bot_persona_id,
-        botName: row.bot_name,
-        botPlayStyle: row.bot_play_style,
-        botRating: row.bot_current_elo,
+        botId: row.botPersonaId,
+        botName: row.botPersona.name,
+        botPlayStyle: row.botPersona.playStyle,
+        botRating: row.botPersona.currentElo,
         wins: row.wins,
         losses: row.losses,
         draws: row.draws,
         totalGames,
         winRate: Math.round(winRate * 10) / 10,
-        currentStreak: row.current_streak,
-        bestWinStreak: row.best_win_streak,
-        firstWinAt: row.first_win_at,
-        lastPlayedAt: row.last_played_at,
+        currentStreak: row.currentStreak,
+        bestWinStreak: row.bestWinStreak,
+        firstWinAt: row.firstWinAt,
+        lastPlayedAt: row.lastPlayedAt,
         hasPositiveRecord: row.wins > row.losses,
         isUndefeated: row.losses === 0 && row.wins > 0,
         isMastered: row.wins >= 10 && winRate > 60,
       }
     })
 
-    // Also get list of bots the user has never played
-    const unplayedBots = await DB.prepare(`
-      SELECT bp.id, bp.name, bp.play_style, bp.current_elo
-      FROM bot_personas bp
-      WHERE bp.is_active = 1
-        AND bp.id NOT IN (
-          SELECT bot_persona_id FROM player_bot_stats WHERE user_id = ?
-        )
-      ORDER BY bp.current_elo ASC
-    `)
-      .bind(session.userId)
-      .all<{ id: string; name: string; play_style: string; current_elo: number }>()
+    // Get list of played bot IDs
+    const playedBotIds = stats.map((s) => s.botPersonaId)
 
-    const unplayed = unplayedBots.results.map((bot) => ({
+    // Get list of bots the user has never played
+    const unplayedBotsQuery = playedBotIds.length > 0
+      ? db.select({
+          id: botPersonas.id,
+          name: botPersonas.name,
+          playStyle: botPersonas.playStyle,
+          currentElo: botPersonas.currentElo,
+        })
+        .from(botPersonas)
+        .where(and(
+          eq(botPersonas.isActive, 1),
+          notInArray(botPersonas.id, playedBotIds)
+        ))
+        .orderBy(botPersonas.currentElo)
+      : db.select({
+          id: botPersonas.id,
+          name: botPersonas.name,
+          playStyle: botPersonas.playStyle,
+          currentElo: botPersonas.currentElo,
+        })
+        .from(botPersonas)
+        .where(eq(botPersonas.isActive, 1))
+        .orderBy(botPersonas.currentElo)
+
+    const unplayedBots = await unplayedBotsQuery
+
+    const unplayed = unplayedBots.map((bot) => ({
       botId: bot.id,
       botName: bot.name,
-      botPlayStyle: bot.play_style,
-      botRating: bot.current_elo,
+      botPlayStyle: bot.playStyle,
+      botRating: bot.currentElo,
       wins: 0,
       losses: 0,
       draws: 0,

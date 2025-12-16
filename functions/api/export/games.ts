@@ -5,6 +5,9 @@
  */
 
 import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
+import { createDb } from '../../shared/db/client'
+import { games, users } from '../../shared/db/schema'
+import { eq, and, gte, lte, lt, inArray, desc } from 'drizzle-orm'
 import { z } from 'zod'
 
 interface Env {
@@ -28,21 +31,21 @@ const exportRequestSchema = z.object({
     .optional(),
 })
 
-// Schema for game from database
+// Schema for game from database (Drizzle returns camelCase)
 interface GameRow {
   id: string
-  user_id: string
+  userId: string
   outcome: string
   moves: string
-  move_count: number
-  rating_change: number | null
-  opponent_type: string
-  ai_difficulty: string | null
-  player_number: number
-  created_at: number
+  moveCount: number
+  ratingChange: number | null
+  opponentType: string
+  aiDifficulty: string | null
+  playerNumber: number
+  createdAt: number
 }
 
-// Schema for user from database
+// Schema for user from database (Drizzle returns camelCase)
 interface UserRow {
   id: string
   email: string
@@ -96,12 +99,12 @@ function exportAsJson(
     moves: JSON.parse(game.moves) as number[],
     outcome: game.outcome,
     playerRating: userRating,
-    ratingChange: game.rating_change ?? 0,
-    opponentType: game.opponent_type,
-    aiDifficulty: game.ai_difficulty,
-    playerNumber: game.player_number,
-    moveCount: game.move_count,
-    createdAt: formatIsoDate(game.created_at),
+    ratingChange: game.ratingChange ?? 0,
+    opponentType: game.opponentType,
+    aiDifficulty: game.aiDifficulty,
+    playerNumber: game.playerNumber,
+    moveCount: game.moveCount,
+    createdAt: formatIsoDate(game.createdAt),
   }))
 
   return {
@@ -121,18 +124,18 @@ function exportAsJson(
 function exportAsPgn(games: GameRow[], userRating: number): string {
   const pgnGames = games.map((game) => {
     const moves = JSON.parse(game.moves) as number[]
-    const result = outcomeToPgnResult(game.outcome, game.player_number)
+    const result = outcomeToPgnResult(game.outcome, game.playerNumber)
 
     // Build PGN headers
     const headers = [
       `[Event "MakeFour Game"]`,
       `[Site "MakeFour Online"]`,
-      `[Date "${formatPgnDate(game.created_at)}"]`,
+      `[Date "${formatPgnDate(game.createdAt)}"]`,
       `[Round "-"]`,
-      `[Player1 "${game.player_number === 1 ? 'User' : game.opponent_type === 'ai' ? `AI (${game.ai_difficulty})` : 'Opponent'}"]`,
-      `[Player2 "${game.player_number === 2 ? 'User' : game.opponent_type === 'ai' ? `AI (${game.ai_difficulty})` : 'Opponent'}"]`,
-      `[Player1Rating "${game.player_number === 1 ? userRating : getAiRating(game.ai_difficulty)}"]`,
-      `[Player2Rating "${game.player_number === 2 ? userRating : getAiRating(game.ai_difficulty)}"]`,
+      `[Player1 "${game.playerNumber === 1 ? 'User' : game.opponentType === 'ai' ? `AI (${game.aiDifficulty})` : 'Opponent'}"]`,
+      `[Player2 "${game.playerNumber === 2 ? 'User' : game.opponentType === 'ai' ? `AI (${game.aiDifficulty})` : 'Opponent'}"]`,
+      `[Player1Rating "${game.playerNumber === 1 ? userRating : getAiRating(game.aiDifficulty)}"]`,
+      `[Player2Rating "${game.playerNumber === 2 ? userRating : getAiRating(game.aiDifficulty)}"]`,
       `[Result "${result}"]`,
       `[GameID "${game.id}"]`,
     ]
@@ -188,6 +191,7 @@ function getRowForMove(moves: number[], moveIndex: number): number {
  */
 export async function onRequestPost(context: EventContext<Env, unknown, unknown>) {
   const { DB } = context.env
+  const db = createDb(DB)
 
   try {
     const session = await validateSession(context.request, DB)
@@ -208,88 +212,77 @@ export async function onRequestPost(context: EventContext<Env, unknown, unknown>
     const { format, filters } = parseResult.data
 
     // Get user's current rating
-    const user = await DB.prepare('SELECT id, email, rating FROM users WHERE id = ?')
-      .bind(session.userId)
-      .first<UserRow>()
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, session.userId),
+      columns: {
+        id: true,
+        email: true,
+        rating: true,
+      },
+    })
 
     if (!user) {
       return errorResponse('User not found', 404)
     }
 
-    // Build query with filters
-    let query = `
-      SELECT id, user_id, outcome, moves, move_count, rating_change, opponent_type, ai_difficulty, player_number, created_at
-      FROM games
-      WHERE user_id = ?
-    `
-    const params: (string | number)[] = [session.userId]
+    // Build query conditions
+    const conditions = [eq(games.userId, session.userId)]
 
     if (filters) {
       // Date filters
       if (filters.dateFrom) {
         const fromTimestamp = new Date(filters.dateFrom).getTime()
-        query += ' AND created_at >= ?'
-        params.push(fromTimestamp)
+        conditions.push(gte(games.createdAt, fromTimestamp))
       }
 
       if (filters.dateTo) {
         // Add 1 day to include the entire end date
         const toTimestamp = new Date(filters.dateTo).getTime() + 86400000
-        query += ' AND created_at < ?'
-        params.push(toTimestamp)
+        conditions.push(lt(games.createdAt, toTimestamp))
       }
 
       // Move count filters
       if (filters.minMoves) {
-        query += ' AND move_count >= ?'
-        params.push(filters.minMoves)
+        conditions.push(gte(games.moveCount, filters.minMoves))
       }
 
       if (filters.maxMoves) {
-        query += ' AND move_count <= ?'
-        params.push(filters.maxMoves)
+        conditions.push(lte(games.moveCount, filters.maxMoves))
       }
 
       // Outcome filter
       if (filters.outcomes && filters.outcomes.length > 0) {
-        const placeholders = filters.outcomes.map(() => '?').join(', ')
-        query += ` AND outcome IN (${placeholders})`
-        params.push(...filters.outcomes)
+        conditions.push(inArray(games.outcome, filters.outcomes))
       }
 
       // Opponent type filter
       if (filters.opponentTypes && filters.opponentTypes.length > 0) {
-        const placeholders = filters.opponentTypes.map(() => '?').join(', ')
-        query += ` AND opponent_type IN (${placeholders})`
-        params.push(...filters.opponentTypes)
+        conditions.push(inArray(games.opponentType, filters.opponentTypes))
       }
 
       // AI difficulty filter
       if (filters.aiDifficulties && filters.aiDifficulties.length > 0) {
-        const placeholders = filters.aiDifficulties.map(() => '?').join(', ')
-        query += ` AND ai_difficulty IN (${placeholders})`
-        params.push(...filters.aiDifficulties)
+        conditions.push(inArray(games.aiDifficulty, filters.aiDifficulties))
       }
     }
 
-    // Order by date and apply limit
-    query += ' ORDER BY created_at DESC'
-    const limit = filters?.limit || 1000
-    query += ' LIMIT ?'
-    params.push(limit)
-
     // Execute query
-    const stmt = DB.prepare(query)
-    const games = await stmt.bind(...params).all<GameRow>()
+    const limit = filters?.limit || 1000
+    const gameResults = await db
+      .select()
+      .from(games)
+      .where(and(...conditions))
+      .orderBy(desc(games.createdAt))
+      .limit(limit)
 
     // Export in requested format
     if (format === 'json') {
-      const exportData = exportAsJson(games.results, user.rating, filters)
+      const exportData = exportAsJson(gameResults, user.rating, filters)
       return jsonResponse(exportData)
     }
 
     if (format === 'pgn') {
-      const pgnData = exportAsPgn(games.results, user.rating)
+      const pgnData = exportAsPgn(gameResults, user.rating)
       return jsonResponse({
         content: pgnData,
         format: 'pgn',

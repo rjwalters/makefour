@@ -191,7 +191,38 @@ class MockD1PreparedStatement implements D1PreparedStatement {
   }
 
   async raw<T = unknown[]>(): Promise<T[]> {
-    throw new Error('Not implemented in mock')
+    // Drizzle uses raw() to get results as arrays of values in SELECT column order
+    const results = this.executeQuery<Record<string, unknown>>()
+
+    // Parse column order from SELECT statement
+    // Drizzle format: select "col1", "col2" from "table" OR select "table"."col1" from "table"
+    const selectMatch = this.query.match(/select\s+(.*?)\s+from/is)
+    if (!selectMatch) {
+      return results.map(row => Object.values(row)) as T[]
+    }
+
+    const selectClause = selectMatch[1]
+
+    // Match patterns like "column" or "table"."column" and extract just the column name
+    // This regex finds column names: either standalone "col" or after "table"."col"
+    const columnPattern = /(?:"\w+"\.)?"(\w+)"/g
+    const columns: string[] = []
+    let match: RegExpExecArray | null
+
+    while ((match = columnPattern.exec(selectClause)) !== null) {
+      const colName = match[1]
+      // Convert snake_case to camelCase for Drizzle schema field names
+      const camelName = colName.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
+      columns.push(camelName)
+    }
+
+    // If we couldn't parse columns, fall back to Object.values
+    if (columns.length === 0) {
+      return results.map(row => Object.values(row)) as T[]
+    }
+
+    // Return values in the column order
+    return results.map(row => columns.map(col => row[col])) as T[]
   }
 
   private executeQuery<T>(): T[] {
@@ -226,68 +257,124 @@ class MockD1PreparedStatement implements D1PreparedStatement {
   private handleSelect<T>(): T[] {
     const q = this.query.toLowerCase()
 
-    // Users table
-    if (q.includes('from users')) {
+    // Users table - handle both raw SQL and Drizzle formats
+    if (q.includes('from "users"') || q.includes('from users')) {
       const users = this.db._getUsers()
 
-      // By email
-      if (q.includes('where email =')) {
+      // Helper to convert user to camelCase
+      const toCamelCase = (user: UserRow) => ({
+        id: user.id,
+        email: user.email,
+        emailVerified: user.email_verified,
+        passwordHash: user.password_hash,
+        oauthProvider: user.oauth_provider,
+        oauthId: user.oauth_id,
+        encryptedDek: user.encrypted_dek,
+        rating: user.rating,
+        gamesPlayed: user.games_played,
+        wins: user.wins,
+        losses: user.losses,
+        draws: user.draws,
+        preferences: user.preferences,
+        isBot: 0,
+        botPersonaId: null,
+        username: null,
+        usernameChangedAt: null,
+        createdAt: user.created_at,
+        lastLogin: user.last_login,
+        updatedAt: user.updated_at,
+      })
+
+      // Check for WHERE clause patterns (Drizzle uses "table"."column" format)
+      const whereClause = q.includes('where') ? q.substring(q.indexOf('where')) : ''
+
+      // By email (Drizzle: where "users"."email" = ?, Raw: where email =)
+      if (whereClause.includes('"email"') || whereClause.includes('email =')) {
         const email = this.boundParams[0] as string
         for (const user of users.values()) {
           if (user.email === email) {
-            return [user as unknown as T]
+            return [toCamelCase(user) as unknown as T]
           }
         }
         return []
       }
 
-      // By id
-      if (q.includes('where id =')) {
+      // By id (Drizzle: where "users"."id" = ?, Raw: where id =)
+      if (whereClause.includes('"id"') || whereClause.includes('id =')) {
         const id = this.boundParams[0] as string
         const user = users.get(id)
-        return user ? [user as unknown as T] : []
+        return user ? [toCamelCase(user) as unknown as T] : []
       }
 
       // All users (for leaderboard)
-      return Array.from(users.values()) as unknown as T[]
+      return Array.from(users.values()).map(toCamelCase) as unknown as T[]
     }
 
-    // Session tokens table
-    if (q.includes('from session_tokens')) {
+    // Session tokens table - handle both formats
+    if (q.includes('from "session_tokens"') || q.includes('from session_tokens')) {
       const sessions = this.db._getSessions()
 
-      if (q.includes('where id =')) {
+      if (q.includes('where')) {
         const id = this.boundParams[0] as string
         const session = sessions.get(id)
-        return session ? [session as unknown as T] : []
+        if (session) {
+          // Return camelCase keys for Drizzle
+          return [{
+            id: session.id,
+            userId: session.user_id,
+            expiresAt: session.expires_at,
+            createdAt: session.created_at,
+          } as unknown as T]
+        }
+        return []
       }
 
       return []
     }
 
-    // Games table
-    if (q.includes('from games')) {
+    // Games table - handle both formats
+    if (q.includes('from "games"') || q.includes('from games')) {
       const games = this.db._getGames()
 
+      // Helper to convert game to camelCase
+      const toCamelCase = (game: GameRow) => ({
+        id: game.id,
+        userId: game.user_id,
+        outcome: game.outcome,
+        moves: game.moves,
+        moveCount: game.move_count,
+        ratingChange: game.rating_change,
+        opponentType: game.opponent_type,
+        opponentId: null,
+        aiDifficulty: game.ai_difficulty,
+        botPersonaId: null,
+        playerNumber: game.player_number,
+        createdAt: game.created_at,
+      })
+
+      // Extract WHERE clause for more accurate matching
+      const whereClause = q.includes('where') ? q.substring(q.indexOf('where')) : ''
+
       // Count games - check this FIRST before other patterns
-      if (q.includes('count(*)')) {
+      if (q.includes('count(*)') || q.includes('count(')) {
         const userId = this.boundParams[0] as string
         const count = Array.from(games.values()).filter((g) => g.user_id === userId).length
         return [{ count } as unknown as T]
       }
 
-      // Single game by id and user_id
-      if (q.includes('where id = ? and user_id = ?')) {
+      // Single game by id and user_id - must have BOTH in WHERE clause
+      if ((whereClause.includes('"id"') && whereClause.includes('"user_id"')) ||
+          whereClause.includes('where id = ? and user_id = ?')) {
         const [gameId, userId] = this.boundParams as [string, string]
         const game = games.get(gameId)
         if (game && game.user_id === userId) {
-          return [game as unknown as T]
+          return [toCamelCase(game) as unknown as T]
         }
         return []
       }
 
-      // Games by user_id with pagination
-      if (q.includes('where user_id =')) {
+      // Games by user_id with pagination - only user_id in WHERE
+      if (whereClause.includes('"user_id"') || whereClause.includes('user_id =')) {
         const userId = this.boundParams[0] as string
         const limit = (this.boundParams[1] as number) || 100
         const offset = (this.boundParams[2] as number) || 0
@@ -296,25 +383,35 @@ class MockD1PreparedStatement implements D1PreparedStatement {
           .filter((g) => g.user_id === userId)
           .sort((a, b) => b.created_at - a.created_at)
           .slice(offset, offset + limit)
+          .map(toCamelCase)
 
         return userGames as unknown as T[]
       }
     }
 
     // Handle rating_history table (for batch insert)
-    if (q.includes('into rating_history')) {
+    if (q.includes('into rating_history') || q.includes('into "rating_history"')) {
       // Just ignore for now - we don't track rating history in tests
       return []
     }
 
-    // Email verification tokens table
-    if (q.includes('from email_verification_tokens')) {
+    // Email verification tokens table - handle both formats
+    if (q.includes('from "email_verification_tokens"') || q.includes('from email_verification_tokens')) {
       const tokens = this.db._getVerificationTokens()
 
-      if (q.includes('where id =')) {
+      // Helper to convert token to camelCase
+      const toCamelCase = (token: VerificationTokenRow) => ({
+        id: token.id,
+        userId: token.user_id,
+        expiresAt: token.expires_at,
+        used: token.used,
+        createdAt: token.created_at,
+      })
+
+      if (q.includes('where')) {
         const id = this.boundParams[0] as string
         const token = tokens.get(id)
-        return token ? [token as unknown as T] : []
+        return token ? [toCamelCase(token) as unknown as T] : []
       }
 
       return []
@@ -326,41 +423,43 @@ class MockD1PreparedStatement implements D1PreparedStatement {
   private handleInsert(): void {
     const q = this.query.toLowerCase()
 
-    // Insert into users
-    if (q.includes('into users')) {
-      const [id, email, email_verified, password_hash, encrypted_dek, created_at, last_login, updated_at] =
-        this.boundParams as [string, string, number, string, string, number, number, number]
+    // Insert into users - handle both formats
+    if (q.includes('into "users"') || q.includes('into users')) {
+      // Drizzle sends all columns, we need to map them correctly
+      // The order depends on the schema definition
+      const params = this.boundParams
+      const now = Date.now()
 
       this.db._addUser({
-        id,
-        email,
-        email_verified,
-        password_hash,
-        oauth_provider: null,
-        oauth_id: null,
-        encrypted_dek,
-        rating: 1200,
-        games_played: 0,
-        wins: 0,
-        losses: 0,
-        draws: 0,
-        preferences: '{}',
-        created_at,
-        last_login,
-        updated_at,
+        id: params[0] as string,
+        email: params[1] as string,
+        email_verified: (params[2] as number) ?? 0,
+        password_hash: params[3] as string | null,
+        oauth_provider: params[4] as string | null,
+        oauth_id: params[5] as string | null,
+        encrypted_dek: params[6] as string | null,
+        rating: (params[7] as number) ?? 1200,
+        games_played: (params[8] as number) ?? 0,
+        wins: (params[9] as number) ?? 0,
+        losses: (params[10] as number) ?? 0,
+        draws: (params[11] as number) ?? 0,
+        preferences: (params[12] as string) ?? '{}',
+        created_at: (params[15] as number) ?? now,
+        last_login: (params[16] as number) ?? now,
+        updated_at: (params[17] as number) ?? now,
       })
     }
 
-    // Insert into session_tokens
-    if (q.includes('into session_tokens')) {
+    // Insert into session_tokens - handle both formats
+    if (q.includes('into "session_tokens"') || q.includes('into session_tokens')) {
       const [id, user_id, expires_at, created_at] = this.boundParams as [string, string, number, number]
       this.db._addSession({ id, user_id, expires_at, created_at })
     }
 
-    // Insert into games
-    if (q.includes('into games')) {
-      const [id, user_id, outcome, moves, move_count, rating_change, opponent_type, ai_difficulty, player_number, created_at] =
-        this.boundParams as [string, string, string, string, number, number, string, string | null, number, number]
+    // Insert into games - handle both formats
+    if (q.includes('into "games"') || q.includes('into games')) {
+      const [id, user_id, outcome, moves, move_count, rating_change, opponent_type, _opponentId, ai_difficulty, _botPersonaId, player_number, created_at] =
+        this.boundParams as [string, string, string, string, number, number, string, string | null, string | null, string | null, number, number]
       this.db._addGame({
         id,
         user_id,
@@ -375,8 +474,8 @@ class MockD1PreparedStatement implements D1PreparedStatement {
       })
     }
 
-    // Insert into email_verification_tokens
-    if (q.includes('into email_verification_tokens')) {
+    // Insert into email_verification_tokens - handle both formats
+    if (q.includes('into "email_verification_tokens"') || q.includes('into email_verification_tokens')) {
       const [id, user_id, expires_at, used, created_at] = this.boundParams as [string, string, number, number, number]
       this.db._addVerificationToken({
         id,
@@ -391,27 +490,25 @@ class MockD1PreparedStatement implements D1PreparedStatement {
   private handleUpdate(): void {
     const q = this.query.toLowerCase()
 
-    // Update users
-    if (q.includes('update users')) {
+    // Update users - handle both formats
+    if (q.includes('update "users"') || q.includes('update users')) {
       const users = this.db._getUsers()
+      const userId = this.boundParams[this.boundParams.length - 1] as string
+      const user = users.get(userId)
 
-      // Update last_login
-      if (q.includes('last_login =')) {
-        // Find the user_id in bound params (usually last param)
-        const userId = this.boundParams[this.boundParams.length - 1] as string
-        const user = users.get(userId)
-        if (user) {
+      if (user) {
+        // Update last_login
+        if (q.includes('last_login') || q.includes('"last_login"')) {
           user.last_login = this.boundParams[0] as number
-          user.updated_at = this.boundParams[1] as number
+          if (this.boundParams.length > 2) {
+            user.updated_at = this.boundParams[1] as number
+          }
         }
-      }
 
-      // Update rating and stats
-      if (q.includes('rating =')) {
-        const userId = this.boundParams[this.boundParams.length - 1] as string
-        const user = users.get(userId)
-        if (user) {
-          const [rating, winsIncrement, lossesIncrement, drawsIncrement, updated_at] = this.boundParams as [
+        // Update rating and stats - Drizzle sends absolute values, not increments
+        if (q.includes('rating') || q.includes('"rating"')) {
+          const [rating, gamesPlayed, wins, losses, draws, updated_at] = this.boundParams as [
+            number,
             number,
             number,
             number,
@@ -420,28 +517,24 @@ class MockD1PreparedStatement implements D1PreparedStatement {
             string,
           ]
           user.rating = rating
-          user.games_played += 1
-          user.wins += winsIncrement
-          user.losses += lossesIncrement
-          user.draws += drawsIncrement
+          user.games_played = gamesPlayed
+          user.wins = wins
+          user.losses = losses
+          user.draws = draws
           user.updated_at = updated_at
         }
-      }
 
-      // Update email_verified
-      if (q.includes('email_verified =')) {
-        const userId = this.boundParams[this.boundParams.length - 1] as string
-        const user = users.get(userId)
-        if (user) {
+        // Update email_verified
+        if (q.includes('email_verified') || q.includes('"email_verified"')) {
           user.email_verified = 1
           user.updated_at = this.boundParams[0] as number
         }
       }
     }
 
-    // Update email_verification_tokens
-    if (q.includes('update email_verification_tokens')) {
-      if (q.includes('used =')) {
+    // Update email_verification_tokens - handle both formats
+    if (q.includes('update "email_verification_tokens"') || q.includes('update email_verification_tokens')) {
+      if (q.includes('used') || q.includes('"used"')) {
         const tokenId = this.boundParams[this.boundParams.length - 1] as string
         const tokens = this.db._getVerificationTokens()
         const token = tokens.get(tokenId)
@@ -455,15 +548,15 @@ class MockD1PreparedStatement implements D1PreparedStatement {
   private handleDelete(): void {
     const q = this.query.toLowerCase()
 
-    // Delete from session_tokens
-    if (q.includes('from session_tokens')) {
+    // Delete from session_tokens - handle both formats
+    if (q.includes('from "session_tokens"') || q.includes('from session_tokens')) {
       const sessions = this.db._getSessions()
       const id = this.boundParams[0] as string
       sessions.delete(id)
     }
 
-    // Delete from email_verification_tokens
-    if (q.includes('from email_verification_tokens')) {
+    // Delete from email_verification_tokens - handle both formats
+    if (q.includes('from "email_verification_tokens"') || q.includes('from email_verification_tokens')) {
       const tokens = this.db._getVerificationTokens()
       const userId = this.boundParams[0] as string
       // Delete all unused tokens for user
@@ -472,6 +565,13 @@ class MockD1PreparedStatement implements D1PreparedStatement {
           tokens.delete(tokenId)
         }
       }
+    }
+
+    // Delete from users - handle both formats
+    if (q.includes('from "users"') || q.includes('from users')) {
+      const users = this.db._getUsers()
+      const id = this.boundParams[0] as string
+      users.delete(id)
     }
   }
 }

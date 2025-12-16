@@ -1,13 +1,10 @@
-import { validateSession, errorResponse, jsonResponse } from '../../../lib/auth'
+import { and, eq, ne, sql } from 'drizzle-orm'
+import { createDb } from '../../../../shared/db/client'
+import { users } from '../../../../shared/db/schema'
+import { errorResponse, jsonResponse, validateSession } from '../../../lib/auth'
 
 interface Env {
   DB: D1Database
-}
-
-interface UserRow {
-  username: string | null
-  username_changed_at: number | null
-  email: string
 }
 
 // 30 days in milliseconds
@@ -47,22 +44,23 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       return errorResponse(session.error, session.status)
     }
 
-    const user = await DB.prepare(
-      'SELECT username, username_changed_at, email FROM users WHERE id = ?'
-    )
-      .bind(session.userId)
-      .first<UserRow>()
+    const db = createDb(DB)
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, session.userId),
+      columns: {
+        username: true,
+        usernameChangedAt: true,
+        email: true,
+      },
+    })
 
     if (!user) {
       return errorResponse('User not found', 404)
     }
 
     const now = Date.now()
-    const canChange =
-      !user.username_changed_at || now - user.username_changed_at >= USERNAME_COOLDOWN_MS
-    const nextChangeAt = user.username_changed_at
-      ? user.username_changed_at + USERNAME_COOLDOWN_MS
-      : null
+    const canChange = !user.usernameChangedAt || now - user.usernameChangedAt >= USERNAME_COOLDOWN_MS
+    const nextChangeAt = user.usernameChangedAt ? user.usernameChangedAt + USERNAME_COOLDOWN_MS : null
 
     return jsonResponse({
       username: user.username,
@@ -113,46 +111,51 @@ export async function onRequestPut(context: EventContext<Env, any, any>) {
     }
 
     const now = Date.now()
+    const db = createDb(DB)
 
     // Get current user data
-    const user = await DB.prepare(
-      'SELECT username, username_changed_at FROM users WHERE id = ?'
-    )
-      .bind(session.userId)
-      .first<{ username: string | null; username_changed_at: number | null }>()
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, session.userId),
+      columns: {
+        username: true,
+        usernameChangedAt: true,
+      },
+    })
 
     if (!user) {
       return errorResponse('User not found', 404)
     }
 
     // Check cooldown (only if they've changed it before)
-    if (user.username_changed_at) {
-      const timeSinceChange = now - user.username_changed_at
+    if (user.usernameChangedAt) {
+      const timeSinceChange = now - user.usernameChangedAt
       if (timeSinceChange < USERNAME_COOLDOWN_MS) {
-        const daysRemaining = Math.ceil(
-          (USERNAME_COOLDOWN_MS - timeSinceChange) / (24 * 60 * 60 * 1000)
-        )
+        const daysRemaining = Math.ceil((USERNAME_COOLDOWN_MS - timeSinceChange) / (24 * 60 * 60 * 1000))
         return errorResponse(`You can change your username again in ${daysRemaining} day(s)`, 429)
       }
     }
 
     // Check if username is already taken (case-insensitive)
-    const existing = await DB.prepare(
-      'SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id != ?'
-    )
-      .bind(username, session.userId)
-      .first()
+    const existing = await db.query.users.findFirst({
+      where: and(sql`LOWER(${users.username}) = LOWER(${username})`, ne(users.id, session.userId)),
+      columns: {
+        id: true,
+      },
+    })
 
     if (existing) {
       return errorResponse('This username is already taken', 409)
     }
 
     // Update username
-    await DB.prepare(
-      'UPDATE users SET username = ?, username_changed_at = ?, updated_at = ? WHERE id = ?'
-    )
-      .bind(username, now, now, session.userId)
-      .run()
+    await db
+      .update(users)
+      .set({
+        username: username,
+        usernameChangedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(users.id, session.userId))
 
     return jsonResponse({
       success: true,

@@ -8,6 +8,9 @@
 import { validateSession, errorResponse, jsonResponse } from '../lib/auth'
 import { calculateNewRating, type GameOutcome } from '../lib/elo'
 import { z } from 'zod'
+import { createDb } from '../../shared/db/client'
+import { users, games, ratingHistory } from '../../shared/db/schema'
+import { eq, desc, count } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -58,6 +61,7 @@ interface UserRatingRow {
  */
 export async function onRequestGet(context: EventContext<Env, any, any>) {
   const { DB } = context.env
+  const db = createDb(DB)
 
   try {
     const session = await validateSession(context.request, DB)
@@ -71,36 +75,32 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     const offset = parseInt(url.searchParams.get('offset') || '0')
 
     // Fetch games for user, ordered by most recent first
-    const games = await DB.prepare(`
-      SELECT id, outcome, moves, move_count, rating_change, opponent_type, ai_difficulty, player_number, created_at
-      FROM games
-      WHERE user_id = ?
-      ORDER BY created_at DESC
-      LIMIT ? OFFSET ?
-    `)
-      .bind(session.userId, limit, offset)
-      .all<GameRow>()
+    const userGames = await db.query.games.findMany({
+      where: eq(games.userId, session.userId),
+      orderBy: desc(games.createdAt),
+      limit,
+      offset,
+    })
 
     // Get total count for pagination
-    const countResult = await DB.prepare(`
-      SELECT COUNT(*) as count FROM games WHERE user_id = ?
-    `)
-      .bind(session.userId)
-      .first<{ count: number }>()
+    const countResult = await db
+      .select({ count: count() })
+      .from(games)
+      .where(eq(games.userId, session.userId))
 
-    const total = countResult?.count || 0
+    const total = countResult[0]?.count || 0
 
     // Parse moves JSON for each game
-    const parsedGames = games.results.map((game) => ({
+    const parsedGames = userGames.map((game) => ({
       id: game.id,
       outcome: game.outcome,
       moves: JSON.parse(game.moves),
-      moveCount: game.move_count,
-      ratingChange: game.rating_change ?? 0,
-      opponentType: game.opponent_type,
-      aiDifficulty: game.ai_difficulty,
-      playerNumber: game.player_number,
-      createdAt: game.created_at,
+      moveCount: game.moveCount,
+      ratingChange: game.ratingChange ?? 0,
+      opponentType: game.opponentType,
+      aiDifficulty: game.aiDifficulty,
+      playerNumber: game.playerNumber,
+      createdAt: game.createdAt,
     }))
 
     return jsonResponse({
@@ -123,6 +123,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
  */
 export async function onRequestPost(context: EventContext<Env, any, any>) {
   const { DB } = context.env
+  const db = createDb(DB)
 
   try {
     const session = await validateSession(context.request, DB)
@@ -144,12 +145,16 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     const { outcome, moves, opponentType, aiDifficulty, playerNumber } = parseResult.data
 
     // Get user's current rating and stats
-    const user = await DB.prepare(`
-      SELECT rating, games_played, wins, losses, draws
-      FROM users WHERE id = ?
-    `)
-      .bind(session.userId)
-      .first<UserRatingRow>()
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, session.userId),
+      columns: {
+        rating: true,
+        gamesPlayed: true,
+        wins: true,
+        losses: true,
+        draws: true,
+      },
+    })
 
     if (!user) {
       return errorResponse('User not found', 404)
@@ -165,7 +170,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         user.rating,
         opponentRating,
         outcome as GameOutcome,
-        user.games_played
+        user.gamesPlayed
       )
       ratingChange = eloResult.ratingChange
       newRating = eloResult.newRating
@@ -182,61 +187,50 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     const drawsIncrement = outcome === 'draw' ? 1 : 0
 
     // Use a batch to ensure all updates happen atomically
-    await DB.batch([
+    const batchOperations = [
       // Insert the game with all fields
-      DB.prepare(`
-        INSERT INTO games (id, user_id, outcome, moves, move_count, rating_change, opponent_type, ai_difficulty, player_number, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(
-        gameId,
-        session.userId,
+      db.insert(games).values({
+        id: gameId,
+        userId: session.userId,
         outcome,
-        JSON.stringify(moves),
-        moves.length,
+        moves: JSON.stringify(moves),
+        moveCount: moves.length,
         ratingChange,
         opponentType,
-        aiDifficulty ?? null,
+        aiDifficulty: aiDifficulty ?? null,
         playerNumber,
-        now
-      ),
+        createdAt: now,
+      }),
 
       // Update user's rating and stats
-      DB.prepare(`
-        UPDATE users SET
-          rating = ?,
-          games_played = games_played + 1,
-          wins = wins + ?,
-          losses = losses + ?,
-          draws = draws + ?,
-          updated_at = ?
-        WHERE id = ?
-      `).bind(
-        newRating,
-        winsIncrement,
-        lossesIncrement,
-        drawsIncrement,
-        now,
-        session.userId
-      ),
+      db.update(users)
+        .set({
+          rating: newRating,
+          gamesPlayed: user.gamesPlayed + 1,
+          wins: user.wins + winsIncrement,
+          losses: user.losses + lossesIncrement,
+          draws: user.draws + drawsIncrement,
+          updatedAt: now,
+        })
+        .where(eq(users.id, session.userId)),
+    ]
 
-      // Record rating history (only if rating changed)
-      ...(ratingChange !== 0
-        ? [
-            DB.prepare(`
-              INSERT INTO rating_history (id, user_id, game_id, rating_before, rating_after, rating_change, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?)
-            `).bind(
-              ratingHistoryId,
-              session.userId,
-              gameId,
-              user.rating,
-              newRating,
-              ratingChange,
-              now
-            ),
-          ]
-        : []),
-    ])
+    // Record rating history (only if rating changed)
+    if (ratingChange !== 0) {
+      batchOperations.push(
+        db.insert(ratingHistory).values({
+          id: ratingHistoryId,
+          userId: session.userId,
+          gameId,
+          ratingBefore: user.rating,
+          ratingAfter: newRating,
+          ratingChange,
+          createdAt: now,
+        })
+      )
+    }
+
+    await db.batch(batchOperations as any)
 
     return jsonResponse(
       {

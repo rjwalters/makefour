@@ -6,6 +6,9 @@
 
 import { jsonResponse } from '../../../lib/auth'
 import { replayMoves, createGameState } from '../../../lib/game'
+import { createDb } from '../../../../shared/db/client'
+import { activeGames, users, botPersonas } from '../../../../shared/db/schema'
+import { eq } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -86,45 +89,26 @@ export interface SpectatorGameState {
  */
 export async function onRequestGet(context: EventContext<Env, any, { id: string }>) {
   const { DB } = context.env
+  const db = createDb(DB)
   const gameId = context.params.id
 
   try {
-    // Get the game with player info and bot persona names
-    const game = await DB.prepare(`
-      SELECT
-        ag.id,
-        ag.player1_id,
-        ag.player2_id,
-        ag.moves,
-        ag.current_turn,
-        ag.status,
-        ag.mode,
-        ag.winner,
-        ag.player1_rating,
-        ag.player2_rating,
-        ag.spectatable,
-        ag.spectator_count,
-        ag.last_move_at,
-        ag.time_control_ms,
-        ag.player1_time_ms,
-        ag.player2_time_ms,
-        ag.turn_started_at,
-        ag.created_at,
-        ag.updated_at,
-        ag.is_bot_vs_bot,
-        ag.bot1_persona_id,
-        ag.bot2_persona_id,
-        ag.move_delay_ms,
-        ag.next_move_at,
-        bp1.name as bot1_name,
-        bp2.name as bot2_name
-      FROM active_games ag
-      LEFT JOIN bot_personas bp1 ON ag.bot1_persona_id = bp1.id
-      LEFT JOIN bot_personas bp2 ON ag.bot2_persona_id = bp2.id
-      WHERE ag.id = ?
-    `)
-      .bind(gameId)
-      .first<ActiveGameRow & { bot1_name: string | null; bot2_name: string | null }>()
+    // Get the game with bot personas using relational query
+    const game = await db.query.activeGames.findFirst({
+      where: eq(activeGames.id, gameId),
+      with: {
+        bot1Persona: {
+          columns: {
+            name: true,
+          },
+        },
+        bot2Persona: {
+          columns: {
+            name: true,
+          },
+        },
+      },
+    })
 
     if (!game) {
       return jsonResponse({ error: 'Game not found' }, { status: 404 })
@@ -137,72 +121,82 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
 
     // Get player info for display names
     const [player1, player2] = await Promise.all([
-      DB.prepare('SELECT id, email, username FROM users WHERE id = ?')
-        .bind(game.player1_id)
-        .first<UserRow>(),
-      DB.prepare('SELECT id, email, username FROM users WHERE id = ?')
-        .bind(game.player2_id)
-        .first<UserRow>(),
+      db.query.users.findFirst({
+        where: eq(users.id, game.player1Id),
+        columns: {
+          id: true,
+          email: true,
+          username: true,
+        },
+      }),
+      db.query.users.findFirst({
+        where: eq(users.id, game.player2Id),
+        columns: {
+          id: true,
+          email: true,
+          username: true,
+        },
+      }),
     ])
 
     const moves = JSON.parse(game.moves) as number[]
-    const isBotVsBot = game.is_bot_vs_bot === 1
+    const isBotVsBot = game.isBotVsBot === 1
 
     // Reconstruct board state from moves
     const gameState = moves.length > 0 ? replayMoves(moves) : createGameState()
 
     // Calculate remaining time for display
     const now = Date.now()
-    let player1TimeMs = game.player1_time_ms
-    let player2TimeMs = game.player2_time_ms
+    let player1TimeMs = game.player1TimeMs
+    let player2TimeMs = game.player2TimeMs
 
-    if (game.time_control_ms !== null && game.turn_started_at !== null && game.status === 'active') {
-      const elapsed = now - game.turn_started_at
-      if (game.current_turn === 1) {
-        player1TimeMs = Math.max(0, (game.player1_time_ms ?? 0) - elapsed)
+    if (game.timeControlMs !== null && game.turnStartedAt !== null && game.status === 'active') {
+      const elapsed = now - game.turnStartedAt
+      if (game.currentTurn === 1) {
+        player1TimeMs = Math.max(0, (game.player1TimeMs ?? 0) - elapsed)
       } else {
-        player2TimeMs = Math.max(0, (game.player2_time_ms ?? 0) - elapsed)
+        player2TimeMs = Math.max(0, (game.player2TimeMs ?? 0) - elapsed)
       }
     }
 
     // For bot vs bot games, show bot names; otherwise prefer username, fall back to masked email
-    const player1DisplayName = isBotVsBot && game.bot1_name
-      ? game.bot1_name
+    const player1DisplayName = isBotVsBot && game.bot1Persona?.name
+      ? game.bot1Persona.name
       : (player1 ? (player1.username || maskEmail(player1.email)) : 'Player 1')
-    const player2DisplayName = isBotVsBot && game.bot2_name
-      ? game.bot2_name
+    const player2DisplayName = isBotVsBot && game.bot2Persona?.name
+      ? game.bot2Persona.name
       : (player2 ? (player2.username || maskEmail(player2.email)) : 'Player 2')
 
     const response: SpectatorGameState = {
       id: game.id,
       player1: {
-        rating: game.player1_rating,
+        rating: game.player1Rating,
         displayName: player1DisplayName,
         isBot: isBotVsBot,
-        personaId: game.bot1_persona_id || undefined,
+        personaId: game.bot1PersonaId || undefined,
       },
       player2: {
-        rating: game.player2_rating,
+        rating: game.player2Rating,
         displayName: player2DisplayName,
         isBot: isBotVsBot,
-        personaId: game.bot2_persona_id || undefined,
+        personaId: game.bot2PersonaId || undefined,
       },
-      currentTurn: game.current_turn as 1 | 2,
+      currentTurn: game.currentTurn as 1 | 2,
       moves,
       board: gameState?.board ?? null,
       status: game.status as 'active' | 'completed' | 'abandoned',
       winner: game.winner as '1' | '2' | 'draw' | null,
       mode: game.mode as 'ranked' | 'casual',
-      spectatorCount: game.spectator_count,
-      lastMoveAt: game.last_move_at,
-      createdAt: game.created_at,
-      timeControlMs: game.time_control_ms,
+      spectatorCount: game.spectatorCount,
+      lastMoveAt: game.lastMoveAt,
+      createdAt: game.createdAt,
+      timeControlMs: game.timeControlMs,
       player1TimeMs,
       player2TimeMs,
-      turnStartedAt: game.turn_started_at,
+      turnStartedAt: game.turnStartedAt,
       isBotVsBot,
-      moveDelayMs: isBotVsBot ? game.move_delay_ms : undefined,
-      nextMoveAt: isBotVsBot ? game.next_move_at : undefined,
+      moveDelayMs: isBotVsBot ? game.moveDelayMs : undefined,
+      nextMoveAt: isBotVsBot ? game.nextMoveAt : undefined,
     }
 
     return jsonResponse(response)

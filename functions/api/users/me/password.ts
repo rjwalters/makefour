@@ -1,15 +1,12 @@
-import { validateSession, errorResponse, jsonResponse } from '../../../lib/auth'
-import { validateChangePasswordRequest } from '../../../../src/lib/schemas/auth'
 import bcrypt from 'bcryptjs'
+import { and, eq, ne } from 'drizzle-orm'
+import { createDb } from '../../../../shared/db/client'
+import { sessionTokens, users } from '../../../../shared/db/schema'
+import { validateChangePasswordRequest } from '../../../../src/lib/schemas/auth'
+import { errorResponse, jsonResponse, validateSession } from '../../../lib/auth'
 
 interface Env {
   DB: D1Database
-}
-
-interface UserRow {
-  id: string
-  password_hash: string | null
-  oauth_provider: string | null
 }
 
 /**
@@ -49,32 +46,36 @@ export async function onRequestPut(context: EventContext<Env, any, any>) {
     }
 
     const { old_password, new_password } = validatedData
+    const db = createDb(DB)
 
     // Get user with password info
-    const user = await DB.prepare(
-      'SELECT id, password_hash, oauth_provider FROM users WHERE id = ?'
-    )
-      .bind(userId)
-      .first<UserRow>()
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+      columns: {
+        id: true,
+        passwordHash: true,
+        oauthProvider: true,
+      },
+    })
 
     if (!user) {
       return errorResponse('User not found', 404)
     }
 
     // Check if user uses OAuth (no password)
-    if (user.oauth_provider && !user.password_hash) {
+    if (user.oauthProvider && !user.passwordHash) {
       return errorResponse(
         'Cannot change password for OAuth accounts. Please manage your password through your OAuth provider.',
         400
       )
     }
 
-    if (!user.password_hash) {
+    if (!user.passwordHash) {
       return errorResponse('No password set for this account', 400)
     }
 
     // Verify old password
-    const isValidPassword = await bcrypt.compare(old_password, user.password_hash)
+    const isValidPassword = await bcrypt.compare(old_password, user.passwordHash)
     if (!isValidPassword) {
       return errorResponse('Current password is incorrect', 401)
     }
@@ -83,19 +84,17 @@ export async function onRequestPut(context: EventContext<Env, any, any>) {
     const newPasswordHash = await bcrypt.hash(new_password, 10)
 
     // Update password
-    await DB.prepare(
-      'UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?'
-    )
-      .bind(newPasswordHash, Date.now(), userId)
-      .run()
+    await db
+      .update(users)
+      .set({
+        passwordHash: newPasswordHash,
+        updatedAt: Date.now(),
+      })
+      .where(eq(users.id, userId))
 
     // Optionally: Invalidate all other sessions for security
     // Keep current session active
-    await DB.prepare(
-      'DELETE FROM session_tokens WHERE user_id = ? AND id != ?'
-    )
-      .bind(userId, session.sessionId)
-      .run()
+    await db.delete(sessionTokens).where(and(eq(sessionTokens.userId, userId), ne(sessionTokens.id, session.sessionId)))
 
     return jsonResponse({ message: 'Password changed successfully' })
   } catch (error) {

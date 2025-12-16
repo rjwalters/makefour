@@ -3,6 +3,10 @@
  * Handles the redirect from Google after user authorization
  */
 
+import { createDb } from '../../../../shared/db/client'
+import { users, sessionTokens } from '../../../../shared/db/schema'
+import { eq, and } from 'drizzle-orm'
+
 interface Env {
   DB: D1Database
   GOOGLE_CLIENT_ID: string
@@ -31,6 +35,7 @@ const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 
 export async function onRequestGet(context: EventContext<Env, any, any>) {
   const { DB, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = context.env
+  const db = createDb(DB)
   const url = new URL(context.request.url)
 
   // Get authorization code and state from query params
@@ -95,55 +100,64 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 
     // Find or create user in database
     const now = Date.now()
-    let user = await DB.prepare(
-      'SELECT * FROM users WHERE oauth_provider = ? AND oauth_id = ?'
-    ).bind('google', googleUser.id).first()
+    let user = await db.query.users.findFirst({
+      where: and(
+        eq(users.oauthProvider, 'google'),
+        eq(users.oauthId, googleUser.id)
+      ),
+    })
+
+    let userId: string
 
     if (!user) {
       // Check if email already exists (might have registered with password)
-      const existingUser = await DB.prepare(
-        'SELECT * FROM users WHERE email = ?'
-      ).bind(googleUser.email).first()
+      const existingUser = await db.query.users.findFirst({
+        where: eq(users.email, googleUser.email),
+      })
 
       if (existingUser) {
         // Link Google account to existing user
-        await DB.prepare(
-          'UPDATE users SET oauth_provider = ?, oauth_id = ?, email_verified = 1, updated_at = ? WHERE id = ?'
-        ).bind('google', googleUser.id, now, existingUser.id).run()
-        user = existingUser
+        await db.update(users)
+          .set({
+            oauthProvider: 'google',
+            oauthId: googleUser.id,
+            emailVerified: 1,
+            updatedAt: now,
+          })
+          .where(eq(users.id, existingUser.id))
+        userId = existingUser.id
       } else {
         // Create new user
-        const userId = crypto.randomUUID()
-        await DB.prepare(
-          `INSERT INTO users (id, email, email_verified, oauth_provider, oauth_id, created_at, last_login, updated_at)
-           VALUES (?, ?, 1, ?, ?, ?, ?, ?)`
-        ).bind(userId, googleUser.email, 'google', googleUser.id, now, now, now).run()
-
-        user = {
+        userId = crypto.randomUUID()
+        await db.insert(users).values({
           id: userId,
           email: googleUser.email,
-          email_verified: 1,
-          oauth_provider: 'google',
-          oauth_id: googleUser.id,
-          created_at: now,
-          last_login: now,
-          updated_at: now,
-        }
+          emailVerified: 1,
+          oauthProvider: 'google',
+          oauthId: googleUser.id,
+          createdAt: now,
+          lastLogin: now,
+          updatedAt: now,
+        })
       }
     } else {
       // Update last login
-      await DB.prepare(
-        'UPDATE users SET last_login = ?, updated_at = ? WHERE id = ?'
-      ).bind(now, now, user.id).run()
+      userId = user.id
+      await db.update(users)
+        .set({ lastLogin: now, updatedAt: now })
+        .where(eq(users.id, user.id))
     }
 
     // Create session token
     const sessionTokenId = crypto.randomUUID()
     const expiresAt = now + SESSION_DURATION_MS
 
-    await DB.prepare(
-      'INSERT INTO session_tokens (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)'
-    ).bind(sessionTokenId, user.id, expiresAt, now).run()
+    await db.insert(sessionTokens).values({
+      id: sessionTokenId,
+      userId: userId,
+      expiresAt,
+      createdAt: now,
+    })
 
     // Redirect to frontend with session token
     // The frontend will store this and complete the auth flow

@@ -14,6 +14,9 @@ import {
   advanceGame,
   type ActiveGameRow,
 } from '../../../../lib/botVsBotGame'
+import { createDb } from '../../../../../shared/db/client'
+import { activeGames } from '../../../../../shared/db/schema'
+import { eq, and, sql } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -41,23 +44,38 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
   const gameId = context.params.id
 
   try {
-    const game = await DB.prepare(`
-      SELECT
-        ag.id, ag.player1_id, ag.player2_id, ag.moves, ag.current_turn,
-        ag.status, ag.mode, ag.winner, ag.player1_rating, ag.player2_rating,
-        ag.spectator_count, ag.move_delay_ms, ag.next_move_at,
-        ag.time_control_ms, ag.player1_time_ms, ag.player2_time_ms,
-        ag.last_move_at, ag.created_at, ag.updated_at,
-        ag.bot1_persona_id, ag.bot2_persona_id,
-        bp1.name as bot1_name,
-        bp2.name as bot2_name
-      FROM active_games ag
-      LEFT JOIN bot_personas bp1 ON ag.bot1_persona_id = bp1.id
-      LEFT JOIN bot_personas bp2 ON ag.bot2_persona_id = bp2.id
-      WHERE ag.id = ? AND ag.is_bot_vs_bot = 1
-    `)
-      .bind(gameId)
-      .first<ActiveGameWithNames>()
+    const db = createDb(DB)
+
+    const game = await db.select({
+      id: activeGames.id,
+      player1Id: activeGames.player1Id,
+      player2Id: activeGames.player2Id,
+      moves: activeGames.moves,
+      currentTurn: activeGames.currentTurn,
+      status: activeGames.status,
+      mode: activeGames.mode,
+      winner: activeGames.winner,
+      player1Rating: activeGames.player1Rating,
+      player2Rating: activeGames.player2Rating,
+      spectatorCount: activeGames.spectatorCount,
+      moveDelayMs: activeGames.moveDelayMs,
+      nextMoveAt: activeGames.nextMoveAt,
+      timeControlMs: activeGames.timeControlMs,
+      player1TimeMs: activeGames.player1TimeMs,
+      player2TimeMs: activeGames.player2TimeMs,
+      lastMoveAt: activeGames.lastMoveAt,
+      createdAt: activeGames.createdAt,
+      updatedAt: activeGames.updatedAt,
+      bot1PersonaId: activeGames.bot1PersonaId,
+      bot2PersonaId: activeGames.bot2PersonaId,
+      bot1Name: sql<string>`bp1.name`,
+      bot2Name: sql<string>`bp2.name`,
+    })
+    .from(activeGames)
+    .leftJoin(sql`bot_personas bp1`, sql`${activeGames.bot1PersonaId} = bp1.id`)
+    .leftJoin(sql`bot_personas bp2`, sql`${activeGames.bot2PersonaId} = bp2.id`)
+    .where(and(eq(activeGames.id, gameId), eq(activeGames.isBotVsBot, 1)))
+    .then(rows => rows[0])
 
     if (!game) {
       return jsonResponse({ error: 'Game not found' }, { status: 404 })
@@ -69,29 +87,29 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
     return jsonResponse({
       id: game.id,
       bot1: {
-        personaId: game.bot1_persona_id,
-        name: game.bot1_name || 'Bot 1',
-        rating: game.player1_rating,
+        personaId: game.bot1PersonaId,
+        name: game.bot1Name || 'Bot 1',
+        rating: game.player1Rating,
       },
       bot2: {
-        personaId: game.bot2_persona_id,
-        name: game.bot2_name || 'Bot 2',
-        rating: game.player2_rating,
+        personaId: game.bot2PersonaId,
+        name: game.bot2Name || 'Bot 2',
+        rating: game.player2Rating,
       },
-      currentTurn: game.current_turn,
+      currentTurn: game.currentTurn,
       moves,
       board: gameState?.board ?? null,
       status: game.status,
       winner: game.winner,
-      spectatorCount: game.spectator_count,
-      moveDelayMs: game.move_delay_ms,
-      nextMoveAt: game.next_move_at,
-      timeControlMs: game.time_control_ms,
-      player1TimeMs: game.player1_time_ms,
-      player2TimeMs: game.player2_time_ms,
-      lastMoveAt: game.last_move_at,
-      createdAt: game.created_at,
-      updatedAt: game.updated_at,
+      spectatorCount: game.spectatorCount,
+      moveDelayMs: game.moveDelayMs,
+      nextMoveAt: game.nextMoveAt,
+      timeControlMs: game.timeControlMs,
+      player1TimeMs: game.player1TimeMs,
+      player2TimeMs: game.player2TimeMs,
+      lastMoveAt: game.lastMoveAt,
+      createdAt: game.createdAt,
+      updatedAt: game.updatedAt,
     })
   } catch (error) {
     console.error('GET /api/bot/vs-bot/game/:id error:', error)
@@ -123,19 +141,30 @@ export async function onRequestPost(context: EventContext<Env, any, { id: string
   }
 
   try {
+    const db = createDb(DB)
+
     // Get the game
-    const game = await DB.prepare(`
-      SELECT
-        id, player1_id, player2_id, moves, current_turn,
-        status, winner, player1_rating, player2_rating,
-        player1_time_ms, player2_time_ms, turn_started_at,
-        bot1_persona_id, bot2_persona_id,
-        move_delay_ms, next_move_at
-      FROM active_games
-      WHERE id = ? AND is_bot_vs_bot = 1
-    `)
-      .bind(gameId)
-      .first<ActiveGameRow>()
+    const game = await db.query.activeGames.findFirst({
+      where: and(eq(activeGames.id, gameId), eq(activeGames.isBotVsBot, 1)),
+      columns: {
+        id: true,
+        player1Id: true,
+        player2Id: true,
+        moves: true,
+        currentTurn: true,
+        status: true,
+        winner: true,
+        player1Rating: true,
+        player2Rating: true,
+        player1TimeMs: true,
+        player2TimeMs: true,
+        turnStartedAt: true,
+        bot1PersonaId: true,
+        bot2PersonaId: true,
+        moveDelayMs: true,
+        nextMoveAt: true,
+      },
+    })
 
     if (!game) {
       return jsonResponse({ error: 'Game not found' }, { status: 404 })
@@ -148,38 +177,54 @@ export async function onRequestPost(context: EventContext<Env, any, { id: string
     const now = Date.now()
 
     // Check if it's time for the next move (with some tolerance)
-    if (game.next_move_at && now < game.next_move_at - 100) {
+    if (game.nextMoveAt && now < game.nextMoveAt - 100) {
       return jsonResponse({
         error: 'Too early for next move',
-        nextMoveAt: game.next_move_at,
-        waitMs: game.next_move_at - now,
+        nextMoveAt: game.nextMoveAt,
+        waitMs: game.nextMoveAt - now,
       }, { status: 425 }) // 425 Too Early
     }
 
+    // Convert to ActiveGameRow format for advanceGame
+    const gameRow: ActiveGameRow = {
+      id: game.id,
+      player1_id: game.player1Id,
+      player2_id: game.player2Id,
+      moves: game.moves,
+      current_turn: game.currentTurn,
+      status: game.status,
+      winner: game.winner,
+      player1_rating: game.player1Rating,
+      player2_rating: game.player2Rating,
+      player1_time_ms: game.player1TimeMs,
+      player2_time_ms: game.player2TimeMs,
+      turn_started_at: game.turnStartedAt,
+      bot1_persona_id: game.bot1PersonaId,
+      bot2_persona_id: game.bot2PersonaId,
+      move_delay_ms: game.moveDelayMs,
+      next_move_at: game.nextMoveAt,
+    }
+
     // Advance the game using shared logic
-    const result = await advanceGame(DB, game, now)
+    const result = await advanceGame(DB, gameRow, now)
 
     if (result.status === 'error') {
       return jsonResponse({ error: result.error }, { status: 500 })
     }
 
     // Get updated game state to return
-    const updatedGame = await DB.prepare(`
-      SELECT moves, current_turn, status, winner, next_move_at,
-             player1_time_ms, player2_time_ms
-      FROM active_games
-      WHERE id = ?
-    `)
-      .bind(gameId)
-      .first<{
-        moves: string
-        current_turn: number
-        status: string
-        winner: string | null
-        next_move_at: number | null
-        player1_time_ms: number | null
-        player2_time_ms: number | null
-      }>()
+    const updatedGame = await db.query.activeGames.findFirst({
+      where: eq(activeGames.id, gameId),
+      columns: {
+        moves: true,
+        currentTurn: true,
+        status: true,
+        winner: true,
+        nextMoveAt: true,
+        player1TimeMs: true,
+        player2TimeMs: true,
+      },
+    })
 
     if (!updatedGame) {
       return jsonResponse({ error: 'Game state not found after update' }, { status: 500 })
@@ -193,12 +238,12 @@ export async function onRequestPost(context: EventContext<Env, any, { id: string
       move: result.move,
       moves,
       board: gameState?.board ?? null,
-      currentTurn: updatedGame.current_turn,
+      currentTurn: updatedGame.currentTurn,
       status: updatedGame.status,
       winner: updatedGame.winner,
-      nextMoveAt: updatedGame.next_move_at,
-      player1TimeMs: updatedGame.player1_time_ms,
-      player2TimeMs: updatedGame.player2_time_ms,
+      nextMoveAt: updatedGame.nextMoveAt,
+      player1TimeMs: updatedGame.player1TimeMs,
+      player2TimeMs: updatedGame.player2TimeMs,
       chatMessage: result.chatMessage,
     })
   } catch (error) {

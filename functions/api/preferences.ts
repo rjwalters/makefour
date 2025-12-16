@@ -1,4 +1,7 @@
-import { validateSession, errorResponse, jsonResponse } from '../lib/auth'
+import { eq } from 'drizzle-orm'
+import { createDb } from '../../shared/db/client'
+import { users } from '../../shared/db/schema'
+import { errorResponse, jsonResponse, validateSession } from '../lib/auth'
 
 interface Env {
   DB: D1Database
@@ -46,27 +49,26 @@ function parsePreferences(preferencesJson: string | null): UserPreferences {
     const parsed = JSON.parse(preferencesJson)
     return {
       soundEnabled: typeof parsed.soundEnabled === 'boolean' ? parsed.soundEnabled : DEFAULT_PREFERENCES.soundEnabled,
-      soundVolume: typeof parsed.soundVolume === 'number' && parsed.soundVolume >= 0 && parsed.soundVolume <= 100
-        ? parsed.soundVolume
-        : DEFAULT_PREFERENCES.soundVolume,
+      soundVolume:
+        typeof parsed.soundVolume === 'number' && parsed.soundVolume >= 0 && parsed.soundVolume <= 100
+          ? parsed.soundVolume
+          : DEFAULT_PREFERENCES.soundVolume,
       defaultGameMode: ['ai', 'hotseat', 'online'].includes(parsed.defaultGameMode)
         ? parsed.defaultGameMode
         : DEFAULT_PREFERENCES.defaultGameMode,
       defaultDifficulty: ['beginner', 'intermediate', 'expert', 'perfect'].includes(parsed.defaultDifficulty)
         ? parsed.defaultDifficulty
         : DEFAULT_PREFERENCES.defaultDifficulty,
-      defaultPlayerColor: parsed.defaultPlayerColor === 1 || parsed.defaultPlayerColor === 2
-        ? parsed.defaultPlayerColor
-        : DEFAULT_PREFERENCES.defaultPlayerColor,
+      defaultPlayerColor:
+        parsed.defaultPlayerColor === 1 || parsed.defaultPlayerColor === 2
+          ? parsed.defaultPlayerColor
+          : DEFAULT_PREFERENCES.defaultPlayerColor,
       defaultMatchmakingMode: ['ranked', 'casual'].includes(parsed.defaultMatchmakingMode)
         ? parsed.defaultMatchmakingMode
         : DEFAULT_PREFERENCES.defaultMatchmakingMode,
-      allowSpectators: typeof parsed.allowSpectators === 'boolean'
-        ? parsed.allowSpectators
-        : DEFAULT_PREFERENCES.allowSpectators,
-      theme: ['light', 'dark', 'system'].includes(parsed.theme)
-        ? parsed.theme
-        : DEFAULT_PREFERENCES.theme,
+      allowSpectators:
+        typeof parsed.allowSpectators === 'boolean' ? parsed.allowSpectators : DEFAULT_PREFERENCES.allowSpectators,
+      theme: ['light', 'dark', 'system'].includes(parsed.theme) ? parsed.theme : DEFAULT_PREFERENCES.theme,
     }
   } catch {
     return { ...DEFAULT_PREFERENCES }
@@ -90,9 +92,13 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     }
 
     // Get user preferences
-    const user = await DB.prepare('SELECT preferences FROM users WHERE id = ?')
-      .bind(session.userId)
-      .first<{ preferences: string | null }>()
+    const db = createDb(DB)
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, session.userId),
+      columns: {
+        preferences: true,
+      },
+    })
 
     if (!user) {
       return errorResponse('User not found', 404)
@@ -133,9 +139,13 @@ export async function onRequestPut(context: EventContext<Env, any, any>) {
     }
 
     // Get current preferences
-    const user = await DB.prepare('SELECT preferences FROM users WHERE id = ?')
-      .bind(session.userId)
-      .first<{ preferences: string | null }>()
+    const db = createDb(DB)
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, session.userId),
+      columns: {
+        preferences: true,
+      },
+    })
 
     if (!user) {
       return errorResponse('User not found', 404)
@@ -145,36 +155,42 @@ export async function onRequestPut(context: EventContext<Env, any, any>) {
 
     // Merge updates with validation
     const newPreferences: UserPreferences = {
-      soundEnabled: typeof updates.soundEnabled === 'boolean'
-        ? updates.soundEnabled
-        : currentPreferences.soundEnabled,
-      soundVolume: typeof updates.soundVolume === 'number' && updates.soundVolume >= 0 && updates.soundVolume <= 100
-        ? updates.soundVolume
-        : currentPreferences.soundVolume,
-      defaultGameMode: updates.defaultGameMode && ['ai', 'hotseat', 'online'].includes(updates.defaultGameMode)
-        ? updates.defaultGameMode
-        : currentPreferences.defaultGameMode,
-      defaultDifficulty: updates.defaultDifficulty && ['beginner', 'intermediate', 'expert', 'perfect'].includes(updates.defaultDifficulty)
-        ? updates.defaultDifficulty
-        : currentPreferences.defaultDifficulty,
-      defaultPlayerColor: updates.defaultPlayerColor === 1 || updates.defaultPlayerColor === 2
-        ? updates.defaultPlayerColor
-        : currentPreferences.defaultPlayerColor,
-      defaultMatchmakingMode: updates.defaultMatchmakingMode && ['ranked', 'casual'].includes(updates.defaultMatchmakingMode)
-        ? updates.defaultMatchmakingMode
-        : currentPreferences.defaultMatchmakingMode,
-      allowSpectators: typeof updates.allowSpectators === 'boolean'
-        ? updates.allowSpectators
-        : currentPreferences.allowSpectators,
-      theme: updates.theme && ['light', 'dark', 'system'].includes(updates.theme)
-        ? updates.theme
-        : currentPreferences.theme,
+      soundEnabled: typeof updates.soundEnabled === 'boolean' ? updates.soundEnabled : currentPreferences.soundEnabled,
+      soundVolume:
+        typeof updates.soundVolume === 'number' && updates.soundVolume >= 0 && updates.soundVolume <= 100
+          ? updates.soundVolume
+          : currentPreferences.soundVolume,
+      defaultGameMode:
+        updates.defaultGameMode && ['ai', 'hotseat', 'online'].includes(updates.defaultGameMode)
+          ? updates.defaultGameMode
+          : currentPreferences.defaultGameMode,
+      defaultDifficulty:
+        updates.defaultDifficulty &&
+        ['beginner', 'intermediate', 'expert', 'perfect'].includes(updates.defaultDifficulty)
+          ? updates.defaultDifficulty
+          : currentPreferences.defaultDifficulty,
+      defaultPlayerColor:
+        updates.defaultPlayerColor === 1 || updates.defaultPlayerColor === 2
+          ? updates.defaultPlayerColor
+          : currentPreferences.defaultPlayerColor,
+      defaultMatchmakingMode:
+        updates.defaultMatchmakingMode && ['ranked', 'casual'].includes(updates.defaultMatchmakingMode)
+          ? updates.defaultMatchmakingMode
+          : currentPreferences.defaultMatchmakingMode,
+      allowSpectators:
+        typeof updates.allowSpectators === 'boolean' ? updates.allowSpectators : currentPreferences.allowSpectators,
+      theme:
+        updates.theme && ['light', 'dark', 'system'].includes(updates.theme) ? updates.theme : currentPreferences.theme,
     }
 
     // Save to database
-    await DB.prepare('UPDATE users SET preferences = ?, updated_at = ? WHERE id = ?')
-      .bind(JSON.stringify(newPreferences), Date.now(), session.userId)
-      .run()
+    await db
+      .update(users)
+      .set({
+        preferences: JSON.stringify(newPreferences),
+        updatedAt: Date.now(),
+      })
+      .where(eq(users.id, session.userId))
 
     return jsonResponse({ preferences: newPreferences })
   } catch (error) {

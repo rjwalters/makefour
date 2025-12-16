@@ -23,6 +23,9 @@ import {
   type AIConfig,
 } from '../../../lib/bot'
 import { z } from 'zod'
+import { createDb } from '../../../../shared/db/client'
+import { users, activeGames, botPersonas, games, ratingHistory, playerBotStats } from '../../../../shared/db/schema'
+import { eq, and } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -115,24 +118,18 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       return errorResponse(session.error, session.status)
     }
 
-    const game = await DB.prepare(`
-      SELECT id, player1_id, player2_id, moves, current_turn, status, mode,
-             winner, player1_rating, player2_rating, last_move_at,
-             time_control_ms, player1_time_ms, player2_time_ms, turn_started_at,
-             is_bot_game, bot_difficulty, bot_persona_id, created_at, updated_at
-      FROM active_games
-      WHERE id = ? AND is_bot_game = 1
-    `)
-      .bind(gameId)
-      .first<ActiveGameRow>()
+    const db = createDb(DB)
+    const game = await db.query.activeGames.findFirst({
+      where: and(eq(activeGames.id, gameId), eq(activeGames.isBotGame, 1)),
+    })
 
     if (!game) {
       return errorResponse('Game not found', 404)
     }
 
     // Verify user is the human player
-    const isPlayer1 = game.player1_id === session.userId
-    const isPlayer2 = game.player2_id === session.userId
+    const isPlayer1 = game.player1Id === session.userId
+    const isPlayer2 = game.player2Id === session.userId
     if (!isPlayer1 && !isPlayer2) {
       return errorResponse('You are not a participant in this game', 403)
     }
@@ -141,28 +138,50 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     const playerNumber = isPlayer1 ? 1 : 2
     const moves = JSON.parse(game.moves) as number[]
     const gameState = moves.length > 0 ? replayMoves(moves) : createGameState()
-    const timeRemaining = calculateTimeRemaining(game, now)
+    const gameRow: ActiveGameRow = {
+      id: game.id,
+      player1_id: game.player1Id,
+      player2_id: game.player2Id,
+      moves: game.moves,
+      current_turn: game.currentTurn,
+      status: game.status,
+      mode: game.mode,
+      winner: game.winner,
+      player1_rating: game.player1Rating,
+      player2_rating: game.player2Rating,
+      last_move_at: game.lastMoveAt,
+      time_control_ms: game.timeControlMs,
+      player1_time_ms: game.player1TimeMs,
+      player2_time_ms: game.player2TimeMs,
+      turn_started_at: game.turnStartedAt,
+      is_bot_game: game.isBotGame,
+      bot_difficulty: game.botDifficulty,
+      bot_persona_id: game.bot1PersonaId,
+      created_at: game.createdAt,
+      updated_at: game.updatedAt,
+    }
+    const timeRemaining = calculateTimeRemaining(gameRow, now)
 
     return jsonResponse({
       id: game.id,
       playerNumber,
-      currentTurn: game.current_turn,
+      currentTurn: game.currentTurn,
       moves,
       board: gameState?.board ?? null,
       status: game.status,
       winner: game.winner,
       mode: game.mode,
-      opponentRating: playerNumber === 1 ? game.player2_rating : game.player1_rating,
-      lastMoveAt: game.last_move_at,
-      createdAt: game.created_at,
-      isYourTurn: game.status === 'active' && game.current_turn === playerNumber,
-      timeControlMs: game.time_control_ms,
+      opponentRating: playerNumber === 1 ? game.player2Rating : game.player1Rating,
+      lastMoveAt: game.lastMoveAt,
+      createdAt: game.createdAt,
+      isYourTurn: game.status === 'active' && game.currentTurn === playerNumber,
+      timeControlMs: game.timeControlMs,
       player1TimeMs: timeRemaining.player1TimeMs,
       player2TimeMs: timeRemaining.player2TimeMs,
-      turnStartedAt: game.turn_started_at,
+      turnStartedAt: game.turnStartedAt,
       isBotGame: true,
-      botDifficulty: game.bot_difficulty,
-      botPersonaId: game.bot_persona_id,
+      botDifficulty: game.botDifficulty,
+      botPersonaId: game.bot1PersonaId,
     })
   } catch (error) {
     console.error('GET /api/bot/game/:id error:', error)
@@ -192,24 +211,18 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     const { column } = parseResult.data
 
-    const game = await DB.prepare(`
-      SELECT id, player1_id, player2_id, moves, current_turn, status, mode,
-             winner, player1_rating, player2_rating, last_move_at,
-             time_control_ms, player1_time_ms, player2_time_ms, turn_started_at,
-             is_bot_game, bot_difficulty, bot_persona_id, created_at, updated_at
-      FROM active_games
-      WHERE id = ? AND is_bot_game = 1
-    `)
-      .bind(gameId)
-      .first<ActiveGameRow>()
+    const db = createDb(DB)
+    const game = await db.query.activeGames.findFirst({
+      where: and(eq(activeGames.id, gameId), eq(activeGames.isBotGame, 1)),
+    })
 
     if (!game) {
       return errorResponse('Game not found', 404)
     }
 
     // Verify user is the human player
-    const isPlayer1 = game.player1_id === session.userId
-    const isPlayer2 = game.player2_id === session.userId
+    const isPlayer1 = game.player1Id === session.userId
+    const isPlayer2 = game.player2Id === session.userId
     if (!isPlayer1 && !isPlayer2) {
       return errorResponse('You are not a participant in this game', 403)
     }
@@ -220,15 +233,17 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     // Look up persona AI config if available
     let personaAIConfig: AIConfig | null = null
-    if (game.bot_persona_id) {
-      const persona = await DB.prepare(`
-        SELECT id, ai_config FROM bot_personas WHERE id = ?
-      `)
-        .bind(game.bot_persona_id)
-        .first<BotPersonaRow>()
+    if (game.bot1PersonaId) {
+      const persona = await db.query.botPersonas.findFirst({
+        where: eq(botPersonas.id, game.bot1PersonaId),
+        columns: {
+          id: true,
+          aiConfig: true,
+        },
+      })
 
       if (persona) {
-        personaAIConfig = JSON.parse(persona.ai_config)
+        personaAIConfig = JSON.parse(persona.aiConfig)
       }
     }
 
@@ -237,16 +252,16 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     const now = Date.now()
 
     // Check it's the human's turn
-    if (game.current_turn !== playerNumber) {
+    if (game.currentTurn !== playerNumber) {
       return errorResponse('Not your turn', 400)
     }
 
     // Time tracking
-    let player1Time = game.player1_time_ms
-    let player2Time = game.player2_time_ms
+    let player1Time = game.player1TimeMs
+    let player2Time = game.player2TimeMs
 
-    if (game.time_control_ms !== null && game.turn_started_at !== null) {
-      const elapsed = now - game.turn_started_at
+    if (game.timeControlMs !== null && game.turnStartedAt !== null) {
+      const elapsed = now - game.turnStartedAt
       const currentPlayerTime = playerNumber === 1 ? player1Time : player2Time
 
       if (currentPlayerTime !== null) {
@@ -256,21 +271,40 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
           // Human ran out of time - bot wins
           const winner = String(botPlayerNumber)
 
-          await DB.prepare(`
-            UPDATE active_games
-            SET status = 'completed', winner = ?,
-                player1_time_ms = ?, player2_time_ms = ?, updated_at = ?
-            WHERE id = ?
-          `).bind(
-            winner,
-            playerNumber === 1 ? 0 : player1Time,
-            playerNumber === 2 ? 0 : player2Time,
-            now,
-            gameId
-          ).run()
+          await db.update(activeGames)
+            .set({
+              status: 'completed',
+              winner,
+              player1TimeMs: playerNumber === 1 ? 0 : player1Time,
+              player2TimeMs: playerNumber === 2 ? 0 : player2Time,
+              updatedAt: now,
+            })
+            .where(eq(activeGames.id, gameId))
 
           // Update user's rating
-          await updateUserRating(DB, session.userId, game, 'loss', now)
+          const gameRow: ActiveGameRow = {
+            id: game.id,
+            player1_id: game.player1Id,
+            player2_id: game.player2Id,
+            moves: game.moves,
+            current_turn: game.currentTurn,
+            status: game.status,
+            mode: game.mode,
+            winner: game.winner,
+            player1_rating: game.player1Rating,
+            player2_rating: game.player2Rating,
+            last_move_at: game.lastMoveAt,
+            time_control_ms: game.timeControlMs,
+            player1_time_ms: game.player1TimeMs,
+            player2_time_ms: game.player2TimeMs,
+            turn_started_at: game.turnStartedAt,
+            is_bot_game: game.isBotGame,
+            bot_difficulty: game.botDifficulty,
+            bot_persona_id: game.bot1PersonaId,
+            created_at: game.createdAt,
+            updated_at: game.updatedAt,
+          }
+          await updateUserRating(db, session.userId, gameRow, 'loss', now)
 
           return errorResponse('Time expired', 400)
         }
@@ -367,26 +401,21 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     // Update the game
-    const turnStartedAt = newStatus === 'active' ? Date.now() : game.turn_started_at
+    const turnStartedAt = newStatus === 'active' ? Date.now() : game.turnStartedAt
 
-    await DB.prepare(`
-      UPDATE active_games
-      SET moves = ?, current_turn = ?, status = ?, winner = ?,
-          last_move_at = ?, updated_at = ?,
-          player1_time_ms = ?, player2_time_ms = ?, turn_started_at = ?
-      WHERE id = ?
-    `).bind(
-      JSON.stringify(newMoves),
-      currentTurn,
-      newStatus,
-      winner,
-      now,
-      now,
-      player1Time,
-      player2Time,
-      turnStartedAt,
-      gameId
-    ).run()
+    await db.update(activeGames)
+      .set({
+        moves: JSON.stringify(newMoves),
+        currentTurn,
+        status: newStatus,
+        winner,
+        lastMoveAt: now,
+        updatedAt: now,
+        player1TimeMs: player1Time,
+        player2TimeMs: player2Time,
+        turnStartedAt,
+      })
+      .where(eq(activeGames.id, gameId))
 
     // Update rating if game completed
     if (newStatus === 'completed') {
@@ -398,7 +427,29 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       } else {
         outcome = 'loss'
       }
-      await updateUserRating(DB, session.userId, game, outcome, now)
+      const gameRow: ActiveGameRow = {
+        id: game.id,
+        player1_id: game.player1Id,
+        player2_id: game.player2Id,
+        moves: game.moves,
+        current_turn: game.currentTurn,
+        status: game.status,
+        mode: game.mode,
+        winner: game.winner,
+        player1_rating: game.player1Rating,
+        player2_rating: game.player2Rating,
+        last_move_at: game.lastMoveAt,
+        time_control_ms: game.timeControlMs,
+        player1_time_ms: game.player1TimeMs,
+        player2_time_ms: game.player2TimeMs,
+        turn_started_at: game.turnStartedAt,
+        is_bot_game: game.isBotGame,
+        bot_difficulty: game.botDifficulty,
+        bot_persona_id: game.bot1PersonaId,
+        created_at: game.createdAt,
+        updated_at: game.updatedAt,
+      }
+      await updateUserRating(db, session.userId, gameRow, outcome, now)
     }
 
     return jsonResponse({
@@ -409,7 +460,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       status: newStatus,
       winner,
       isYourTurn: newStatus === 'active' && currentTurn === playerNumber,
-      timeControlMs: game.time_control_ms,
+      timeControlMs: game.timeControlMs,
       player1TimeMs: player1Time,
       player2TimeMs: player2Time,
       turnStartedAt,
@@ -424,15 +475,19 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
  * Update both human and bot ratings after a bot game
  */
 async function updateUserRating(
-  DB: D1Database,
+  db: ReturnType<typeof createDb>,
   userId: string,
   game: ActiveGameRow,
   outcome: GameOutcome,
   now: number
 ) {
-  const user = await DB.prepare(`
-    SELECT rating, games_played FROM users WHERE id = ?
-  `).bind(userId).first<{ rating: number; games_played: number }>()
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    columns: {
+      rating: true,
+      gamesPlayed: true,
+    },
+  })
 
   if (!user) return
 
@@ -440,32 +495,25 @@ async function updateUserRating(
   const userRating = isPlayer1 ? game.player1_rating : game.player2_rating
   const botRating = isPlayer1 ? game.player2_rating : game.player1_rating
 
-  const result = calculateNewRating(userRating, botRating, outcome, user.games_played)
+  const result = calculateNewRating(userRating, botRating, outcome, user.gamesPlayed)
 
   const gameId = crypto.randomUUID()
   const ratingHistoryId = crypto.randomUUID()
   const moves = JSON.parse(game.moves) as number[]
 
   // Build player_bot_stats update if we have a persona
-  let playerBotStatsStatement: D1PreparedStatement | null = null
   if (game.bot_persona_id) {
     // Get existing stats to calculate streaks
-    const existingStats = await DB.prepare(`
-      SELECT wins, losses, draws, current_streak, best_win_streak, first_win_at
-      FROM player_bot_stats
-      WHERE user_id = ? AND bot_persona_id = ?
-    `).bind(userId, game.bot_persona_id).first<{
-      wins: number
-      losses: number
-      draws: number
-      current_streak: number
-      best_win_streak: number
-      first_win_at: number | null
-    }>()
+    const existingStats = await db.query.playerBotStats.findFirst({
+      where: and(
+        eq(playerBotStats.userId, userId),
+        eq(playerBotStats.botPersonaId, game.bot_persona_id)
+      ),
+    })
 
     if (existingStats) {
       // Update existing record
-      let newStreak = existingStats.current_streak
+      let newStreak = existingStats.currentStreak
       if (outcome === 'win') {
         newStreak = newStreak >= 0 ? newStreak + 1 : 1
       } else if (outcome === 'loss') {
@@ -474,203 +522,167 @@ async function updateUserRating(
         newStreak = 0 // Draw resets streak
       }
 
-      const newBestWinStreak = Math.max(existingStats.best_win_streak, newStreak > 0 ? newStreak : 0)
-      const firstWinAt = outcome === 'win' && !existingStats.first_win_at ? now : existingStats.first_win_at
+      const newBestWinStreak = Math.max(existingStats.bestWinStreak, newStreak > 0 ? newStreak : 0)
+      const firstWinAt = outcome === 'win' && !existingStats.firstWinAt ? now : existingStats.firstWinAt
 
-      playerBotStatsStatement = DB.prepare(`
-        UPDATE player_bot_stats
-        SET wins = wins + ?, losses = losses + ?, draws = draws + ?,
-            current_streak = ?, best_win_streak = ?, first_win_at = ?, last_played_at = ?
-        WHERE user_id = ? AND bot_persona_id = ?
-      `).bind(
-        outcome === 'win' ? 1 : 0,
-        outcome === 'loss' ? 1 : 0,
-        outcome === 'draw' ? 1 : 0,
-        newStreak,
-        newBestWinStreak,
-        firstWinAt,
-        now,
-        userId,
-        game.bot_persona_id
-      )
+      await db.update(playerBotStats)
+        .set({
+          wins: existingStats.wins + (outcome === 'win' ? 1 : 0),
+          losses: existingStats.losses + (outcome === 'loss' ? 1 : 0),
+          draws: existingStats.draws + (outcome === 'draw' ? 1 : 0),
+          currentStreak: newStreak,
+          bestWinStreak: newBestWinStreak,
+          firstWinAt,
+          lastPlayedAt: now,
+        })
+        .where(
+          and(
+            eq(playerBotStats.userId, userId),
+            eq(playerBotStats.botPersonaId, game.bot_persona_id)
+          )
+        )
     } else {
       // Insert new record
       const initialStreak = outcome === 'win' ? 1 : outcome === 'loss' ? -1 : 0
       const firstWinAt = outcome === 'win' ? now : null
 
-      playerBotStatsStatement = DB.prepare(`
-        INSERT INTO player_bot_stats (user_id, bot_persona_id, wins, losses, draws, current_streak, best_win_streak, first_win_at, last_played_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(
+      await db.insert(playerBotStats).values({
         userId,
-        game.bot_persona_id,
-        outcome === 'win' ? 1 : 0,
-        outcome === 'loss' ? 1 : 0,
-        outcome === 'draw' ? 1 : 0,
-        initialStreak,
-        outcome === 'win' ? 1 : 0,
+        botPersonaId: game.bot_persona_id,
+        wins: outcome === 'win' ? 1 : 0,
+        losses: outcome === 'loss' ? 1 : 0,
+        draws: outcome === 'draw' ? 1 : 0,
+        currentStreak: initialStreak,
+        bestWinStreak: outcome === 'win' ? 1 : 0,
         firstWinAt,
-        now
-      )
+        lastPlayedAt: now,
+      })
     }
   }
 
-  // Prepare statements for both human and bot updates
-  const statements: D1PreparedStatement[] = [
-    // Game record for human
-    DB.prepare(`
-      INSERT INTO games (id, user_id, outcome, moves, move_count, rating_change,
-                        opponent_type, ai_difficulty, player_number, bot_persona_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'ai', ?, ?, ?, ?)
-    `).bind(
-      gameId,
-      userId,
-      outcome,
-      JSON.stringify(moves),
-      moves.length,
-      result.ratingChange,
-      game.bot_difficulty,
-      isPlayer1 ? 1 : 2,
-      game.bot_persona_id,
-      now
-    ),
+  // Update human game record and stats
+  await db.insert(games).values({
+    id: gameId,
+    userId,
+    outcome,
+    moves: JSON.stringify(moves),
+    moveCount: moves.length,
+    ratingChange: result.ratingChange,
+    opponentType: 'ai',
+    aiDifficulty: game.bot_difficulty,
+    playerNumber: isPlayer1 ? 1 : 2,
+    botPersonaId: game.bot_persona_id,
+    createdAt: now,
+  })
 
-    // Update human user stats
-    DB.prepare(`
-      UPDATE users SET
-        rating = ?,
-        games_played = games_played + 1,
-        wins = wins + ?,
-        losses = losses + ?,
-        draws = draws + ?,
-        updated_at = ?
-      WHERE id = ?
-    `).bind(
-      result.newRating,
-      outcome === 'win' ? 1 : 0,
-      outcome === 'loss' ? 1 : 0,
-      outcome === 'draw' ? 1 : 0,
-      now,
-      userId
-    ),
+  await db.update(users)
+    .set({
+      rating: result.newRating,
+      gamesPlayed: user.gamesPlayed + 1,
+      wins: user.wins + (outcome === 'win' ? 1 : 0),
+      losses: user.losses + (outcome === 'loss' ? 1 : 0),
+      draws: user.draws + (outcome === 'draw' ? 1 : 0),
+      updatedAt: now,
+    })
+    .where(eq(users.id, userId))
 
-    // Rating history for human
-    DB.prepare(`
-      INSERT INTO rating_history (id, user_id, game_id, rating_before, rating_after, rating_change, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      ratingHistoryId,
-      userId,
-      gameId,
-      userRating,
-      result.newRating,
-      result.ratingChange,
-      now
-    ),
-  ]
+  await db.insert(ratingHistory).values({
+    id: ratingHistoryId,
+    userId,
+    gameId,
+    ratingBefore: userRating,
+    ratingAfter: result.newRating,
+    ratingChange: result.ratingChange,
+    createdAt: now,
+  })
 
   // Update bot's rating if this is a real bot user (not legacy bot-opponent)
   const botUserId = getBotUserId(game)
   if (botUserId && botUserId !== 'bot-opponent') {
     // Get bot's current stats for K-factor calculation
-    const botUser = await DB.prepare(`
-      SELECT rating, games_played FROM users WHERE id = ? AND is_bot = 1
-    `).bind(botUserId).first<{ rating: number; games_played: number }>()
+    const botUser = await db.query.users.findFirst({
+      where: and(eq(users.id, botUserId), eq(users.isBot, 1)),
+      columns: {
+        rating: true,
+        gamesPlayed: true,
+        wins: true,
+        losses: true,
+        draws: true,
+      },
+    })
 
     if (botUser) {
       // Calculate bot's rating change (opposite outcome)
       const botOutcome: GameOutcome = outcome === 'win' ? 'loss' : outcome === 'loss' ? 'win' : 'draw'
-      const botResult = calculateNewRating(botRating, userRating, botOutcome, botUser.games_played)
+      const botResult = calculateNewRating(botRating, userRating, botOutcome, botUser.gamesPlayed)
 
       const botGameId = crypto.randomUUID()
       const botRatingHistoryId = crypto.randomUUID()
 
       // Game record for bot
-      statements.push(
-        DB.prepare(`
-          INSERT INTO games (id, user_id, outcome, moves, move_count, rating_change,
-                            opponent_type, player_number, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, 'human', ?, ?)
-        `).bind(
-          botGameId,
-          botUserId,
-          botOutcome,
-          JSON.stringify(moves),
-          moves.length,
-          botResult.ratingChange,
-          isPlayer1 ? 2 : 1, // Bot's player number is opposite of human's
-          now
-        )
-      )
+      await db.insert(games).values({
+        id: botGameId,
+        userId: botUserId,
+        outcome: botOutcome,
+        moves: JSON.stringify(moves),
+        moveCount: moves.length,
+        ratingChange: botResult.ratingChange,
+        opponentType: 'human',
+        opponentId: userId,
+        playerNumber: isPlayer1 ? 2 : 1,
+        createdAt: now,
+      })
 
       // Update bot user stats
-      statements.push(
-        DB.prepare(`
-          UPDATE users SET
-            rating = ?,
-            games_played = games_played + 1,
-            wins = wins + ?,
-            losses = losses + ?,
-            draws = draws + ?,
-            updated_at = ?
-          WHERE id = ? AND is_bot = 1
-        `).bind(
-          botResult.newRating,
-          botOutcome === 'win' ? 1 : 0,
-          botOutcome === 'loss' ? 1 : 0,
-          botOutcome === 'draw' ? 1 : 0,
-          now,
-          botUserId
-        )
-      )
+      await db.update(users)
+        .set({
+          rating: botResult.newRating,
+          gamesPlayed: botUser.gamesPlayed + 1,
+          wins: botUser.wins + (botOutcome === 'win' ? 1 : 0),
+          losses: botUser.losses + (botOutcome === 'loss' ? 1 : 0),
+          draws: botUser.draws + (botOutcome === 'draw' ? 1 : 0),
+          updatedAt: now,
+        })
+        .where(and(eq(users.id, botUserId), eq(users.isBot, 1)))
 
       // Rating history for bot
-      statements.push(
-        DB.prepare(`
-          INSERT INTO rating_history (id, user_id, game_id, rating_before, rating_after, rating_change, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).bind(
-          botRatingHistoryId,
-          botUserId,
-          botGameId,
-          botRating,
-          botResult.newRating,
-          botResult.ratingChange,
-          now
-        )
-      )
+      await db.insert(ratingHistory).values({
+        id: botRatingHistoryId,
+        userId: botUserId,
+        gameId: botGameId,
+        ratingBefore: botRating,
+        ratingAfter: botResult.newRating,
+        ratingChange: botResult.ratingChange,
+        createdAt: now,
+      })
 
       // Also update bot_personas table to keep it in sync
       if (game.bot_persona_id) {
-        statements.push(
-          DB.prepare(`
-            UPDATE bot_personas SET
-              current_elo = ?,
-              games_played = games_played + 1,
-              wins = wins + ?,
-              losses = losses + ?,
-              draws = draws + ?,
-              updated_at = ?
-            WHERE id = ?
-          `).bind(
-            botResult.newRating,
-            botOutcome === 'win' ? 1 : 0,
-            botOutcome === 'loss' ? 1 : 0,
-            botOutcome === 'draw' ? 1 : 0,
-            now,
-            game.bot_persona_id
-          )
-        )
+        const persona = await db.query.botPersonas.findFirst({
+          where: eq(botPersonas.id, game.bot_persona_id),
+          columns: {
+            gamesPlayed: true,
+            wins: true,
+            losses: true,
+            draws: true,
+          },
+        })
+
+        if (persona) {
+          await db.update(botPersonas)
+            .set({
+              currentElo: botResult.newRating,
+              gamesPlayed: persona.gamesPlayed + 1,
+              wins: persona.wins + (botOutcome === 'win' ? 1 : 0),
+              losses: persona.losses + (botOutcome === 'loss' ? 1 : 0),
+              draws: persona.draws + (botOutcome === 'draw' ? 1 : 0),
+              updatedAt: now,
+            })
+            .where(eq(botPersonas.id, game.bot_persona_id))
+        }
       }
     }
   }
-
-  // Add player_bot_stats update if we have one
-  if (playerBotStatsStatement) {
-    statements.push(playerBotStatsStatement)
-  }
-
-  await DB.batch(statements)
 }
 
 export async function onRequestOptions() {

@@ -2,6 +2,9 @@ import { z } from 'zod'
 import { validateForgotPasswordRequest, formatZodError } from '../../lib/schemas'
 import { errorResponse, jsonResponse } from '../../lib/auth'
 import { sendEmail, generatePasswordResetEmail } from '../../lib/email'
+import { createDb } from '../../../shared/db/client'
+import { users, passwordResetTokens } from '../../../shared/db/schema'
+import { eq, and } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -25,6 +28,7 @@ const TOKEN_EXPIRY_MS = 60 * 60 * 1000 // 1 hour
  */
 export async function onRequestPost(context: EventContext<Env, any, any>) {
   const { DB } = context.env
+  const db = createDb(DB)
   const appUrl = context.env.APP_URL || 'http://localhost:5173'
 
   try {
@@ -58,9 +62,14 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     })
 
     // Find user by email
-    const user = await DB.prepare('SELECT id, password_hash, oauth_provider FROM users WHERE email = ?')
-      .bind(normalizedEmail)
-      .first<{ id: string; password_hash: string | null; oauth_provider: string | null }>()
+    const user = await db.query.users.findFirst({
+      where: eq(users.email, normalizedEmail),
+      columns: {
+        id: true,
+        passwordHash: true,
+        oauthProvider: true,
+      },
+    })
 
     // If user doesn't exist, return success anyway (security)
     if (!user) {
@@ -68,7 +77,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     // If user uses OAuth only (no password), they can't reset password
-    if (user.oauth_provider && !user.password_hash) {
+    if (user.oauthProvider && !user.passwordHash) {
       // Still return success to prevent enumeration
       // User will need to use their OAuth provider to manage their account
       console.log(`Password reset requested for OAuth-only user: ${normalizedEmail}`)
@@ -76,9 +85,11 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     // Delete any existing unused reset tokens for this user
-    await DB.prepare(
-      'DELETE FROM password_reset_tokens WHERE user_id = ? AND used = 0'
-    ).bind(user.id).run()
+    await db.delete(passwordResetTokens)
+      .where(and(
+        eq(passwordResetTokens.userId, user.id),
+        eq(passwordResetTokens.used, 0)
+      ))
 
     // Generate new token
     const tokenId = crypto.randomUUID()
@@ -86,9 +97,13 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     const expiresAt = now + TOKEN_EXPIRY_MS
 
     // Insert reset token
-    await DB.prepare(
-      'INSERT INTO password_reset_tokens (id, user_id, expires_at, used, created_at) VALUES (?, ?, ?, 0, ?)'
-    ).bind(tokenId, user.id, expiresAt, now).run()
+    await db.insert(passwordResetTokens).values({
+      id: tokenId,
+      userId: user.id,
+      expiresAt,
+      used: 0,
+      createdAt: now,
+    })
 
     // Generate reset URL
     const resetUrl = `${appUrl}/reset-password?token=${tokenId}`

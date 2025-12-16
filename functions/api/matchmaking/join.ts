@@ -4,6 +4,9 @@
 
 import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
 import { z } from 'zod'
+import { createDb } from '../../../shared/db/client'
+import { users, matchmakingQueue, activeGames } from '../../../shared/db/schema'
+import { eq, and, or } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -13,24 +16,6 @@ const joinQueueSchema = z.object({
   mode: z.enum(['ranked', 'casual']).default('ranked'),
   spectatable: z.boolean().default(true),
 })
-
-interface UserRow {
-  id: string
-  rating: number
-  email_verified: number
-}
-
-interface QueueEntry {
-  id: string
-  user_id: string
-  rating: number
-  mode: string
-  joined_at: number
-}
-
-interface ActiveGameRow {
-  id: string
-}
 
 export async function onRequestPost(context: EventContext<Env, any, any>) {
   const { DB } = context.env
@@ -50,44 +35,46 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     const { mode, spectatable } = parseResult.data
+    const db = createDb(DB)
 
     // Check if user is already in an active game
-    const activeGame = await DB.prepare(`
-      SELECT id FROM active_games
-      WHERE (player1_id = ? OR player2_id = ?)
-      AND status = 'active'
-    `)
-      .bind(session.userId, session.userId)
-      .first<ActiveGameRow>()
+    const activeGame = await db.query.activeGames.findFirst({
+      where: and(
+        or(
+          eq(activeGames.player1Id, session.userId),
+          eq(activeGames.player2Id, session.userId)
+        ),
+        eq(activeGames.status, 'active')
+      ),
+      columns: { id: true }
+    })
 
     if (activeGame) {
       return errorResponse('You are already in an active game', 409)
     }
 
     // Check if user is already in queue
-    const existingEntry = await DB.prepare(`
-      SELECT id FROM matchmaking_queue WHERE user_id = ?
-    `)
-      .bind(session.userId)
-      .first<QueueEntry>()
+    const existingEntry = await db.query.matchmakingQueue.findFirst({
+      where: eq(matchmakingQueue.userId, session.userId),
+      columns: { id: true }
+    })
 
     if (existingEntry) {
       return errorResponse('Already in matchmaking queue', 409)
     }
 
     // Get user's current rating and verification status
-    const user = await DB.prepare(`
-      SELECT id, rating, email_verified FROM users WHERE id = ?
-    `)
-      .bind(session.userId)
-      .first<UserRow>()
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, session.userId),
+      columns: { id: true, rating: true, emailVerified: true }
+    })
 
     if (!user) {
       return errorResponse('User not found', 404)
     }
 
     // Require email verification for online matchmaking
-    if (user.email_verified !== 1) {
+    if (user.emailVerified !== 1) {
       return errorResponse(
         'Email verification required for online matchmaking. Please verify your email first.',
         403
@@ -98,10 +85,15 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     const queueId = crypto.randomUUID()
     const now = Date.now()
 
-    await DB.prepare(`
-      INSERT INTO matchmaking_queue (id, user_id, rating, mode, initial_tolerance, spectatable, joined_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).bind(queueId, session.userId, user.rating, mode, 100, spectatable ? 1 : 0, now).run()
+    await db.insert(matchmakingQueue).values({
+      id: queueId,
+      userId: session.userId,
+      rating: user.rating,
+      mode,
+      initialTolerance: 100,
+      spectatable: spectatable ? 1 : 0,
+      joinedAt: now,
+    })
 
     return jsonResponse({
       status: 'queued',

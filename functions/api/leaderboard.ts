@@ -4,6 +4,9 @@
  * GET /api/leaderboard - Get top players by ELO rating
  */
 
+import { eq, and, or, gt, desc, asc, inArray, count, sql } from 'drizzle-orm'
+import { createDb } from '../../shared/db/client'
+import { users, botPersonas } from '../../shared/db/schema'
 import { jsonResponse, errorResponse, validateSession } from '../lib/auth'
 
 interface Env {
@@ -41,6 +44,7 @@ interface BotPersonaInfo {
  */
 export async function onRequestGet(context: EventContext<Env, any, any>) {
   const { DB } = context.env
+  const db = createDb(DB)
 
   try {
     // Get query params for pagination and filtering
@@ -49,39 +53,57 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     const offset = parseInt(url.searchParams.get('offset') || '0')
     const includeBots = url.searchParams.get('includeBots') !== 'false' // default true
 
-    // Build WHERE clause based on whether to include bots
-    const whereClause = includeBots
-      ? `WHERE games_played > 0 AND (email_verified = 1 OR is_bot = 1)`
-      : `WHERE games_played > 0 AND email_verified = 1 AND is_bot = 0`
+    // Build WHERE condition based on whether to include bots
+    const whereCondition = includeBots
+      ? and(
+          gt(users.gamesPlayed, 0),
+          or(eq(users.emailVerified, 1), eq(users.isBot, 1))
+        )
+      : and(
+          gt(users.gamesPlayed, 0),
+          eq(users.emailVerified, 1),
+          eq(users.isBot, 0)
+        )
 
     // Fetch top players by rating (verified users and optionally bots who have played at least 1 game)
-    const players = await DB.prepare(`
-      SELECT u.id, u.email, u.username, u.rating, u.games_played, u.wins, u.losses, u.draws,
-             u.is_bot, u.bot_persona_id
-      FROM users u
-      ${whereClause}
-      ORDER BY u.rating DESC, u.wins DESC
-      LIMIT ? OFFSET ?
-    `)
-      .bind(limit, offset)
-      .all<LeaderboardRow>()
+    const players = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        username: users.username,
+        rating: users.rating,
+        games_played: users.gamesPlayed,
+        wins: users.wins,
+        losses: users.losses,
+        draws: users.draws,
+        is_bot: users.isBot,
+        bot_persona_id: users.botPersonaId,
+      })
+      .from(users)
+      .where(whereCondition)
+      .orderBy(desc(users.rating), desc(users.wins))
+      .limit(limit)
+      .offset(offset)
 
     // Get bot persona info for bots in the results
-    const botPersonaIds = players.results
+    const botPersonaIds = players
       .filter(p => p.is_bot && p.bot_persona_id)
-      .map(p => p.bot_persona_id)
+      .map(p => p.bot_persona_id!)
 
     // Fetch bot persona details if there are bots
     const botPersonaMap = new Map<string, BotPersonaInfo>()
     if (botPersonaIds.length > 0) {
-      const placeholders = botPersonaIds.map(() => '?').join(',')
-      const personas = await DB.prepare(`
-        SELECT id, name, description, avatar_url FROM bot_personas WHERE id IN (${placeholders})
-      `)
-        .bind(...botPersonaIds)
-        .all<{ id: string; name: string; description: string; avatar_url: string | null }>()
+      const personas = await db
+        .select({
+          id: botPersonas.id,
+          name: botPersonas.name,
+          description: botPersonas.description,
+          avatar_url: botPersonas.avatarUrl,
+        })
+        .from(botPersonas)
+        .where(inArray(botPersonas.id, botPersonaIds))
 
-      for (const persona of personas.results) {
+      for (const persona of personas) {
         botPersonaMap.set(persona.id, {
           name: persona.name,
           description: persona.description,
@@ -91,14 +113,15 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     }
 
     // Get total count for pagination
-    const countResult = await DB.prepare(`
-      SELECT COUNT(*) as count FROM users ${whereClause}
-    `).first<{ count: number }>()
+    const countResult = await db
+      .select({ count: count() })
+      .from(users)
+      .where(whereCondition)
 
-    const total = countResult?.count || 0
+    const total = countResult[0]?.count || 0
 
     // Map to public leaderboard entries
-    const leaderboard = players.results.map((player, index) => {
+    const leaderboard = players.map((player, index) => {
       const isBot = player.is_bot === 1
       const personaInfo = player.bot_persona_id ? botPersonaMap.get(player.bot_persona_id) : null
 
@@ -140,34 +163,48 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 
       if (!userInList) {
         // Get user's data and calculate global rank (always includes bots)
-        const userRow = await DB.prepare(`
-          SELECT u.id, u.email, u.username, u.rating, u.games_played, u.wins, u.losses, u.draws,
-                 u.is_bot, u.bot_persona_id
-          FROM users u
-          WHERE u.id = ? AND u.games_played > 0 AND (u.email_verified = 1 OR u.is_bot = 1)
-        `)
-          .bind(userId)
-          .first<LeaderboardRow>()
+        const userRow = await db.query.users.findFirst({
+          columns: {
+            id: true,
+            email: true,
+            username: true,
+            rating: true,
+            gamesPlayed: true,
+            wins: true,
+            losses: true,
+            draws: true,
+            isBot: true,
+            botPersonaId: true,
+          },
+          where: and(
+            eq(users.id, userId),
+            gt(users.gamesPlayed, 0),
+            or(eq(users.emailVerified, 1), eq(users.isBot, 1))
+          ),
+        })
 
         if (userRow) {
           // Calculate global rank (always includes bots for consistent ranking)
-          const rankResult = await DB.prepare(`
-            SELECT COUNT(*) + 1 as rank
-            FROM users
-            WHERE rating > ?
-              AND games_played > 0
-              AND (email_verified = 1 OR is_bot = 1)
-          `)
-            .bind(userRow.rating)
-            .first<{ rank: number }>()
+          const rankResult = await db
+            .select({
+              rank: sql<number>`COUNT(*) + 1`,
+            })
+            .from(users)
+            .where(
+              and(
+                gt(users.rating, userRow.rating),
+                gt(users.gamesPlayed, 0),
+                or(eq(users.emailVerified, 1), eq(users.isBot, 1))
+              )
+            )
 
-          const userRank = rankResult?.rank || 1
+          const userRank = rankResult[0]?.rank || 1
 
           // Only include currentUser if they're outside the displayed range
           if (userRank > 50) {
-            const isBot = userRow.is_bot === 1
-            const personaInfo = userRow.bot_persona_id
-              ? botPersonaMap.get(userRow.bot_persona_id)
+            const isBot = userRow.isBot === 1
+            const personaInfo = userRow.botPersonaId
+              ? botPersonaMap.get(userRow.botPersonaId)
               : null
 
             currentUser = {
@@ -179,16 +216,16 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
                   ? personaInfo.name
                   : userRow.username || userRow.email.split('@')[0],
                 rating: userRow.rating,
-                gamesPlayed: userRow.games_played,
+                gamesPlayed: userRow.gamesPlayed,
                 wins: userRow.wins,
                 losses: userRow.losses,
                 draws: userRow.draws,
                 winRate:
-                  userRow.games_played > 0
-                    ? Math.round((userRow.wins / userRow.games_played) * 100)
+                  userRow.gamesPlayed > 0
+                    ? Math.round((userRow.wins / userRow.gamesPlayed) * 100)
                     : 0,
                 isBot,
-                botPersonaId: isBot ? userRow.bot_persona_id : null,
+                botPersonaId: isBot ? userRow.botPersonaId : null,
                 botDescription: isBot && personaInfo ? personaInfo.description : null,
               },
             }

@@ -5,6 +5,9 @@
  */
 
 import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
+import { createDb } from '../../../shared/db/client'
+import { games } from '../../../shared/db/schema'
+import { eq, and } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -27,6 +30,7 @@ interface GameRow {
  */
 export async function onRequestGet(context: EventContext<Env, any, { id: string }>) {
   const { DB } = context.env
+  const db = createDb(DB)
   const { id: gameId } = context.params
 
   try {
@@ -36,13 +40,9 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
     }
 
     // Fetch the game (only if it belongs to the user)
-    const game = await DB.prepare(`
-      SELECT id, outcome, moves, move_count, opponent_type, ai_difficulty, player_number, created_at
-      FROM games
-      WHERE id = ? AND user_id = ?
-    `)
-      .bind(gameId, session.userId)
-      .first<GameRow>()
+    const game = await db.query.games.findFirst({
+      where: and(eq(games.id, gameId), eq(games.userId, session.userId)),
+    })
 
     if (!game) {
       return errorResponse('Game not found', 404)
@@ -52,11 +52,11 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
       id: game.id,
       outcome: game.outcome,
       moves: JSON.parse(game.moves),
-      moveCount: game.move_count,
-      opponentType: game.opponent_type,
-      aiDifficulty: game.ai_difficulty,
-      playerNumber: game.player_number,
-      createdAt: game.created_at,
+      moveCount: game.moveCount,
+      opponentType: game.opponentType,
+      aiDifficulty: game.aiDifficulty,
+      playerNumber: game.playerNumber,
+      createdAt: game.createdAt,
     })
   } catch (error) {
     console.error('GET /api/games/:id error:', error)

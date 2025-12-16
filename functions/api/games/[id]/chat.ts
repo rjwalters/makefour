@@ -8,6 +8,9 @@
  */
 
 import { jsonResponse } from '../../../lib/auth'
+import { createDb } from '../../../../shared/db/client'
+import { activeGames, gameMessages, botPersonas } from '../../../../shared/db/schema'
+import { eq, and, gt, asc } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
@@ -56,6 +59,7 @@ export interface SpectatorChatMessage {
  */
 export async function onRequestGet(context: EventContext<Env, any, { id: string }>) {
   const { DB } = context.env
+  const db = createDb(DB)
   const gameId = context.params.id
   const url = new URL(context.request.url)
 
@@ -64,13 +68,17 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
 
   try {
     // Get the game to verify it's spectatable
-    const game = await DB.prepare(`
-      SELECT id, spectatable, status, is_bot_vs_bot, bot1_persona_id, bot2_persona_id
-      FROM active_games
-      WHERE id = ?
-    `)
-      .bind(gameId)
-      .first<ActiveGameRow>()
+    const game = await db.query.activeGames.findFirst({
+      where: eq(activeGames.id, gameId),
+      columns: {
+        id: true,
+        spectatable: true,
+        status: true,
+        isBotVsBot: true,
+        bot1PersonaId: true,
+        bot2PersonaId: true,
+      },
+    })
 
     if (!game) {
       return jsonResponse({ error: 'Game not found' }, { status: 404 })
@@ -83,43 +91,41 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
     // Get bot persona names for resolving sender names
     const botNames: Record<string, string> = {}
 
-    if (game.is_bot_vs_bot === 1) {
-      if (game.bot1_persona_id) {
-        const bot1 = await DB.prepare('SELECT id, name FROM bot_personas WHERE id = ?')
-          .bind(game.bot1_persona_id)
-          .first<BotPersonaRow>()
+    if (game.isBotVsBot === 1) {
+      if (game.bot1PersonaId) {
+        const bot1 = await db.query.botPersonas.findFirst({
+          where: eq(botPersonas.id, game.bot1PersonaId),
+          columns: { id: true, name: true },
+        })
         if (bot1) {
-          botNames[`bot_${game.bot1_persona_id}`] = bot1.name
+          botNames[`bot_${game.bot1PersonaId}`] = bot1.name
         }
       }
-      if (game.bot2_persona_id) {
-        const bot2 = await DB.prepare('SELECT id, name FROM bot_personas WHERE id = ?')
-          .bind(game.bot2_persona_id)
-          .first<BotPersonaRow>()
+      if (game.bot2PersonaId) {
+        const bot2 = await db.query.botPersonas.findFirst({
+          where: eq(botPersonas.id, game.bot2PersonaId),
+          columns: { id: true, name: true },
+        })
         if (bot2) {
-          botNames[`bot_${game.bot2_persona_id}`] = bot2.name
+          botNames[`bot_${game.bot2PersonaId}`] = bot2.name
         }
       }
     }
 
     // Get messages
-    const messages = await DB.prepare(`
-      SELECT id, game_id, sender_id, sender_type, content, created_at
-      FROM game_messages
-      WHERE game_id = ? AND created_at > ?
-      ORDER BY created_at ASC
-      LIMIT ?
-    `)
-      .bind(gameId, since, limit)
-      .all<GameMessageRow>()
+    const messages = await db.query.gameMessages.findMany({
+      where: and(eq(gameMessages.gameId, gameId), gt(gameMessages.createdAt, since)),
+      orderBy: asc(gameMessages.createdAt),
+      limit,
+    })
 
     // Transform messages with resolved sender names
-    const chatMessages: SpectatorChatMessage[] = (messages.results || []).map((msg) => {
+    const chatMessages: SpectatorChatMessage[] = messages.map((msg) => {
       let senderName = 'Player'
 
-      if (msg.sender_type === 'bot') {
+      if (msg.senderType === 'bot') {
         // Check if we have a bot name for this sender
-        senderName = botNames[msg.sender_id] || 'Bot'
+        senderName = botNames[msg.senderId] || 'Bot'
       } else {
         // For human players, use a generic name for privacy
         senderName = 'Player'
@@ -128,9 +134,9 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
       return {
         id: msg.id,
         senderName,
-        senderType: msg.sender_type,
+        senderType: msg.senderType as 'human' | 'bot',
         content: msg.content,
-        createdAt: msg.created_at,
+        createdAt: msg.createdAt,
       }
     })
 

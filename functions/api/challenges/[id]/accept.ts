@@ -3,33 +3,12 @@
  */
 
 import { validateSession, errorResponse, jsonResponse } from '../../../lib/auth'
+import { createDb } from '../../../../shared/db/client'
+import { users, challenges, activeGames } from '../../../../shared/db/schema'
+import { eq, and, or, lt, sql } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
-}
-
-interface UserRow {
-  id: string
-  email: string
-  username: string | null
-  rating: number
-}
-
-interface ChallengeRow {
-  id: string
-  challenger_id: string
-  challenger_username: string
-  challenger_rating: number
-  target_id: string | null
-  target_username: string
-  target_rating: number | null
-  status: string
-  created_at: number
-  expires_at: number
-}
-
-interface ActiveGameRow {
-  id: string
 }
 
 // Get display name from user: prefer username, fall back to email prefix
@@ -47,16 +26,13 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse(session.error, session.status)
     }
 
+    const db = createDb(DB)
     const now = Date.now()
 
     // Get the challenge
-    const challenge = await DB.prepare(`
-      SELECT id, challenger_id, challenger_username, challenger_rating,
-             target_id, target_username, target_rating, status, created_at, expires_at
-      FROM challenges WHERE id = ?
-    `)
-      .bind(challengeId)
-      .first<ChallengeRow>()
+    const challenge = await db.query.challenges.findFirst({
+      where: eq(challenges.id, challengeId)
+    })
 
     if (!challenge) {
       return errorResponse('Challenge not found', 404)
@@ -66,19 +42,18 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse(`Challenge is ${challenge.status}`, 400)
     }
 
-    if (challenge.expires_at < now) {
-      await DB.prepare(`UPDATE challenges SET status = 'expired' WHERE id = ?`)
-        .bind(challengeId)
-        .run()
+    if (challenge.expiresAt < now) {
+      await db.update(challenges)
+        .set({ status: 'expired' })
+        .where(eq(challenges.id, challengeId))
       return errorResponse('Challenge has expired', 400)
     }
 
     // Get acceptor info
-    const acceptor = await DB.prepare(`
-      SELECT id, email, username, rating FROM users WHERE id = ?
-    `)
-      .bind(session.userId)
-      .first<UserRow>()
+    const acceptor = await db.query.users.findFirst({
+      where: eq(users.id, session.userId),
+      columns: { id: true, email: true, username: true, rating: true }
+    })
 
     if (!acceptor) {
       return errorResponse('User not found', 404)
@@ -88,39 +63,45 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     // Verify the acceptor is the target
     if (
-      challenge.target_id !== session.userId &&
-      challenge.target_username.toLowerCase() !== acceptorDisplayName
+      challenge.targetId !== session.userId &&
+      challenge.targetUsername.toLowerCase() !== acceptorDisplayName
     ) {
       return errorResponse('You are not the target of this challenge', 403)
     }
 
     // Check if acceptor is already in a game
-    const activeGame = await DB.prepare(`
-      SELECT id FROM active_games
-      WHERE (player1_id = ? OR player2_id = ?)
-      AND status = 'active'
-    `)
-      .bind(session.userId, session.userId)
-      .first<ActiveGameRow>()
+    const activeGame = await db.query.activeGames.findFirst({
+      where: and(
+        or(
+          eq(activeGames.player1Id, session.userId),
+          eq(activeGames.player2Id, session.userId)
+        ),
+        eq(activeGames.status, 'active')
+      ),
+      columns: { id: true }
+    })
 
     if (activeGame) {
       return errorResponse('You are already in an active game', 409)
     }
 
     // Check if challenger is already in a game
-    const challengerActiveGame = await DB.prepare(`
-      SELECT id FROM active_games
-      WHERE (player1_id = ? OR player2_id = ?)
-      AND status = 'active'
-    `)
-      .bind(challenge.challenger_id, challenge.challenger_id)
-      .first<ActiveGameRow>()
+    const challengerActiveGame = await db.query.activeGames.findFirst({
+      where: and(
+        or(
+          eq(activeGames.player1Id, challenge.challengerId),
+          eq(activeGames.player2Id, challenge.challengerId)
+        ),
+        eq(activeGames.status, 'active')
+      ),
+      columns: { id: true }
+    })
 
     if (challengerActiveGame) {
       // Cancel the challenge - challenger is busy
-      await DB.prepare(`UPDATE challenges SET status = 'cancelled' WHERE id = ?`)
-        .bind(challengeId)
-        .run()
+      await db.update(challenges)
+        .set({ status: 'cancelled' })
+        .where(eq(challenges.id, challengeId))
       return errorResponse('Challenger is already in a game', 409)
     }
 
@@ -128,42 +109,43 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     const gameId = crypto.randomUUID()
     const TIME_CONTROL_MS = 300000 // 5 minutes
 
-    await DB.prepare(`
-      INSERT INTO active_games (
-        id, player1_id, player2_id, moves, current_turn, status, mode,
-        player1_rating, player2_rating, spectatable, last_move_at,
-        time_control_ms, player1_time_ms, player2_time_ms, turn_started_at,
-        created_at, updated_at
-      )
-      VALUES (?, ?, ?, '[]', 1, 'active', 'ranked', ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      gameId,
-      challenge.challenger_id, // Challenger is player 1 (red)
-      session.userId, // Acceptor is player 2 (yellow)
-      challenge.challenger_rating,
-      acceptor.rating,
-      now,
-      TIME_CONTROL_MS,
-      TIME_CONTROL_MS,
-      TIME_CONTROL_MS,
-      now,
-      now,
-      now
-    ).run()
+    await db.insert(activeGames).values({
+      id: gameId,
+      player1Id: challenge.challengerId, // Challenger is player 1 (red)
+      player2Id: session.userId, // Acceptor is player 2 (yellow)
+      moves: '[]',
+      currentTurn: 1,
+      status: 'active',
+      mode: 'ranked',
+      player1Rating: challenge.challengerRating,
+      player2Rating: acceptor.rating,
+      spectatable: 1,
+      lastMoveAt: now,
+      timeControlMs: TIME_CONTROL_MS,
+      player1TimeMs: TIME_CONTROL_MS,
+      player2TimeMs: TIME_CONTROL_MS,
+      turnStartedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    })
 
     // Update challenge status
-    await DB.prepare(`
-      UPDATE challenges SET status = 'accepted', game_id = ?, target_id = ?, target_rating = ?
-      WHERE id = ?
-    `).bind(gameId, session.userId, acceptor.rating, challengeId).run()
+    await db.update(challenges)
+      .set({
+        status: 'accepted',
+        gameId,
+        targetId: session.userId,
+        targetRating: acceptor.rating,
+      })
+      .where(eq(challenges.id, challengeId))
 
     return jsonResponse({
       status: 'accepted',
       gameId,
       playerNumber: 2, // Acceptor is always player 2
       opponent: {
-        username: challenge.challenger_username,
-        rating: challenge.challenger_rating,
+        username: challenge.challengerUsername,
+        rating: challenge.challengerRating,
       },
     })
   } catch (error) {

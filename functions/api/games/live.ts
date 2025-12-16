@@ -4,6 +4,9 @@
  * GET /api/games/live - Get list of active spectatable games
  */
 
+import { eq, and, gte, lte, desc, count, sql } from 'drizzle-orm'
+import { createDb } from '../../../shared/db/client'
+import { activeGames, users, botPersonas } from '../../../shared/db/schema'
 import { jsonResponse } from '../../lib/auth'
 
 interface Env {
@@ -73,6 +76,7 @@ export interface LiveGame {
  */
 export async function onRequestGet(context: EventContext<Env, any, any>) {
   const { DB } = context.env
+  const db = createDb(DB)
   const url = new URL(context.request.url)
 
   // Parse query parameters
@@ -84,74 +88,77 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 
   try {
     // Build query with optional filters
-    let whereClause = 'ag.status = ? AND ag.spectatable = 1'
-    const params: (string | number)[] = ['active']
+    const conditions = [eq(activeGames.status, 'active'), eq(activeGames.spectatable, 1)]
 
     if (minRating) {
-      whereClause += ' AND (ag.player1_rating + ag.player2_rating) / 2 >= ?'
-      params.push(parseInt(minRating))
+      conditions.push(
+        gte(sql`(${activeGames.player1Rating} + ${activeGames.player2Rating}) / 2`, parseInt(minRating))
+      )
     }
 
     if (maxRating) {
-      whereClause += ' AND (ag.player1_rating + ag.player2_rating) / 2 <= ?'
-      params.push(parseInt(maxRating))
+      conditions.push(
+        lte(sql`(${activeGames.player1Rating} + ${activeGames.player2Rating}) / 2`, parseInt(maxRating))
+      )
     }
 
     if (mode && (mode === 'ranked' || mode === 'casual')) {
-      whereClause += ' AND ag.mode = ?'
-      params.push(mode)
+      conditions.push(eq(activeGames.mode, mode))
     }
 
-    // Get total count for pagination
-    const countResult = await DB.prepare(`
-      SELECT COUNT(*) as total
-      FROM active_games ag
-      WHERE ${whereClause}
-    `)
-      .bind(...params)
-      .first<{ total: number }>()
+    const whereCondition = and(...conditions)
 
-    const total = countResult?.total ?? 0
+    // Get total count for pagination
+    const countResult = await db
+      .select({ total: count() })
+      .from(activeGames)
+      .where(whereCondition)
+
+    const total = countResult[0]?.total ?? 0
 
     // Get games with player info (including bot vs bot games)
-    const games = await DB.prepare(`
-      SELECT
-        ag.id,
-        ag.player1_id,
-        ag.player2_id,
-        ag.moves,
-        ag.current_turn,
-        ag.status,
-        ag.mode,
-        ag.player1_rating,
-        ag.player2_rating,
-        ag.spectator_count,
-        ag.created_at,
-        ag.updated_at,
-        u1.email as player1_email,
-        u2.email as player2_email,
-        u1.username as player1_username,
-        u2.username as player2_username,
-        ag.is_bot_vs_bot,
-        ag.bot1_persona_id,
-        ag.bot2_persona_id,
-        bp1.name as bot1_name,
-        bp2.name as bot2_name,
-        ag.next_move_at
-      FROM active_games ag
-      JOIN users u1 ON ag.player1_id = u1.id
-      JOIN users u2 ON ag.player2_id = u2.id
-      LEFT JOIN bot_personas bp1 ON ag.bot1_persona_id = bp1.id
-      LEFT JOIN bot_personas bp2 ON ag.bot2_persona_id = bp2.id
-      WHERE ${whereClause}
-      ORDER BY ag.spectator_count DESC, ag.updated_at DESC
-      LIMIT ? OFFSET ?
-    `)
-      .bind(...params, limit, offset)
-      .all<LiveGameRow>()
+    const u1 = users
+    const u2 = users
+    const bp1 = botPersonas
+    const bp2 = botPersonas
+
+    const games = await db
+      .select({
+        id: activeGames.id,
+        player1_id: activeGames.player1Id,
+        player2_id: activeGames.player2Id,
+        moves: activeGames.moves,
+        current_turn: activeGames.currentTurn,
+        status: activeGames.status,
+        mode: activeGames.mode,
+        player1_rating: activeGames.player1Rating,
+        player2_rating: activeGames.player2Rating,
+        spectator_count: activeGames.spectatorCount,
+        created_at: activeGames.createdAt,
+        updated_at: activeGames.updatedAt,
+        player1_email: sql<string>`${u1.email}`,
+        player2_email: sql<string>`${u2.email}`,
+        player1_username: sql<string | null>`${u1.username}`,
+        player2_username: sql<string | null>`${u2.username}`,
+        is_bot_vs_bot: activeGames.isBotVsBot,
+        bot1_persona_id: activeGames.bot1PersonaId,
+        bot2_persona_id: activeGames.bot2PersonaId,
+        bot1_name: sql<string | null>`${bp1.name}`,
+        bot2_name: sql<string | null>`${bp2.name}`,
+        next_move_at: activeGames.nextMoveAt,
+      })
+      .from(activeGames)
+      .innerJoin(u1, eq(activeGames.player1Id, u1.id))
+      .innerJoin(u2, eq(activeGames.player2Id, u2.id))
+      .leftJoin(bp1, eq(activeGames.bot1PersonaId, bp1.id))
+      .leftJoin(bp2, eq(activeGames.bot2PersonaId, bp2.id))
+      .where(whereCondition)
+      .orderBy(desc(activeGames.spectatorCount), desc(activeGames.updatedAt))
+      .limit(limit)
+      .offset(offset)
 
     // Transform to response format (hide full email for privacy, show bot names for bot games)
-    const liveGames: LiveGame[] = games.results.map((game) => {
+    const liveGames: LiveGame[] = games.map((game) => {
       const moves = JSON.parse(game.moves) as number[]
       const isBotVsBot = game.is_bot_vs_bot === 1
 
