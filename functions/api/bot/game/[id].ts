@@ -156,7 +156,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       turn_started_at: game.turnStartedAt,
       is_bot_game: game.isBotGame,
       bot_difficulty: game.botDifficulty,
-      bot_persona_id: game.bot1PersonaId,
+      bot_persona_id: game.botPersonaId,
       created_at: game.createdAt,
       updated_at: game.updatedAt,
     }
@@ -181,7 +181,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       turnStartedAt: game.turnStartedAt,
       isBotGame: true,
       botDifficulty: game.botDifficulty,
-      botPersonaId: game.bot1PersonaId,
+      botPersonaId: game.botPersonaId,
     })
   } catch (error) {
     console.error('GET /api/bot/game/:id error:', error)
@@ -233,9 +233,9 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
     // Look up persona AI config if available
     let personaAIConfig: AIConfig | null = null
-    if (game.bot1PersonaId) {
+    if (game.botPersonaId) {
       const persona = await db.query.botPersonas.findFirst({
-        where: eq(botPersonas.id, game.bot1PersonaId),
+        where: eq(botPersonas.id, game.botPersonaId),
         columns: {
           id: true,
           aiConfig: true,
@@ -300,7 +300,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
             turn_started_at: game.turnStartedAt,
             is_bot_game: game.isBotGame,
             bot_difficulty: game.botDifficulty,
-            bot_persona_id: game.bot1PersonaId,
+            bot_persona_id: game.botPersonaId,
             created_at: game.createdAt,
             updated_at: game.updatedAt,
           }
@@ -445,7 +445,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         turn_started_at: game.turnStartedAt,
         is_bot_game: game.isBotGame,
         bot_difficulty: game.botDifficulty,
-        bot_persona_id: game.bot1PersonaId,
+        bot_persona_id: game.botPersonaId,
         created_at: game.createdAt,
         updated_at: game.updatedAt,
       }

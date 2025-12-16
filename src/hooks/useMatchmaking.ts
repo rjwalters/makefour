@@ -232,9 +232,10 @@ export function useMatchmaking() {
    * Fetch game state
    */
   const fetchGameState = useCallback(
-    async (gameId: string) => {
+    async (gameId: string, isBotGame: boolean = false) => {
       try {
-        const response = await apiCall<OnlineGameState>(`/api/match/${gameId}`)
+        const endpoint = isBotGame ? `/api/bot/game/${gameId}` : `/api/match/${gameId}`
+        const response = await apiCall<OnlineGameState>(endpoint)
 
         if (!isMountedRef.current) return
 
@@ -246,7 +247,7 @@ export function useMatchmaking() {
 
         // Start game polling if game is active
         if (response.status === 'active') {
-          startGamePolling(gameId)
+          startGamePolling(gameId, response.isBotGame)
         } else {
           // Stop polling if game is over
           if (gamePollRef.current) {
@@ -270,14 +271,15 @@ export function useMatchmaking() {
    * Start polling for game state
    */
   const startGamePolling = useCallback(
-    (gameId: string) => {
+    (gameId: string, isBotGame: boolean = false) => {
       if (gamePollRef.current) {
         clearInterval(gamePollRef.current)
       }
 
+      const endpoint = isBotGame ? `/api/bot/game/${gameId}` : `/api/match/${gameId}`
       gamePollRef.current = setInterval(async () => {
         try {
-          const response = await apiCall<OnlineGameState>(`/api/match/${gameId}`)
+          const response = await apiCall<OnlineGameState>(endpoint)
 
           if (!isMountedRef.current) return
 
@@ -310,6 +312,9 @@ export function useMatchmaking() {
       if (!state.game) return false
 
       try {
+        const endpoint = state.game.isBotGame
+          ? `/api/bot/game/${state.game.id}`
+          : `/api/match/${state.game.id}`
         const response = await apiCall<{
           success: boolean
           moves: number[]
@@ -323,7 +328,7 @@ export function useMatchmaking() {
           player1TimeMs: number | null
           player2TimeMs: number | null
           turnStartedAt: number | null
-        }>(`/api/match/${state.game.id}`, {
+        }>(endpoint, {
           method: 'POST',
           body: JSON.stringify({ column }),
         })
@@ -424,8 +429,8 @@ export function useMatchmaking() {
         status: 'matched',
       }))
 
-      // Fetch initial game state and start game polling
-      await fetchGameState(response.gameId)
+      // Fetch initial game state and start game polling (this is a bot game)
+      await fetchGameState(response.gameId, true)
     } catch (error) {
       if (!isMountedRef.current) return
       setState((prev) => ({

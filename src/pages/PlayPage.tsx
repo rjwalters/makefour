@@ -103,11 +103,16 @@ export default function PlayPage() {
 
   // Handle mode query parameter from navbar navigation
   useEffect(() => {
-    if (gamePhase !== 'setup' && gamePhase !== 'competition-setup') return
-
     const mode = searchParams.get('mode')
     if (mode === 'training') {
       // Coach mode: AI training with hints/analysis
+      // Cancel any active matchmaking/challenge when switching to training
+      if (gamePhase === 'automatch' || gamePhase === 'matchmaking') {
+        matchmaking.leaveQueue()
+      }
+      if (gamePhase === 'challenging') {
+        challenge.cancelChallenge()
+      }
       setSettings((prev) => ({
         ...prev,
         mode: 'ai',
@@ -117,13 +122,16 @@ export default function PlayPage() {
     } else if (mode === 'compete') {
       // Compete mode: Show competition setup (Automatch vs Challenge)
       if (isAuthenticated) {
-        setGamePhase('competition-setup')
+        // Only switch to competition-setup if not already in a competition phase
+        if (gamePhase === 'setup') {
+          setGamePhase('competition-setup')
+        }
       } else {
         // Not authenticated - redirect to training mode instead
         navigate('/play?mode=training', { replace: true })
       }
     }
-  }, [searchParams, gamePhase, isAuthenticated, navigate])
+  }, [searchParams, gamePhase, isAuthenticated, navigate, matchmaking, challenge])
 
   // Track previous game state for detecting game over transitions
   const prevWinnerRef = useRef<typeof gameState.winner>(null)

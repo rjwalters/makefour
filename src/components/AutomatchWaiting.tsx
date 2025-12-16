@@ -104,8 +104,7 @@ export default function AutomatchWaiting({
 
         {/* Bot ready progress bar */}
         <div className="mb-6">
-          <div className="flex justify-between text-xs text-muted-foreground mb-1">
-            <span>Searching for players</span>
+          <div className="flex justify-end text-xs text-muted-foreground mb-1">
             <span>{isBotReady ? 'Bot ready!' : `${Math.floor(botReadyProgress)}%`}</span>
           </div>
           <div className="h-2 bg-muted rounded-full overflow-hidden">
@@ -131,7 +130,7 @@ export default function AutomatchWaiting({
             isBotReady ? 'animate-pulse' : ''
           }`}
         >
-          {isBotReady ? 'Play Bot Now (Ready!)' : 'Play Bot Now'}
+          Play Bot Now
         </Button>
 
         <Button variant="ghost" onClick={onCancel} className="w-full">

@@ -127,7 +127,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
           player2TimeMs: DEFAULT_TIME_CONTROL_MS,
           turnStartedAt: now,
           isBotGame: 1,
-          botDifficulty: 'persona',
+          botPersonaId: botPersona.id,
           createdAt: now,
           updatedAt: now,
         }),
@@ -154,14 +154,17 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         mode: 'ranked',
       })
     } catch (dbError) {
+      const errorMessage = dbError instanceof Error ? dbError.message : String(dbError)
       console.error('Bot game creation failed:', {
-        error: dbError,
+        error: errorMessage,
+        stack: dbError instanceof Error ? dbError.stack : undefined,
         gameId,
         player1Id,
         player2Id,
         botPersonaId: botPersona.id,
+        botUserId: botUser.id,
       })
-      return errorResponse('Failed to create game', 500)
+      return errorResponse(`Failed to create game: ${errorMessage}`, 500)
     }
   } catch (error) {
     console.error('POST /api/matchmaking/play-bot error:', error)

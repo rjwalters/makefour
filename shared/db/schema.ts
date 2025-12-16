@@ -252,6 +252,7 @@ export const activeGames = sqliteTable('active_games', {
   // Bot game fields
   isBotGame: integer('is_bot_game').notNull().default(0),
   botDifficulty: text('bot_difficulty'),
+  botPersonaId: text('bot_persona_id').references(() => botPersonas.id),
   // Bot vs Bot fields
   isBotVsBot: integer('is_bot_vs_bot').notNull().default(0),
   bot1PersonaId: text('bot1_persona_id'),
