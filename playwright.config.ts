@@ -44,7 +44,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run pages:dev',
+    command: process.env.CI ? 'npm run pages:ci' : 'npm run pages:dev',
     url: 'http://localhost:8788',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,

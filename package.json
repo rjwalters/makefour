@@ -21,6 +21,7 @@
     "test:e2e:chromium": "playwright test --project=chromium",
     "test:e2e:report": "playwright show-report",
     "pages:dev": "wrangler pages dev --proxy=5173 --compatibility-date=2024-01-01",
+    "pages:ci": "wrangler pages dev ./dist --compatibility-date=2024-01-01 --local --persist-to=.wrangler/state",
     "pages:deploy": "npm run build && wrangler pages deploy ./dist",
     "pages:deploy:prod": "npm run build && wrangler pages deploy ./dist --branch=main",
     "db:create": "wrangler d1 create makefour-db",

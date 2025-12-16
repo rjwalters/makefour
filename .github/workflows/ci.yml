@@ -78,6 +78,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build project
+        run: npm run build
+
+      - name: Initialize local D1 database
+        run: npm run db:local
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
