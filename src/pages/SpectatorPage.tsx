@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
@@ -15,33 +15,12 @@ export default function SpectatorPage() {
     spectator.status === 'watching' && (spectator.currentGame?.isBotVsBot ?? false)
   )
 
-  // Start browsing when page loads (if not already)
-  const handleStartBrowsing = useCallback(() => {
+  // Auto-start browsing when page loads
+  useEffect(() => {
     if (spectator.status === 'idle') {
       spectator.startBrowsing()
     }
-  }, [spectator])
-
-  const renderIdleScreen = () => (
-    <Card>
-      <CardHeader className="text-center">
-        <CardTitle className="text-2xl">Watch Live Games</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <p className="text-center text-muted-foreground">
-          Watch ongoing Connect Four matches between players in real-time.
-        </p>
-        <Button onClick={handleStartBrowsing} size="lg" className="w-full">
-          Browse Live Games
-        </Button>
-        <Link to="/play" className="block">
-          <Button variant="outline" className="w-full">
-            Back to Play
-          </Button>
-        </Link>
-      </CardContent>
-    </Card>
-  )
+  }, [spectator.status, spectator.startBrowsing])
 
   const renderGameCard = (game: LiveGame) => {
     const avgRating = Math.round((game.player1.rating + game.player2.rating) / 2)
@@ -138,9 +117,11 @@ export default function SpectatorPage() {
           </div>
         )}
 
-        <Button onClick={spectator.stopBrowsing} variant="outline" className="w-full">
-          Stop Browsing
-        </Button>
+        <Link to="/play" className="block">
+          <Button variant="outline" className="w-full">
+            Back to Play
+          </Button>
+        </Link>
       </CardContent>
     </Card>
   )
@@ -274,17 +255,19 @@ export default function SpectatorPage() {
   const renderContent = () => {
     switch (spectator.status) {
       case 'idle':
-        return renderIdleScreen()
-      case 'browsing':
-        return renderBrowsingScreen()
       case 'loading':
         return (
           <Card>
+            <CardHeader className="text-center">
+              <CardTitle className="text-2xl">Live Games</CardTitle>
+            </CardHeader>
             <CardContent className="flex justify-center py-16">
               <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
             </CardContent>
           </Card>
         )
+      case 'browsing':
+        return renderBrowsingScreen()
       case 'watching':
         return renderWatchingScreen()
       case 'error':
@@ -302,7 +285,7 @@ export default function SpectatorPage() {
           </Card>
         )
       default:
-        return renderIdleScreen()
+        return renderBrowsingScreen()
     }
   }
 

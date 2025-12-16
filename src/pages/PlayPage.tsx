@@ -16,6 +16,8 @@ import ChallengeWaiting from '../components/ChallengeWaiting'
 import {
   createGameState,
   makeMove,
+  getStateAtMove,
+  replayMoves,
   type GameState,
   type Player,
 } from '../game/makefour'
@@ -60,6 +62,7 @@ export default function PlayPage() {
   const [showAnalysis, setShowAnalysis] = useState(false)
   const [hint, setHint] = useState<Analysis | null>(null)
   const [isGettingHint, setIsGettingHint] = useState(false)
+  const [viewMoveIndex, setViewMoveIndex] = useState<number | null>(null) // null = live, number = viewing historical state
   const [selectedPersona, setSelectedPersona] = useState<BotPersona | null>(null)
 
   // Get the current bot persona ID (from active game or selected persona)
@@ -199,12 +202,23 @@ export default function PlayPage() {
     }
   }, [matchmaking.game, sounds])
 
+  // Compute the displayed game state (live or rewound)
+  const displayedState = useMemo(() => {
+    if (viewMoveIndex === null) {
+      return gameState
+    }
+    return getStateAtMove(gameState.moveHistory, viewMoveIndex) ?? gameState
+  }, [gameState, viewMoveIndex])
+
+  // Whether we're viewing a historical state (rewound)
+  const isViewingHistory = viewMoveIndex !== null && viewMoveIndex < gameState.moveHistory.length
+
   // Compute threats for highlighting (memoized for performance)
   const threats = useMemo(() => {
-    if (!showAnalysis || isGameOver) return []
-    const analysis = analyzeThreats(gameState.board, gameState.currentPlayer)
+    if (!showAnalysis || isGameOver || isViewingHistory) return []
+    const analysis = analyzeThreats(displayedState.board, displayedState.currentPlayer)
     return analysis.threats
-  }, [gameState.board, gameState.currentPlayer, showAnalysis, isGameOver])
+  }, [displayedState.board, displayedState.currentPlayer, showAnalysis, isGameOver, isViewingHistory])
 
   // Play game over sounds when winner changes
   useEffect(() => {
@@ -229,6 +243,7 @@ export default function PlayPage() {
   useEffect(() => {
     if (gamePhase !== 'playing') return
     if (settings.mode !== 'ai') return
+    if (isViewingHistory) return // Don't make AI moves while reviewing history
     if (gameState.currentPlayer !== aiPlayerNumber || gameState.winner !== null) return
 
     let cancelled = false
@@ -264,11 +279,37 @@ export default function PlayPage() {
     return () => {
       cancelled = true
     }
-  }, [gameState, gamePhase, settings.mode, settings.difficulty, aiPlayerNumber, sounds])
+  }, [gameState, gamePhase, settings.mode, settings.difficulty, aiPlayerNumber, sounds, isViewingHistory])
 
   const handleColumnClick = useCallback(
     (column: number) => {
       if (gamePhase !== 'playing') return
+
+      // If viewing history, branch from that point
+      if (isViewingHistory && viewMoveIndex !== null) {
+        // Replay moves up to viewMoveIndex, then apply the new move
+        const baseState = replayMoves(gameState.moveHistory.slice(0, viewMoveIndex))
+        if (!baseState) return
+
+        // In AI mode, only allow clicks on user's turn
+        if (settings.mode === 'ai' && baseState.currentPlayer !== userPlayerNumber) {
+          return
+        }
+
+        const newState = makeMove(baseState, column)
+        if (newState) {
+          setGameState(newState)
+          setViewMoveIndex(null) // Return to live view
+          setGameSaved(false)
+          setSaveError(null)
+          sounds.playPieceDrop()
+        } else {
+          sounds.playInvalidMove()
+        }
+        return
+      }
+
+      // Normal live play
       if (gameState.winner !== null) return
 
       // In AI mode, only allow clicks on user's turn
@@ -286,7 +327,7 @@ export default function PlayPage() {
         sounds.playInvalidMove()
       }
     },
-    [gameState, gamePhase, settings.mode, userPlayerNumber, isBotThinking, sounds]
+    [gameState, gamePhase, settings.mode, userPlayerNumber, isBotThinking, sounds, isViewingHistory, viewMoveIndex]
   )
 
   const handleStartGame = useCallback(() => {
@@ -330,6 +371,7 @@ export default function PlayPage() {
     setSaveError(null)
     setIsBotThinking(false)
     setHint(null)
+    setViewMoveIndex(null)
     setSelectedPersona(null)
     matchmaking.reset()
     botGame.reset()
@@ -341,6 +383,7 @@ export default function PlayPage() {
     setSaveError(null)
     setIsBotThinking(false)
     setHint(null)
+    setViewMoveIndex(null)
   }, [])
 
   const handleSaveGame = useCallback(async () => {
@@ -606,17 +649,91 @@ export default function PlayPage() {
       </CardHeader>
       <CardContent className="flex flex-col items-center gap-6">
         <GameBoard
-          board={gameState.board}
-          currentPlayer={gameState.currentPlayer}
-          winner={gameState.winner}
+          board={displayedState.board}
+          currentPlayer={displayedState.currentPlayer}
+          winner={displayedState.winner}
           onColumnClick={handleColumnClick}
           disabled={
-            gameState.winner !== null ||
-            (settings.mode === 'ai' && (gameState.currentPlayer !== userPlayerNumber || isBotThinking))
+            (gameState.winner !== null && !isViewingHistory) ||
+            (settings.mode === 'ai' && !isViewingHistory && (gameState.currentPlayer !== userPlayerNumber || isBotThinking))
           }
           threats={threats}
-          showThreats={showAnalysis}
+          showThreats={showAnalysis && !isViewingHistory}
         />
+
+        {/* Rewind controls - only show when there are moves to review */}
+        {gameState.moveHistory.length > 0 && (
+          <div className="w-full flex flex-col items-center gap-2">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setViewMoveIndex(0)}
+                disabled={viewMoveIndex === 0}
+                className="px-2"
+                title="Go to start"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                </svg>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const current = viewMoveIndex ?? gameState.moveHistory.length
+                  setViewMoveIndex(Math.max(0, current - 1))
+                }}
+                disabled={viewMoveIndex === 0}
+                className="px-2"
+                title="Previous move"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </Button>
+              <span className="text-sm text-muted-foreground min-w-[80px] text-center">
+                Move {viewMoveIndex ?? gameState.moveHistory.length} / {gameState.moveHistory.length}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const current = viewMoveIndex ?? gameState.moveHistory.length
+                  if (current >= gameState.moveHistory.length - 1) {
+                    setViewMoveIndex(null) // Return to live
+                  } else {
+                    setViewMoveIndex(current + 1)
+                  }
+                }}
+                disabled={viewMoveIndex === null}
+                className="px-2"
+                title="Next move"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setViewMoveIndex(null)}
+                disabled={viewMoveIndex === null}
+                className="px-2"
+                title="Go to live"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                </svg>
+              </Button>
+            </div>
+            {isViewingHistory && (
+              <p className="text-xs text-muted-foreground">
+                Click a column to play from this position
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Analysis toggle and panel */}
         <div className="w-full space-y-3">
@@ -630,17 +747,17 @@ export default function PlayPage() {
             <span className="text-sm text-muted-foreground">Show analysis</span>
           </label>
 
-          {showAnalysis && (
+          {showAnalysis && !isViewingHistory && (
             <AnalysisPanel
-              board={gameState.board}
-              currentPlayer={gameState.currentPlayer}
+              board={displayedState.board}
+              currentPlayer={displayedState.currentPlayer}
               isGameOver={isGameOver}
             />
           )}
         </div>
 
-        {/* Get Hint button and display - only in AI training mode during player's turn */}
-        {settings.mode === 'ai' && !isGameOver && gameState.currentPlayer === userPlayerNumber && !isBotThinking && (
+        {/* Get Hint button and display - only in AI training mode during player's turn (not when viewing history) */}
+        {settings.mode === 'ai' && !isGameOver && !isViewingHistory && gameState.currentPlayer === userPlayerNumber && !isBotThinking && (
           <div className="w-full space-y-3">
             <Button
               onClick={handleGetHint}
