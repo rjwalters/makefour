@@ -1,0 +1,38 @@
+# Quick test configuration for verifying the training pipeline
+# Use this to quickly test that everything works before real training
+
+model:
+  type: mlp-tiny
+  dropout: 0.0
+
+training:
+  epochs: 3
+  batch_size: 32
+  learning_rate: 0.01
+  weight_decay: 0.0
+  grad_clip: null
+
+  policy_weight: 1.0
+  value_weight: 1.0
+  entropy_weight: 0.0
+
+  log_every: 10
+  save_every: 1
+
+  # No early stopping for quick tests
+  early_stopping: {}
+
+  seed: 42
+  num_workers: 0
+
+optimizer:
+  type: adam
+
+scheduler:
+  type: none
+
+data:
+  encoding: flat-binary
+  augment: false
+  train_ratio: 0.8
+  val_ratio: 0.1

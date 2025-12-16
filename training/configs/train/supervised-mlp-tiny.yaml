@@ -1,0 +1,45 @@
+# Training configuration for supervised learning with tiny MLP
+# This is the simplest configuration for initial experiments
+
+model:
+  type: mlp-tiny
+  dropout: 0.1
+
+training:
+  epochs: 100
+  batch_size: 256
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  grad_clip: 1.0
+
+  # Loss weights
+  policy_weight: 1.0
+  value_weight: 0.5
+
+  # Logging
+  log_every: 100
+  save_every: 10
+
+  # Early stopping
+  early_stopping:
+    patience: 15
+    metric: val_loss
+    mode: min
+
+  # Reproducibility
+  seed: 42
+  num_workers: 0
+
+optimizer:
+  type: adamw
+
+scheduler:
+  type: cosine
+  warmup_epochs: 5
+  min_lr: 0.000001
+
+data:
+  encoding: flat-binary
+  augment: true
+  train_ratio: 0.8
+  val_ratio: 0.1
