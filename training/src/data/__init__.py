@@ -4,6 +4,8 @@ from .encoding import (
     ROWS,
     COLUMNS,
     Board,
+    Player,
+    EncodingType,
     encode_onehot,
     encode_onehot_3d,
     encode_flat_binary,
@@ -45,10 +47,12 @@ from .validation import (
 )
 
 __all__ = [
-    # Constants
+    # Constants and types
     "ROWS",
     "COLUMNS",
     "Board",
+    "Player",
+    "EncodingType",
     # Encoding functions
     "encode_onehot",
     "encode_onehot_3d",
