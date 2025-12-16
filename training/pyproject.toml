@@ -12,7 +12,11 @@ dependencies = [
     "pyyaml>=6.0",
     "tqdm>=4.65.0",
     "requests>=2.31.0",
+    "click>=8.0.0",
 ]
+
+[project.scripts]
+train = "scripts.train:main"
 
 [project.optional-dependencies]
 dev = [

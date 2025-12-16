@@ -1,0 +1,48 @@
+# Training configuration for supervised learning with medium MLP
+# Use this for best MLP performance
+
+model:
+  type: mlp-medium
+  dropout: 0.15
+
+training:
+  epochs: 300
+  batch_size: 512
+  learning_rate: 0.0005
+  weight_decay: 0.0001
+  grad_clip: 1.0
+
+  # Loss weights
+  policy_weight: 1.0
+  value_weight: 1.0
+
+  # Entropy regularization for exploration
+  entropy_weight: 0.01
+
+  # Logging
+  log_every: 100
+  save_every: 20
+
+  # Early stopping (more patient for larger model)
+  early_stopping:
+    patience: 30
+    metric: val_loss
+    mode: min
+
+  # Reproducibility
+  seed: 42
+  num_workers: 4
+
+optimizer:
+  type: adamw
+
+scheduler:
+  type: warmup_cosine
+  warmup_epochs: 15
+  min_lr: 0.000001
+
+data:
+  encoding: flat-binary
+  augment: true
+  train_ratio: 0.8
+  val_ratio: 0.1
