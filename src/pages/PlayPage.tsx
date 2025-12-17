@@ -103,20 +103,31 @@ export default function PlayPage() {
 
   // Track the previous mode to detect actual mode changes
   const prevModeRef = useRef<string | null>(null)
+  // Track gamePhase in a ref so the effect doesn't re-run when gamePhase changes
+  const gamePhaseRef = useRef(gamePhase)
+  gamePhaseRef.current = gamePhase
 
   // Handle mode query parameter from navbar navigation
+  // IMPORTANT: gamePhase is NOT in the dependency array - we use gamePhaseRef instead
+  // This prevents the effect from re-running when gamePhase changes (e.g., when starting a game)
   useEffect(() => {
     const mode = searchParams.get('mode')
     const prevMode = prevModeRef.current
+    const currentGamePhase = gamePhaseRef.current
+
+    // Only process if mode actually changed
+    if (mode === prevMode) {
+      return
+    }
     prevModeRef.current = mode
 
     if (mode === 'training') {
       // Coach mode: AI training with hints/analysis
       // Cancel any active matchmaking/challenge when switching to training
-      if (gamePhase === 'automatch' || gamePhase === 'matchmaking') {
+      if (currentGamePhase === 'automatch' || currentGamePhase === 'matchmaking') {
         matchmaking.leaveQueue()
       }
-      if (gamePhase === 'challenging') {
+      if (currentGamePhase === 'challenging') {
         challenge.cancelChallenge()
       }
       setSettings((prev) => ({
@@ -124,27 +135,20 @@ export default function PlayPage() {
         mode: 'ai',
         botGameMode: 'training',
       }))
-      // Only reset to setup if we're actually switching modes (not just re-running effect)
-      // This prevents resetting the game when the user starts playing
-      if (prevMode !== null && prevMode !== 'training') {
-        setGamePhase('setup')
-      } else if (gamePhase !== 'playing') {
-        // On initial load, only set to setup if not already playing
+      // Only reset to setup if switching from another mode
+      if (prevMode !== null) {
         setGamePhase('setup')
       }
     } else if (mode === 'compete') {
       // Compete mode: Show competition setup (Automatch vs Challenge)
       if (isAuthenticated) {
-        // Only switch to competition-setup if not already in a competition phase
-        if (gamePhase === 'setup') {
-          setGamePhase('competition-setup')
-        }
+        setGamePhase('competition-setup')
       } else {
         // Not authenticated - redirect to training mode instead
         navigate('/play?mode=training', { replace: true })
       }
     }
-  }, [searchParams, gamePhase, isAuthenticated, navigate, matchmaking, challenge])
+  }, [searchParams, isAuthenticated, navigate, matchmaking, challenge])
 
   // Track previous game state for detecting game over transitions
   const prevWinnerRef = useRef<typeof gameState.winner>(null)
