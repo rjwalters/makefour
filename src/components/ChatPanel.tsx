@@ -96,9 +96,14 @@ export default function ChatPanel({
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    if (!inputValue.trim() || isSending) return
+    console.log('[Chat Debug] handleSubmit called, inputValue:', inputValue, 'isSending:', isSending)
+    if (!inputValue.trim() || isSending) {
+      console.log('[Chat Debug] handleSubmit early return - empty or sending')
+      return
+    }
 
     const success = await sendMessage(inputValue)
+    console.log('[Chat Debug] sendMessage returned:', success)
     if (success) {
       setInputValue('')
     }
@@ -214,9 +219,9 @@ export default function ChatPanel({
                 {isBot ? 'Say hi to the bot!' : 'Send a message to your opponent'}
               </div>
             ) : (
-              messages.map((message) => (
+              messages.map((message, index) => (
                 <div
-                  key={message.id}
+                  key={message.id || `msg-${index}`}
                   className={cn(
                     'flex max-w-[85%]',
                     isOwnMessage(message) ? 'ml-auto flex-row-reverse' : 'flex-row',

@@ -328,7 +328,13 @@ class MinimaxAgent(Agent):
     Matches the behavior of the TypeScript minimax-engine.ts.
     """
 
-    def __init__(self, depth: int, error_rate: float = 0.0, name_override: str | None = None):
+    def __init__(
+        self,
+        depth: int,
+        error_rate: float = 0.0,
+        name_override: str | None = None,
+        max_depth: int | None = None,
+    ):
         """
         Initialize minimax agent.
 
@@ -336,10 +342,12 @@ class MinimaxAgent(Agent):
             depth: Search depth (plies)
             error_rate: Probability of making a random move (0-1)
             name_override: Optional custom name
+            max_depth: Maximum depth cap (for fast tournament mode)
         """
         self._depth = depth
         self._error_rate = error_rate
         self._name_override = name_override
+        self._max_depth = max_depth
 
     @property
     def name(self) -> str:
@@ -376,10 +384,15 @@ class MinimaxAgent(Agent):
         if len(legal_moves) == 1:
             return legal_moves[0]
 
+        # Apply depth cap if set
+        effective_depth = self._depth
+        if self._max_depth is not None:
+            effective_depth = min(self._depth, self._max_depth)
+
         # Run minimax search
         _, best_move = minimax_search(
             board=board,
-            depth=self._depth,
+            depth=effective_depth,
             alpha=float("-inf"),
             beta=float("inf"),
             maximizing=True,
@@ -484,6 +497,446 @@ class NeuralAgent(Agent):
 
 
 # ============================================================================
+# DEEP MINIMAX AGENT (for Oracle)
+# ============================================================================
+
+
+class DeepMinimaxAgent(Agent):
+    """
+    Deep minimax agent with transposition table for full-depth search.
+
+    Used for Oracle bot which plays perfectly with depth 42.
+    """
+
+    def __init__(self, depth: int = 42, name_override: str | None = None):
+        self._depth = depth
+        self._name_override = name_override
+        self._transposition_table: dict[str, tuple[float, int | None]] = {}
+
+    @property
+    def name(self) -> str:
+        return self._name_override or f"deep-minimax-d{self._depth}"
+
+    @property
+    def info(self) -> AgentInfo:
+        return AgentInfo(
+            name=self.name,
+            description=f"Deep minimax with depth={self._depth} and transposition table",
+            expected_elo=2200,
+        )
+
+    def reset(self) -> None:
+        self._transposition_table.clear()
+
+    def _board_hash(self, board: Board, to_move: Player) -> str:
+        """Create hash key for board position."""
+        cells = []
+        for row in board:
+            for cell in row:
+                cells.append("0" if cell is None else str(cell))
+        return "".join(cells) + str(to_move)
+
+    def get_move(self, board: Board, to_move: Player) -> int:
+        legal_moves = get_legal_moves(board)
+        if not legal_moves:
+            raise ValueError("No legal moves available")
+
+        if len(legal_moves) == 1:
+            return legal_moves[0]
+
+        # Deep search with transposition table
+        _, best_move = self._deep_search(
+            board=board,
+            depth=min(self._depth, 42),  # Cap at 42 (max moves)
+            alpha=float("-inf"),
+            beta=float("inf"),
+            maximizing=True,
+            player=to_move,
+            current_player=to_move,
+        )
+
+        return best_move if best_move is not None else legal_moves[0]
+
+    def _deep_search(
+        self,
+        board: Board,
+        depth: int,
+        alpha: float,
+        beta: float,
+        maximizing: bool,
+        player: Player,
+        current_player: Player,
+    ) -> tuple[float, int | None]:
+        """Deep minimax with transposition table."""
+        # Check transposition table
+        board_key = self._board_hash(board, current_player)
+        if board_key in self._transposition_table:
+            return self._transposition_table[board_key]
+
+        # Check terminal states
+        winner = check_winner(board)
+        if winner is not None:
+            if winner == "draw":
+                return 0.0, None
+            win_score = EVAL_WEIGHTS["WIN"] + depth * 100
+            return (win_score if winner == player else -win_score), None
+
+        legal_moves = get_legal_moves(board)
+        if not legal_moves:
+            return 0.0, None
+
+        if depth == 0:
+            return float(evaluate_position(board, player)), None
+
+        ordered_moves = order_moves(legal_moves)
+        next_player: Player = 2 if current_player == 1 else 1
+
+        if maximizing:
+            max_score = float("-inf")
+            best_move = ordered_moves[0]
+
+            for move in ordered_moves:
+                new_board = apply_move(board, move, current_player)
+                score, _ = self._deep_search(
+                    new_board, depth - 1, alpha, beta, False, player, next_player
+                )
+
+                if score > max_score:
+                    max_score = score
+                    best_move = move
+
+                alpha = max(alpha, score)
+                if beta <= alpha:
+                    break
+
+            result = (max_score, best_move)
+        else:
+            min_score = float("inf")
+            best_move = ordered_moves[0]
+
+            for move in ordered_moves:
+                new_board = apply_move(board, move, current_player)
+                score, _ = self._deep_search(
+                    new_board, depth - 1, alpha, beta, True, player, next_player
+                )
+
+                if score < min_score:
+                    min_score = score
+                    best_move = move
+
+                beta = min(beta, score)
+                if beta <= alpha:
+                    break
+
+            result = (min_score, best_move)
+
+        # Store in transposition table
+        self._transposition_table[board_key] = result
+        return result
+
+
+# ============================================================================
+# 2SWAP STRATEGY AGENTS
+# ============================================================================
+
+
+class ClaimEvenAgent(Agent):
+    """
+    Implements claimeven strategy from 2swap.
+
+    The strategy: respond directly above opponent's moves to claim even rows.
+    Works best as Player 2 (Yellow) who plays the last move.
+    """
+
+    def __init__(self, error_rate: float = 0.05, name_override: str | None = None):
+        self._error_rate = error_rate
+        self._name_override = name_override
+
+    @property
+    def name(self) -> str:
+        return self._name_override or "claimeven"
+
+    @property
+    def info(self) -> AgentInfo:
+        return AgentInfo(
+            name=self.name,
+            description="2swap claimeven strategy - claims even rows",
+            expected_elo=1150,
+        )
+
+    def get_move(self, board: Board, to_move: Player) -> int:
+        legal_moves = get_legal_moves(board)
+        if not legal_moves:
+            raise ValueError("No legal moves available")
+
+        # Random error
+        if self._error_rate > 0 and random.random() < self._error_rate:
+            return random.choice(legal_moves)
+
+        # First move: center
+        if all(board[ROWS - 1][col] is None for col in range(COLUMNS)):
+            return COLUMNS // 2
+
+        # Find opponent's last move by comparing with previous state
+        # For simplicity, look for columns with recent activity
+        opponent: Player = 2 if to_move == 1 else 1
+
+        # Strategy: play in same column as opponent if possible (claimeven)
+        # Otherwise fall back to evaluation
+        for col in legal_moves:
+            # Check if opponent played in this column recently (has their piece)
+            has_opponent = False
+            for row in range(ROWS):
+                if board[row][col] == opponent:
+                    has_opponent = True
+                    break
+            if has_opponent and col in legal_moves:
+                # Play above if possible
+                return col
+
+        # Fallback: prefer center columns
+        center_preference = order_moves(legal_moves)
+
+        # Check for immediate wins/blocks
+        for move in center_preference:
+            new_board = apply_move(board, move, to_move)
+            if check_winner(new_board) == to_move:
+                return move
+
+        for move in center_preference:
+            new_board = apply_move(board, move, opponent)
+            if check_winner(new_board) == opponent:
+                return move
+
+        return center_preference[0]
+
+
+class ParityAgent(Agent):
+    """
+    Implements parity strategy from 2swap.
+
+    Red (player 1) prioritizes odd-row threats.
+    Yellow (player 2) prioritizes even-row threats.
+    """
+
+    def __init__(self, error_rate: float = 0.05, name_override: str | None = None):
+        self._error_rate = error_rate
+        self._name_override = name_override
+
+    @property
+    def name(self) -> str:
+        return self._name_override or "parity"
+
+    @property
+    def info(self) -> AgentInfo:
+        return AgentInfo(
+            name=self.name,
+            description="2swap parity strategy - prioritizes favorable row threats",
+            expected_elo=1200,
+        )
+
+    def _get_landing_row(self, board: Board, col: int) -> int | None:
+        """Get the row where a piece would land in the given column."""
+        for row in range(ROWS - 1, -1, -1):
+            if board[row][col] is None:
+                return row
+        return None
+
+    def _count_threats_on_row(self, board: Board, player: Player, target_row: int) -> int:
+        """Count potential winning threats on a specific row."""
+        count = 0
+        for col in range(COLUMNS - 3):
+            window = [board[target_row][col + i] for i in range(4)]
+            player_count = sum(1 for c in window if c == player)
+            empty_count = sum(1 for c in window if c is None)
+            opponent_count = 4 - player_count - empty_count
+
+            if player_count >= 2 and opponent_count == 0 and empty_count > 0:
+                count += 1
+        return count
+
+    def get_move(self, board: Board, to_move: Player) -> int:
+        legal_moves = get_legal_moves(board)
+        if not legal_moves:
+            raise ValueError("No legal moves available")
+
+        # Random error
+        if self._error_rate > 0 and random.random() < self._error_rate:
+            return random.choice(legal_moves)
+
+        opponent: Player = 2 if to_move == 1 else 1
+
+        # Check for immediate wins/blocks
+        for move in legal_moves:
+            new_board = apply_move(board, move, to_move)
+            if check_winner(new_board) == to_move:
+                return move
+
+        for move in legal_moves:
+            new_board = apply_move(board, move, opponent)
+            if check_winner(new_board) == opponent:
+                return move
+
+        # Parity strategy: Red wants odd rows (0, 2, 4), Yellow wants even rows (1, 3, 5)
+        # Row numbering: 0 is top, 5 is bottom
+        # Odd-indexed rows from bottom: rows 5, 3, 1 (indices)
+        # Player 1 (Red) wants threats on odd rows (1, 3, 5 from top = indices 1, 3, 5)
+        # Player 2 (Yellow) wants threats on even rows (0, 2, 4 from top = indices 0, 2, 4)
+
+        favored_parity = 1 if to_move == 1 else 0  # 1=odd indices, 0=even indices
+
+        best_move = legal_moves[0]
+        best_score = float("-inf")
+
+        for move in legal_moves:
+            landing_row = self._get_landing_row(board, move)
+            if landing_row is None:
+                continue
+
+            score = 0
+            # Favor landing on our preferred parity
+            if landing_row % 2 == favored_parity:
+                score += 50
+            else:
+                score -= 30
+
+            # Bonus for center control
+            score += (3 - abs(move - 3)) * 5
+
+            # Evaluate the move with minimax-style heuristic
+            new_board = apply_move(board, move, to_move)
+            score += evaluate_position(new_board, to_move) / 100
+
+            if score > best_score:
+                best_score = score
+                best_move = move
+
+        return best_move
+
+
+class ThreatPairsAgent(Agent):
+    """
+    Implements threat pairs strategy from 2swap.
+
+    Creates double threats (stacked or 7-shaped patterns) for combinatoric wins.
+    """
+
+    def __init__(self, error_rate: float = 0.05, name_override: str | None = None):
+        self._error_rate = error_rate
+        self._name_override = name_override
+
+    @property
+    def name(self) -> str:
+        return self._name_override or "threat-pairs"
+
+    @property
+    def info(self) -> AgentInfo:
+        return AgentInfo(
+            name=self.name,
+            description="2swap threat pairs strategy - creates double threats",
+            expected_elo=1250,
+        )
+
+    def _get_landing_row(self, board: Board, col: int) -> int | None:
+        """Get the row where a piece would land in the given column."""
+        for row in range(ROWS - 1, -1, -1):
+            if board[row][col] is None:
+                return row
+        return None
+
+    def _count_threats(self, board: Board, player: Player) -> int:
+        """Count the number of 3-in-a-row threats with empty 4th cell."""
+        threats = 0
+
+        # Horizontal threats
+        for row in range(ROWS):
+            for col in range(COLUMNS - 3):
+                window = [board[row][col + i] for i in range(4)]
+                player_count = sum(1 for c in window if c == player)
+                empty_count = sum(1 for c in window if c is None)
+                if player_count == 3 and empty_count == 1:
+                    threats += 1
+
+        # Vertical threats
+        for col in range(COLUMNS):
+            for row in range(ROWS - 3):
+                window = [board[row + i][col] for i in range(4)]
+                player_count = sum(1 for c in window if c == player)
+                empty_count = sum(1 for c in window if c is None)
+                if player_count == 3 and empty_count == 1:
+                    threats += 1
+
+        # Diagonal threats
+        for row in range(ROWS - 3):
+            for col in range(COLUMNS - 3):
+                window = [board[row + i][col + i] for i in range(4)]
+                player_count = sum(1 for c in window if c == player)
+                empty_count = sum(1 for c in window if c is None)
+                if player_count == 3 and empty_count == 1:
+                    threats += 1
+
+        for row in range(3, ROWS):
+            for col in range(COLUMNS - 3):
+                window = [board[row - i][col + i] for i in range(4)]
+                player_count = sum(1 for c in window if c == player)
+                empty_count = sum(1 for c in window if c is None)
+                if player_count == 3 and empty_count == 1:
+                    threats += 1
+
+        return threats
+
+    def get_move(self, board: Board, to_move: Player) -> int:
+        legal_moves = get_legal_moves(board)
+        if not legal_moves:
+            raise ValueError("No legal moves available")
+
+        # Random error
+        if self._error_rate > 0 and random.random() < self._error_rate:
+            return random.choice(legal_moves)
+
+        opponent: Player = 2 if to_move == 1 else 1
+
+        # Check for immediate wins
+        for move in legal_moves:
+            new_board = apply_move(board, move, to_move)
+            if check_winner(new_board) == to_move:
+                return move
+
+        # Block opponent wins
+        for move in legal_moves:
+            new_board = apply_move(board, move, opponent)
+            if check_winner(new_board) == opponent:
+                return move
+
+        # Find move that maximizes threats
+        best_move = legal_moves[0]
+        best_threat_count = -1
+
+        for move in legal_moves:
+            new_board = apply_move(board, move, to_move)
+            threat_count = self._count_threats(new_board, to_move)
+
+            # Bonus for creating stacked threats (7-shape)
+            landing_row = self._get_landing_row(board, move)
+            if landing_row is not None and landing_row > 0:
+                # Check if playing above creates threat
+                above_board = [row[:] for row in new_board]
+                if above_board[landing_row - 1][move] is None:
+                    above_board[landing_row - 1][move] = to_move
+                    above_threats = self._count_threats(above_board, to_move)
+                    threat_count += above_threats * 0.5  # Bonus for setup
+
+            # Center bonus
+            threat_count += (3 - abs(move - 3)) * 0.1
+
+            if threat_count > best_threat_count:
+                best_threat_count = threat_count
+                best_move = move
+
+        return best_move
+
+
+# ============================================================================
 # REFERENCE AGENTS
 # ============================================================================
 
@@ -514,4 +967,90 @@ REFERENCE_ELOS: dict[str, int] = {
     "viper": 1250,
     "titan": 1550,
     "sentinel": 1800,
+}
+
+
+def create_all_agents(
+    models_dir: str | None = None,
+    max_depth: int | None = None,
+) -> dict[str, Agent]:
+    """
+    Create all 17 bot persona agents.
+
+    Args:
+        models_dir: Directory containing ONNX model files
+        max_depth: Maximum search depth cap for minimax agents (for fast tournaments)
+
+    Returns:
+        Dictionary mapping agent ID to Agent instance
+    """
+    import os
+
+    # Create reference agents with optional depth cap
+    agents: dict[str, Agent] = {
+        "random": RandomAgent(),
+        "rookie": MinimaxAgent(depth=2, error_rate=0.35, name_override="rookie", max_depth=max_depth),
+        "rusty": MinimaxAgent(depth=3, error_rate=0.25, name_override="rusty", max_depth=max_depth),
+        "blitz": MinimaxAgent(depth=4, error_rate=0.18, name_override="blitz", max_depth=max_depth),
+        "nova": MinimaxAgent(depth=4, error_rate=0.15, name_override="nova", max_depth=max_depth),
+        "neuron": MinimaxAgent(depth=5, error_rate=0.12, name_override="neuron", max_depth=max_depth),
+        "scholar": MinimaxAgent(depth=6, error_rate=0.08, name_override="scholar", max_depth=max_depth),
+        "viper": MinimaxAgent(depth=5, error_rate=0.10, name_override="viper", max_depth=max_depth),
+        "titan": MinimaxAgent(depth=7, error_rate=0.04, name_override="titan", max_depth=max_depth),
+        "sentinel": MinimaxAgent(depth=10, error_rate=0.01, name_override="sentinel", max_depth=max_depth),
+    }
+
+    # Add Oracle (deep minimax)
+    agents["oracle"] = DeepMinimaxAgent(depth=42, name_override="oracle")
+
+    # Add 2swap strategy agents
+    agents["2swap-claimeven"] = ClaimEvenAgent(error_rate=0.05, name_override="2swap-claimeven")
+    agents["2swap-parity"] = ParityAgent(error_rate=0.05, name_override="2swap-parity")
+    agents["2swap-threats"] = ThreatPairsAgent(error_rate=0.05, name_override="2swap-threats")
+
+    # Add neural agents if models available
+    if models_dir:
+        try:
+            # Neural Intuition - selfplay-v3
+            model_path = os.path.join(models_dir, "selfplay-v3.onnx")
+            if os.path.exists(model_path):
+                agents["neural-intuition"] = NeuralAgent(
+                    model_path=model_path,
+                    temperature=0.5,
+                    name_override="neural-intuition",
+                )
+
+            # Neural Spark - mlp-tiny-v1
+            model_path = os.path.join(models_dir, "mlp-tiny-v1.onnx")
+            if os.path.exists(model_path):
+                agents["neural-spark"] = NeuralAgent(
+                    model_path=model_path,
+                    temperature=0.8,
+                    name_override="neural-spark",
+                )
+
+            # Neural Echo - selfplay-v1
+            model_path = os.path.join(models_dir, "selfplay-v1.onnx")
+            if os.path.exists(model_path):
+                agents["neural-echo"] = NeuralAgent(
+                    model_path=model_path,
+                    temperature=0.3,
+                    name_override="neural-echo",
+                )
+        except ImportError:
+            pass  # onnxruntime not available
+
+    return agents
+
+
+# All expected ELO ratings (from botPersonas.ts)
+ALL_EXPECTED_ELOS: dict[str, int] = {
+    **REFERENCE_ELOS,
+    "oracle": 2200,
+    "neural-intuition": 1000,
+    "neural-spark": 800,
+    "neural-echo": 900,
+    "2swap-claimeven": 1150,
+    "2swap-parity": 1200,
+    "2swap-threats": 1250,
 }

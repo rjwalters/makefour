@@ -50,6 +50,8 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
   const lastMessageTimeRef = useRef(0)
   const isVisibleRef = useRef(true) // Track if chat panel is visible
   const lastMoveCountRef = useRef(0) // Track move count for bot reactions
+  const isSendingRef = useRef(false) // Additional safeguard against double sends
+  const lastSentContentRef = useRef<string | null>(null) // Track last sent message
 
   // Cleanup on unmount
   useEffect(() => {
@@ -82,10 +84,15 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
         const latestTime = Math.max(...response.messages.map(m => m.created_at))
         lastMessageTimeRef.current = latestTime
 
+        console.log('[Chat Debug] fetchMessages received:', response.messages.map(m => ({ id: m.id, content: m.content })))
+
         setState(prev => {
           // Merge new messages, avoiding duplicates
           const existingIds = new Set(prev.messages.map(m => m.id))
           const newMessages = response.messages.filter(m => !existingIds.has(m.id))
+
+          console.log('[Chat Debug] fetchMessages dedup - existing IDs:', Array.from(existingIds))
+          console.log('[Chat Debug] fetchMessages dedup - new messages after filter:', newMessages.map(m => m.id))
 
           // Calculate unread count if chat is not visible
           const unreadCount = isVisibleRef.current ? 0 : prev.unreadCount + newMessages.length
@@ -146,6 +153,26 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
   const sendMessage = useCallback(async (content: string) => {
     if (!gameId || !content.trim()) return false
 
+    const trimmedContent = content.trim()
+
+    // Debug: Log send attempt
+    console.log('[Chat Debug] sendMessage called:', { content: trimmedContent, gameId, isSendingRef: isSendingRef.current })
+
+    // Safeguard: Prevent double sends using ref (more reliable than state)
+    if (isSendingRef.current) {
+      console.log('[Chat Debug] BLOCKED - already sending (ref check)')
+      return false
+    }
+
+    // Safeguard: Prevent sending exact same message twice in quick succession
+    if (lastSentContentRef.current === trimmedContent) {
+      console.log('[Chat Debug] BLOCKED - same content as last message')
+      return false
+    }
+
+    isSendingRef.current = true
+    lastSentContentRef.current = trimmedContent
+
     setState(prev => ({ ...prev, isSending: true, error: null }))
 
     try {
@@ -170,17 +197,35 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
         created_at: Date.now(),
       }
 
-      setState(prev => ({
-        ...prev,
-        messages: [...prev.messages, userMessage],
-        isSending: false,
-      }))
+      console.log('[Chat Debug] Adding optimistic message:', { id: response.messageId, content: content.trim() })
+
+      setState(prev => {
+        console.log('[Chat Debug] Current message count before add:', prev.messages.length)
+        console.log('[Chat Debug] Existing message IDs:', prev.messages.map(m => m.id))
+        return {
+          ...prev,
+          messages: [...prev.messages, userMessage],
+          isSending: false,
+        }
+      })
+
+      // Reset the sending ref after successful send
+      isSendingRef.current = false
+
+      // Clear lastSentContent after a delay to allow same message later
+      setTimeout(() => {
+        lastSentContentRef.current = null
+      }, 1000)
 
       // Trigger immediate poll to get any bot response
       setTimeout(fetchMessages, 100)
 
       return true
     } catch (error) {
+      // Always reset the sending ref on error
+      isSendingRef.current = false
+      lastSentContentRef.current = null
+
       if (!isMountedRef.current) return false
 
       const errorMessage = error instanceof Error ? error.message : 'Failed to send message'

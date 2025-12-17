@@ -41,6 +41,10 @@ data/processed/
 experiments/
 wandb/
 
+# Training artifacts
+checkpoints/
+models/
+
 # OS
 .DS_Store
 Thumbs.db
