@@ -5,12 +5,18 @@
  * - Joining/leaving matchmaking queue
  * - Polling for match status
  * - Polling for game state updates
- * - Submitting moves
+ * - Submitting moves (with optimistic updates for bot games)
  * - Resigning games
+ *
+ * Key improvements:
+ * - Uses request coordination to prevent polling during submissions
+ * - Version-based conflict resolution to reject stale updates
+ * - Board derived from moves (single source of truth)
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useAuthenticatedApi } from './useAuthenticatedApi'
+import { useRequestCoordinator } from './useRequestCoordinator'
 import { makeMove as applyMove, replayMoves, type Board } from '../game/makefour'
 
 // Minimum time before bot responds (ms) - makes the interaction feel more natural
@@ -66,6 +72,7 @@ const GAME_POLL_INTERVAL = 500 // 500ms for responsive gameplay
 
 export function useMatchmaking() {
   const { apiCall } = useAuthenticatedApi()
+  const coordinator = useRequestCoordinator()
   const [state, setState] = useState<MatchmakingState>({
     status: 'idle',
     error: null,
@@ -80,6 +87,8 @@ export function useMatchmaking() {
   const queuePollRef = useRef<NodeJS.Timeout | null>(null)
   const gamePollRef = useRef<NodeJS.Timeout | null>(null)
   const isMountedRef = useRef(true)
+  // Track version for conflict resolution (uses moves.length as version)
+  const lastConfirmedVersionRef = useRef<number>(0)
 
   // Cleanup on unmount
   useEffect(() => {
@@ -273,6 +282,7 @@ export function useMatchmaking() {
 
   /**
    * Start polling for game state
+   * Respects coordinator.shouldPoll() to prevent racing with submissions
    */
   const startGamePolling = useCallback(
     (gameId: string, isBotGame: boolean = false) => {
@@ -282,16 +292,34 @@ export function useMatchmaking() {
 
       const endpoint = isBotGame ? `/api/bot/game/${gameId}` : `/api/match/${gameId}`
       gamePollRef.current = setInterval(async () => {
+        // Skip poll if we're in the middle of a submission
+        if (!coordinator.shouldPoll()) {
+          return
+        }
+
         try {
           const response = await apiCall<OnlineGameState>(endpoint)
 
           if (!isMountedRef.current) return
 
-          setState((prev) => ({
-            ...prev,
-            status: response.status === 'completed' ? 'completed' : 'playing',
-            game: response,
-          }))
+          // Version-based conflict resolution: only accept if moves >= our confirmed version
+          const responseVersion = response.moves.length
+
+          setState((prev) => {
+            // If we have optimistic state (more moves than server), don't overwrite
+            if (prev.game && prev.game.moves.length > responseVersion) {
+              return prev
+            }
+
+            // Update confirmed version
+            lastConfirmedVersionRef.current = responseVersion
+
+            return {
+              ...prev,
+              status: response.status === 'completed' ? 'completed' : 'playing',
+              game: response,
+            }
+          })
 
           // Stop polling if game is over
           if (response.status !== 'active') {
@@ -305,28 +333,36 @@ export function useMatchmaking() {
         }
       }, GAME_POLL_INTERVAL)
     },
-    [apiCall]
+    [apiCall, coordinator]
   )
 
   /**
    * Submit a move
    * For bot games: optimistically renders human move, then delays before showing bot's response
+   * Uses coordinator to prevent polling from overwriting optimistic state
    */
   const submitMove = useCallback(
     async (column: number) => {
       if (!state.game || !state.game.board) return false
 
+      // Capture game state for rollback BEFORE any mutations
+      const rollbackMoves = state.game.moves
+      const rollbackBoard = state.game.board
+      const rollbackTurn = state.game.currentTurn
+      const rollbackIsYourTurn = state.game.isYourTurn
+      const gameId = state.game.id
       const isBotGame = state.game.isBotGame
+
       const startTime = Date.now()
 
       // For bot games, optimistically apply the human's move locally
       let optimisticMoves: number[] | null = null
       if (isBotGame) {
-        const gameState = replayMoves(state.game.moves)
+        const gameState = replayMoves(rollbackMoves)
         if (gameState) {
           const afterHumanMove = applyMove(gameState, column)
           if (afterHumanMove) {
-            optimisticMoves = [...state.game.moves, column]
+            optimisticMoves = [...rollbackMoves, column]
             // Update state immediately with the human's move
             setState((prev) => ({
               ...prev,
@@ -344,76 +380,47 @@ export function useMatchmaking() {
         }
       }
 
-      try {
-        const endpoint = isBotGame
-          ? `/api/bot/game/${state.game.id}`
-          : `/api/match/${state.game.id}`
-        const response = await apiCall<{
-          success: boolean
-          moves: number[]
-          board: Board
-          currentTurn: 1 | 2
-          status: 'active' | 'completed'
-          winner: '1' | '2' | 'draw' | null
-          isYourTurn: boolean
-          // Timer fields
-          timeControlMs: number | null
-          player1TimeMs: number | null
-          player2TimeMs: number | null
-          turnStartedAt: number | null
-        }>(endpoint, {
-          method: 'POST',
-          body: JSON.stringify({ column }),
-        })
-
-        if (!isMountedRef.current) return false
-
-        // For bot games, add delay before showing bot's response
-        const botMadeMove = isBotGame && optimisticMoves && response.moves.length > optimisticMoves.length
-        if (botMadeMove) {
-          const elapsed = Date.now() - startTime
-          const remainingDelay = Math.max(0, BOT_MIN_RESPONSE_TIME_MS - elapsed)
-          if (remainingDelay > 0) {
-            await new Promise(resolve => setTimeout(resolve, remainingDelay))
-          }
-          if (!isMountedRef.current) return false
-        }
-
-        // For bot games where we did optimistic update, only update what changed
-        // to avoid re-rendering the human's piece
-        if (botMadeMove) {
-          // Apply only the bot's move to the current board state (which already has human's move)
-          const botMoveColumn = response.moves[response.moves.length - 1]
-          setState((prev) => {
-            if (!prev.game || !prev.game.board) return prev
-
-            // Replay current moves to get game state, then apply bot's move
-            const currentGameState = replayMoves(prev.game.moves)
-            if (!currentGameState) return prev
-
-            const afterBotMove = applyMove(currentGameState, botMoveColumn)
-            if (!afterBotMove) return prev
-
-            return {
-              ...prev,
-              status: response.status === 'completed' ? 'completed' : 'playing',
-              game: {
-                ...prev.game,
-                moves: response.moves,
-                board: afterBotMove.board,
-                currentTurn: response.currentTurn,
-                status: response.status,
-                winner: response.winner,
-                isYourTurn: response.isYourTurn,
-                timeControlMs: response.timeControlMs,
-                player1TimeMs: response.player1TimeMs,
-                player2TimeMs: response.player2TimeMs,
-                turnStartedAt: response.turnStartedAt,
-              },
-            }
+      // Use coordinator to wrap the submission - this prevents polling during the request
+      return coordinator.withSubmission(async () => {
+        try {
+          const endpoint = isBotGame
+            ? `/api/bot/game/${gameId}`
+            : `/api/match/${gameId}`
+          const response = await apiCall<{
+            success: boolean
+            moves: number[]
+            board: Board
+            currentTurn: 1 | 2
+            status: 'active' | 'completed'
+            winner: '1' | '2' | 'draw' | null
+            isYourTurn: boolean
+            // Timer fields
+            timeControlMs: number | null
+            player1TimeMs: number | null
+            player2TimeMs: number | null
+            turnStartedAt: number | null
+          }>(endpoint, {
+            method: 'POST',
+            body: JSON.stringify({ column }),
           })
-        } else {
-          // For non-bot games or when bot didn't move, use server response directly
+
+          if (!isMountedRef.current) return false
+
+          // For bot games, add delay before showing bot's response
+          const botMadeMove = isBotGame && optimisticMoves && response.moves.length > optimisticMoves.length
+          if (botMadeMove) {
+            const elapsed = Date.now() - startTime
+            const remainingDelay = Math.max(0, BOT_MIN_RESPONSE_TIME_MS - elapsed)
+            if (remainingDelay > 0) {
+              await new Promise(resolve => setTimeout(resolve, remainingDelay))
+            }
+            if (!isMountedRef.current) return false
+          }
+
+          // Update confirmed version
+          lastConfirmedVersionRef.current = response.moves.length
+
+          // Update with full server response
           setState((prev) => ({
             ...prev,
             status: response.status === 'completed' ? 'completed' : 'playing',
@@ -433,30 +440,30 @@ export function useMatchmaking() {
                 }
               : null,
           }))
-        }
 
-        return true
-      } catch (error) {
-        console.error('Move submission error:', error)
-        // Revert optimistic update on error for bot games
-        if (isBotGame && optimisticMoves) {
-          setState((prev) => ({
-            ...prev,
-            game: prev.game
-              ? {
-                  ...prev.game,
-                  moves: state.game!.moves,
-                  board: state.game!.board,
-                  currentTurn: state.game!.currentTurn,
-                  isYourTurn: state.game!.isYourTurn,
-                }
-              : null,
-          }))
+          return true
+        } catch (error) {
+          console.error('Move submission error:', error)
+          // Revert optimistic update on error using captured values (not stale closure!)
+          if (isBotGame && optimisticMoves) {
+            setState((prev) => ({
+              ...prev,
+              game: prev.game
+                ? {
+                    ...prev.game,
+                    moves: rollbackMoves,
+                    board: rollbackBoard,
+                    currentTurn: rollbackTurn,
+                    isYourTurn: rollbackIsYourTurn,
+                  }
+                : null,
+            }))
+          }
+          return false
         }
-        return false
-      }
+      })
     },
-    [apiCall, state.game]
+    [apiCall, state.game, coordinator]
   )
 
   /**

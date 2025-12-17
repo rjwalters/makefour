@@ -8,6 +8,8 @@ import {
 } from '../game/makefour'
 import type { Threat } from '../ai/coach'
 
+export type RenderMode = 'visual' | 'text'
+
 interface GameBoardProps {
   board: Board
   currentPlayer: Player
@@ -18,6 +20,116 @@ interface GameBoardProps {
   threats?: Threat[]
   /** Whether to show threat highlighting */
   showThreats?: boolean
+  /** Render mode: 'visual' for normal UI, 'text' for ASCII (debugging/testing) */
+  renderMode?: RenderMode
+  /** Optional version number for debugging */
+  version?: number
+  /** Whether state is optimistic (unconfirmed) */
+  isOptimistic?: boolean
+}
+
+/**
+ * Text-based board renderer for debugging and Playwright testing.
+ * Provides deterministic ASCII output with rich data attributes.
+ */
+function TextBoardRenderer({
+  board,
+  currentPlayer,
+  winner,
+  onColumnClick,
+  disabled = false,
+  version,
+  isOptimistic,
+}: Pick<GameBoardProps, 'board' | 'currentPlayer' | 'winner' | 'onColumnClick' | 'disabled' | 'version' | 'isOptimistic'>) {
+  const winningCells = winner && winner !== 'draw' ? getWinningCells(board) : null
+  const winningSet = new Set(winningCells?.map(([r, c]) => `${r},${c}`) ?? [])
+  const isInteractive = !disabled && winner === null && onColumnClick
+
+  const handleColumnClick = (column: number) => {
+    if (isInteractive && onColumnClick) {
+      onColumnClick(column)
+    }
+  }
+
+  // Generate ASCII representation
+  const renderCell = (cell: Player | null, row: number, col: number): string => {
+    if (cell === null) return '.'
+    const isWinning = winningSet.has(`${row},${col}`)
+    if (cell === 1) return isWinning ? 'R' : 'r'
+    return isWinning ? 'Y' : 'y'
+  }
+
+  const winnerDisplay = winner === null ? 'none' : winner === 'draw' ? 'draw' : `P${winner}`
+
+  return (
+    <div
+      className="font-mono text-sm bg-gray-100 dark:bg-gray-800 p-4 rounded-lg"
+      data-testid="text-board"
+      data-render-mode="text"
+      data-current-player={currentPlayer}
+      data-winner={winner ?? 'none'}
+      data-version={version ?? 0}
+      data-optimistic={isOptimistic ?? false}
+    >
+      {/* Column buttons for interactivity */}
+      {isInteractive && (
+        <div className="flex gap-1 mb-2" data-testid="text-columns">
+          {Array.from({ length: COLUMNS }, (_, col) => (
+            <button
+              key={col}
+              onClick={() => handleColumnClick(col)}
+              className="w-6 h-6 bg-blue-500 text-white rounded hover:bg-blue-600 text-xs"
+              data-testid={`text-col-${col}`}
+            >
+              {col}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ASCII board */}
+      <pre className="leading-tight" data-testid="ascii-board">
+        {board.map((row, rowIndex) => (
+          <div key={rowIndex} data-testid={`text-row-${rowIndex}`}>
+            |{row.map((cell, colIndex) => {
+              const char = renderCell(cell, rowIndex, colIndex)
+              return (
+                <span
+                  key={colIndex}
+                  data-testid={`text-cell-${rowIndex}-${colIndex}`}
+                  data-cell={cell ?? 'empty'}
+                  data-winning={winningSet.has(`${rowIndex},${colIndex}`)}
+                >
+                  {char}
+                </span>
+              )
+            }).reduce((prev, curr) => (
+              <>{prev}|{curr}</>
+            ))}|
+          </div>
+        ))}
+        <div>+{'-'.repeat(COLUMNS * 2 - 1)}+</div>
+        <div> {Array.from({ length: COLUMNS }, (_, i) => i).join(' ')} </div>
+      </pre>
+
+      {/* Game info */}
+      <div
+        className="mt-2 text-xs text-gray-600 dark:text-gray-400 space-y-1"
+        data-testid="text-game-info"
+      >
+        <div>
+          Turn: <span data-testid="text-turn">{currentPlayer === 1 ? 'R' : 'Y'}</span> |
+          Winner: <span data-testid="text-winner">{winnerDisplay}</span>
+        </div>
+        {version !== undefined && (
+          <div>
+            Version: <span data-testid="text-version">{version}</span>
+            {isOptimistic && <span className="ml-2 text-yellow-600" data-testid="text-optimistic">(optimistic)</span>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 /**
@@ -33,7 +145,24 @@ export default function GameBoard({
   disabled = false,
   threats = [],
   showThreats = false,
+  renderMode = 'visual',
+  version,
+  isOptimistic,
 }: GameBoardProps) {
+  // Use text renderer if requested
+  if (renderMode === 'text') {
+    return (
+      <TextBoardRenderer
+        board={board}
+        currentPlayer={currentPlayer}
+        winner={winner}
+        onColumnClick={onColumnClick}
+        disabled={disabled}
+        version={version}
+        isOptimistic={isOptimistic}
+      />
+    )
+  }
   const winningCells = winner && winner !== 'draw' ? getWinningCells(board) : null
   const winningSet = new Set(winningCells?.map(([r, c]) => `${r},${c}`) ?? [])
 

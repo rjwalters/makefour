@@ -18,6 +18,8 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { Button } from '../components/ui/button'
 import { cn } from '@/lib/utils'
+import GameBoard, { type RenderMode } from '../components/GameBoard'
+import { useGameState } from '../hooks/useGameState'
 import {
   createGameState,
   makeMove,
@@ -246,9 +248,14 @@ export default function DebugGameRenderPage() {
   const [renderCount, setRenderCount] = useState(0)
   const [autoPlay, setAutoPlay] = useState(false)
   const [autoPlayInterval, setAutoPlayInterval] = useState(500)
+  const [renderMode, setRenderMode] = useState<RenderMode>('visual')
+  const [useNewStateHook, setUseNewStateHook] = useState(false)
   const logTextareaRef = useRef<HTMLTextAreaElement>(null)
   const autoPlayRef = useRef<NodeJS.Timeout | null>(null)
   const pageRenderCount = useRef(0)
+
+  // New useGameState hook for comparison
+  const newGameState = useGameState()
 
   // Track page renders
   pageRenderCount.current++
@@ -345,8 +352,9 @@ export default function DebugGameRenderPage() {
   const handleReset = useCallback(() => {
     addLog('state', 'Game reset')
     setGameState(createGameState())
+    newGameState.reset()
     setAutoPlay(false)
-  }, [addLog])
+  }, [addLog, newGameState])
 
   const handleUndo = useCallback(() => {
     if (gameState.moveHistory.length > 0) {
@@ -409,8 +417,37 @@ export default function DebugGameRenderPage() {
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                 Game Board
               </h2>
-              <div className="text-sm text-gray-500" data-testid="render-count">
-                Renders: {renderCount}
+              <div className="flex items-center gap-4">
+                <div className="text-sm text-gray-500" data-testid="render-count">
+                  Renders: {renderCount}
+                </div>
+                {/* Render mode toggle */}
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-500">Mode:</label>
+                  <select
+                    value={renderMode}
+                    onChange={(e) => setRenderMode(e.target.value as RenderMode)}
+                    className="text-xs p-1 rounded border dark:bg-gray-700"
+                    data-testid="render-mode-select"
+                  >
+                    <option value="visual">Visual</option>
+                    <option value="text">Text/ASCII</option>
+                  </select>
+                </div>
+                {/* Hook toggle */}
+                <div className="flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    id="use-new-hook"
+                    checked={useNewStateHook}
+                    onChange={(e) => setUseNewStateHook(e.target.checked)}
+                    className="w-3 h-3"
+                    data-testid="use-new-hook-checkbox"
+                  />
+                  <label htmlFor="use-new-hook" className="text-xs text-gray-500">
+                    useGameState
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -456,15 +493,46 @@ export default function DebugGameRenderPage() {
 
             {/* Board */}
             <div className="flex justify-center mb-4">
-              <LoggingGameBoard
-                board={gameState.board}
-                currentPlayer={gameState.currentPlayer}
-                winner={gameState.winner}
-                onColumnClick={handleMove}
-                onLog={addLog}
-                renderCount={renderCount}
-              />
+              {renderMode === 'text' ? (
+                <GameBoard
+                  board={useNewStateHook ? newGameState.board : gameState.board}
+                  currentPlayer={useNewStateHook ? newGameState.currentPlayer : gameState.currentPlayer}
+                  winner={useNewStateHook ? newGameState.winner : gameState.winner}
+                  onColumnClick={useNewStateHook ? (col) => {
+                    addLog('move', `New hook: applying move to column ${col}`)
+                    newGameState.applyMove(col)
+                  } : handleMove}
+                  renderMode="text"
+                  version={useNewStateHook ? newGameState.version : gameState.moveHistory.length}
+                  isOptimistic={useNewStateHook ? newGameState.isOptimistic : false}
+                />
+              ) : (
+                <LoggingGameBoard
+                  board={useNewStateHook ? newGameState.board : gameState.board}
+                  currentPlayer={useNewStateHook ? newGameState.currentPlayer : gameState.currentPlayer}
+                  winner={useNewStateHook ? newGameState.winner : gameState.winner}
+                  onColumnClick={useNewStateHook ? (col) => {
+                    addLog('move', `New hook: applying move to column ${col}`)
+                    newGameState.applyMove(col)
+                  } : handleMove}
+                  onLog={addLog}
+                  renderCount={renderCount}
+                />
+              )}
             </div>
+
+            {/* Version info when using new hook */}
+            {useNewStateHook && (
+              <div className="mb-4 p-2 rounded bg-blue-50 dark:bg-blue-900/20 text-xs" data-testid="version-info">
+                <div className="font-medium text-blue-700 dark:text-blue-300">useGameState Debug Info</div>
+                <div className="mt-1 grid grid-cols-2 gap-2 text-blue-600 dark:text-blue-400">
+                  <div>Version: <span data-testid="state-version">{newGameState.version}</span></div>
+                  <div>Optimistic: <span data-testid="state-optimistic">{String(newGameState.isOptimistic)}</span></div>
+                  <div>Moves: <span data-testid="state-moves">{newGameState.moves.length}</span></div>
+                  <div>Winner: <span data-testid="state-winner">{newGameState.winner ?? 'none'}</span></div>
+                </div>
+              </div>
+            )}
 
             {/* Controls */}
             <div className="flex flex-wrap gap-2">
