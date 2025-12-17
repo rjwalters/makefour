@@ -9,8 +9,8 @@
  * - Mobile hamburger menu
  */
 
-import { useState, useRef, useEffect } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useSounds } from '../hooks/useSounds'
 import ThemeToggle from './ThemeToggle'
@@ -22,8 +22,21 @@ export default function Navbar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const { isAuthenticated, user, logout } = useAuth()
   const location = useLocation()
+  const navigate = useNavigate()
   const sounds = useSounds()
   const userMenuRef = useRef<HTMLDivElement>(null)
+
+  // Handle play page links - force navigation even if already on play page
+  // This allows clicking Coach/Compete to reset to setup when in a game
+  const handlePlayLinkClick = useCallback((e: React.MouseEvent, path: string) => {
+    const isOnPlayPage = location.pathname === '/play'
+    if (isOnPlayPage) {
+      e.preventDefault()
+      // Add timestamp to force URL change and trigger mode effect
+      const mode = path.includes('mode=training') ? 'training' : 'compete'
+      navigate(`/play?mode=${mode}&t=${Date.now()}`, { replace: true })
+    }
+  }, [location.pathname, navigate])
 
   // Close user menu when clicking outside
   useEffect(() => {
@@ -56,11 +69,11 @@ export default function Navbar() {
   const navLinks = [
     { path: '/leaderboard', label: 'Leaderboard' },
     { path: '/spectate', label: 'Watch' },
-    { path: '/play?mode=training', label: 'Coach', matchPath: '/play' },
+    { path: '/play?mode=training', label: 'Coach', matchPath: '/play', isPlayLink: true },
   ]
 
   const authNavLinks = [
-    { path: '/play?mode=compete', label: 'Compete', matchPath: '/play' },
+    { path: '/play?mode=compete', label: 'Compete', matchPath: '/play', isPlayLink: true },
   ]
 
   const isNavActive = (link: { path: string; matchPath?: string }) => {
@@ -85,6 +98,7 @@ export default function Navbar() {
               <Link
                 key={link.path}
                 to={link.path}
+                onClick={link.isPlayLink ? (e) => handlePlayLinkClick(e, link.path) : undefined}
                 className={navLinkClass(isNavActive(link) ? link.path : '')}
               >
                 {link.label}
@@ -95,6 +109,7 @@ export default function Navbar() {
                 <Link
                   key={link.path}
                   to={link.path}
+                  onClick={link.isPlayLink ? (e) => handlePlayLinkClick(e, link.path) : undefined}
                   className={navLinkClass(isNavActive(link) ? link.path : '')}
                 >
                   {link.label}
@@ -195,7 +210,12 @@ export default function Navbar() {
         <div className="md:hidden border-t bg-white dark:bg-gray-800 px-4 py-3 space-y-2">
           {/* Navigation links */}
           {navLinks.map((link) => (
-            <Link key={link.path} to={link.path} className="block">
+            <Link
+              key={link.path}
+              to={link.path}
+              onClick={link.isPlayLink ? (e) => handlePlayLinkClick(e, link.path) : undefined}
+              className="block"
+            >
               <Button
                 variant={isNavActive(link) ? 'default' : 'outline'}
                 className="w-full justify-start h-12 touch-manipulation"
@@ -208,7 +228,12 @@ export default function Navbar() {
           {isAuthenticated && (
             <>
               {authNavLinks.map((link) => (
-                <Link key={link.path} to={link.path} className="block">
+                <Link
+                  key={link.path}
+                  to={link.path}
+                  onClick={link.isPlayLink ? (e) => handlePlayLinkClick(e, link.path) : undefined}
+                  className="block"
+                >
                   <Button
                     variant={isNavActive(link) ? 'default' : 'outline'}
                     className="w-full justify-start h-12 touch-manipulation"

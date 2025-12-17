@@ -112,11 +112,15 @@ export default function PlayPage() {
   // This prevents the effect from re-running when gamePhase changes (e.g., when starting a game)
   useEffect(() => {
     const mode = searchParams.get('mode')
+    const timestamp = searchParams.get('t') // Timestamp indicates intentional navigation
     const prevMode = prevModeRef.current
     const currentGamePhase = gamePhaseRef.current
 
-    // Only process if mode actually changed
-    if (mode === prevMode) {
+    // Check if this is a forced navigation (has timestamp) - always reset in this case
+    const isForcedNavigation = timestamp !== null
+
+    // Only process if mode actually changed OR this is a forced navigation
+    if (mode === prevMode && !isForcedNavigation) {
       return
     }
     prevModeRef.current = mode
@@ -130,25 +134,37 @@ export default function PlayPage() {
       if (currentGamePhase === 'challenging') {
         challenge.cancelChallenge()
       }
+      // Reset bot game if active
+      if (isForcedNavigation && currentGamePhase === 'botGame') {
+        botGame.reset()
+      }
+      // Reset local game state if forced navigation while playing
+      if (isForcedNavigation && currentGamePhase === 'playing') {
+        setGameState(createGameState())
+      }
       setSettings((prev) => ({
         ...prev,
         mode: 'ai',
         botGameMode: 'training',
       }))
-      // Only reset to setup if switching from another mode
-      if (prevMode !== null) {
+      // Reset to setup if switching from another mode OR forced navigation (clicking navbar while in game)
+      if (prevMode !== null || isForcedNavigation) {
         setGamePhase('setup')
       }
     } else if (mode === 'compete') {
       // Compete mode: Show competition setup (Automatch vs Challenge)
       if (isAuthenticated) {
+        // Reset bot game if active
+        if (isForcedNavigation && currentGamePhase === 'botGame') {
+          botGame.reset()
+        }
         setGamePhase('competition-setup')
       } else {
         // Not authenticated - redirect to training mode instead
         navigate('/play?mode=training', { replace: true })
       }
     }
-  }, [searchParams, isAuthenticated, navigate, matchmaking, challenge])
+  }, [searchParams, isAuthenticated, navigate, matchmaking, challenge, botGame])
 
   // Track previous game state for detecting game over transitions
   const prevWinnerRef = useRef<typeof gameState.winner>(null)
