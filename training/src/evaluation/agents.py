@@ -332,6 +332,7 @@ class MinimaxAgent(Agent):
         self,
         depth: int,
         error_rate: float = 0.0,
+        blunder_rate: float = 0.0,
         name_override: str | None = None,
         max_depth: int | None = None,
     ):
@@ -341,11 +342,13 @@ class MinimaxAgent(Agent):
         Args:
             depth: Search depth (plies)
             error_rate: Probability of making a random move (0-1)
+            blunder_rate: Probability of missing a winning/blocking move (0-1)
             name_override: Optional custom name
             max_depth: Maximum depth cap (for fast tournament mode)
         """
         self._depth = depth
         self._error_rate = error_rate
+        self._blunder_rate = blunder_rate
         self._name_override = name_override
         self._max_depth = max_depth
 
@@ -376,13 +379,49 @@ class MinimaxAgent(Agent):
         if not legal_moves:
             raise ValueError("No legal moves available")
 
-        # Random error based on error rate
+        # Random error based on error rate - completely random move
         if self._error_rate > 0 and random.random() < self._error_rate:
             return random.choice(legal_moves)
 
         # Single legal move
         if len(legal_moves) == 1:
             return legal_moves[0]
+
+        opponent: Player = 2 if to_move == 1 else 1
+
+        # Check for immediate winning move
+        winning_move = None
+        for move in legal_moves:
+            new_board = apply_move(board, move, to_move)
+            if check_winner(new_board) == to_move:
+                winning_move = move
+                break
+
+        # Blunder: miss the winning move
+        if winning_move is not None:
+            if self._blunder_rate > 0 and random.random() < self._blunder_rate:
+                # Miss the win, pick something else
+                other_moves = [m for m in legal_moves if m != winning_move]
+                if other_moves:
+                    return random.choice(other_moves)
+            return winning_move
+
+        # Check for blocking move (opponent would win)
+        blocking_move = None
+        for move in legal_moves:
+            new_board = apply_move(board, move, opponent)
+            if check_winner(new_board) == opponent:
+                blocking_move = move
+                break
+
+        # Blunder: miss the block
+        if blocking_move is not None:
+            if self._blunder_rate > 0 and random.random() < self._blunder_rate:
+                # Miss the block, pick something else
+                other_moves = [m for m in legal_moves if m != blocking_move]
+                if other_moves:
+                    return random.choice(other_moves)
+            return blocking_move
 
         # Apply depth cap if set
         effective_depth = self._depth
@@ -944,15 +983,17 @@ class ThreatPairsAgent(Agent):
 # These provide known benchmarks for ELO measurement
 REFERENCE_AGENTS: dict[str, Agent] = {
     "random": RandomAgent(),
-    "rookie": MinimaxAgent(depth=2, error_rate=0.35, name_override="rookie"),
-    "rusty": MinimaxAgent(depth=3, error_rate=0.25, name_override="rusty"),
-    "blitz": MinimaxAgent(depth=4, error_rate=0.18, name_override="blitz"),
-    "nova": MinimaxAgent(depth=4, error_rate=0.15, name_override="nova"),
-    "neuron": MinimaxAgent(depth=5, error_rate=0.12, name_override="neuron"),
-    "scholar": MinimaxAgent(depth=6, error_rate=0.08, name_override="scholar"),
-    "viper": MinimaxAgent(depth=5, error_rate=0.10, name_override="viper"),
-    "titan": MinimaxAgent(depth=7, error_rate=0.04, name_override="titan"),
-    "sentinel": MinimaxAgent(depth=10, error_rate=0.01, name_override="sentinel"),
+    # Reduced depths and added blunder rates to weaken minimax bots
+    # blunder_rate = probability of missing a winning or blocking move
+    "rookie": MinimaxAgent(depth=1, error_rate=0.35, blunder_rate=0.15, name_override="rookie"),
+    "rusty": MinimaxAgent(depth=2, error_rate=0.25, blunder_rate=0.12, name_override="rusty"),
+    "blitz": MinimaxAgent(depth=3, error_rate=0.18, blunder_rate=0.10, name_override="blitz"),
+    "nova": MinimaxAgent(depth=3, error_rate=0.15, blunder_rate=0.08, name_override="nova"),
+    "neuron": MinimaxAgent(depth=4, error_rate=0.12, blunder_rate=0.06, name_override="neuron"),
+    "scholar": MinimaxAgent(depth=5, error_rate=0.08, blunder_rate=0.04, name_override="scholar"),
+    "viper": MinimaxAgent(depth=4, error_rate=0.10, blunder_rate=0.05, name_override="viper"),
+    "titan": MinimaxAgent(depth=5, error_rate=0.04, blunder_rate=0.02, name_override="titan"),
+    "sentinel": MinimaxAgent(depth=7, error_rate=0.01, blunder_rate=0.01, name_override="sentinel"),
 }
 
 # Expected ELO ratings for reference agents (from botPersonas.ts)
@@ -986,18 +1027,18 @@ def create_all_agents(
     """
     import os
 
-    # Create reference agents with optional depth cap
+    # Create reference agents with reduced depths and blunder rates
     agents: dict[str, Agent] = {
         "random": RandomAgent(),
-        "rookie": MinimaxAgent(depth=2, error_rate=0.35, name_override="rookie", max_depth=max_depth),
-        "rusty": MinimaxAgent(depth=3, error_rate=0.25, name_override="rusty", max_depth=max_depth),
-        "blitz": MinimaxAgent(depth=4, error_rate=0.18, name_override="blitz", max_depth=max_depth),
-        "nova": MinimaxAgent(depth=4, error_rate=0.15, name_override="nova", max_depth=max_depth),
-        "neuron": MinimaxAgent(depth=5, error_rate=0.12, name_override="neuron", max_depth=max_depth),
-        "scholar": MinimaxAgent(depth=6, error_rate=0.08, name_override="scholar", max_depth=max_depth),
-        "viper": MinimaxAgent(depth=5, error_rate=0.10, name_override="viper", max_depth=max_depth),
-        "titan": MinimaxAgent(depth=7, error_rate=0.04, name_override="titan", max_depth=max_depth),
-        "sentinel": MinimaxAgent(depth=10, error_rate=0.01, name_override="sentinel", max_depth=max_depth),
+        "rookie": MinimaxAgent(depth=1, error_rate=0.35, blunder_rate=0.15, name_override="rookie", max_depth=max_depth),
+        "rusty": MinimaxAgent(depth=2, error_rate=0.25, blunder_rate=0.12, name_override="rusty", max_depth=max_depth),
+        "blitz": MinimaxAgent(depth=3, error_rate=0.18, blunder_rate=0.10, name_override="blitz", max_depth=max_depth),
+        "nova": MinimaxAgent(depth=3, error_rate=0.15, blunder_rate=0.08, name_override="nova", max_depth=max_depth),
+        "neuron": MinimaxAgent(depth=4, error_rate=0.12, blunder_rate=0.06, name_override="neuron", max_depth=max_depth),
+        "scholar": MinimaxAgent(depth=5, error_rate=0.08, blunder_rate=0.04, name_override="scholar", max_depth=max_depth),
+        "viper": MinimaxAgent(depth=4, error_rate=0.10, blunder_rate=0.05, name_override="viper", max_depth=max_depth),
+        "titan": MinimaxAgent(depth=5, error_rate=0.04, blunder_rate=0.02, name_override="titan", max_depth=max_depth),
+        "sentinel": MinimaxAgent(depth=7, error_rate=0.01, blunder_rate=0.01, name_override="sentinel", max_depth=max_depth),
     }
 
     # Add Oracle (deep minimax)

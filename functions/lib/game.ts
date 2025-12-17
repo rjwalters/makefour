@@ -69,6 +69,19 @@ export function isValidMove(board: Board, column: number): boolean {
 }
 
 /**
+ * Returns all valid column indices where a piece can be dropped.
+ */
+export function getValidMoves(board: Board): number[] {
+  const valid: number[] = []
+  for (let col = 0; col < COLUMNS; col++) {
+    if (isValidMove(board, col)) {
+      valid.push(col)
+    }
+  }
+  return valid
+}
+
+/**
  * Checks if the board is completely full.
  */
 export function isBoardFull(board: Board): boolean {
