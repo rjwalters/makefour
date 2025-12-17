@@ -101,20 +101,29 @@ export async function onRequest(context: EventContext<Env, any, any>) {
   const clientIP = getClientIP(request)
   let rateLimitResult: RateLimitResult | null = null
 
-  // 1. Check global rate limit first
-  const globalResult = await checkRateLimit(env.RATE_LIMIT, 'global', clientIP)
-  if (!globalResult.allowed) {
-    return rateLimitResponse(globalResult)
+  // Skip global rate limiting for GET requests (reads) to reduce KV traffic
+  // GET requests are cheap and frequent (polling). Rate limit mutations only.
+  const isMutation = request.method !== 'GET'
+
+  // 1. Check global rate limit only for mutations (POST/PUT/DELETE)
+  if (isMutation) {
+    const globalResult = await checkRateLimit(env.RATE_LIMIT, 'global', clientIP)
+    if (!globalResult.allowed) {
+      return rateLimitResponse(globalResult)
+    }
+    rateLimitResult = globalResult
   }
 
-  // 2. Check endpoint-specific rate limit
-  const rule = await getRateLimitRule(request, env, clientIP)
-  if (rule) {
-    const specificResult = await checkRateLimit(env.RATE_LIMIT, rule.configKey, rule.identifier)
-    if (!specificResult.allowed) {
-      return rateLimitResponse(specificResult)
+  // 2. Check endpoint-specific rate limit (only for mutations)
+  if (isMutation) {
+    const rule = await getRateLimitRule(request, env, clientIP)
+    if (rule) {
+      const specificResult = await checkRateLimit(env.RATE_LIMIT, rule.configKey, rule.identifier)
+      if (!specificResult.allowed) {
+        return rateLimitResponse(specificResult)
+      }
+      rateLimitResult = specificResult
     }
-    rateLimitResult = specificResult
   }
 
   // Proceed with the request
@@ -125,7 +134,10 @@ export async function onRequest(context: EventContext<Env, any, any>) {
   response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
   response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
-  // Add rate limit headers to response (use specific limit if available, else global)
-  const headerResult = rateLimitResult || globalResult
-  return applyRateLimitHeaders(response, headerResult)
+  // Add rate limit headers to response (only for mutations that were rate limited)
+  if (rateLimitResult) {
+    return applyRateLimitHeaders(response, rateLimitResult)
+  }
+
+  return response
 }
