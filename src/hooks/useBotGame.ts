@@ -301,8 +301,15 @@ export function useBotGame() {
       // Set optimistic move count to reject in-flight polls
       optimisticMoveCountRef.current = optimisticMoves.length
 
+      // Check if user's move resulted in a win (for optimistic winner display)
+      const optimisticWinner = afterHumanMove.winner !== null
+        ? (afterHumanMove.winner === 'draw' ? 'draw' : String(afterHumanMove.winner))
+        : null
+
       setState((prev) => ({
         ...prev,
+        // If user won, mark as completed optimistically
+        status: optimisticWinner ? 'completed' : prev.status,
         game: prev.game
           ? {
               ...prev.game,
@@ -310,6 +317,9 @@ export function useBotGame() {
               board: afterHumanMove.board,
               currentTurn: (prev.game.currentTurn === 1 ? 2 : 1) as 1 | 2,
               isYourTurn: false,
+              // Set winner optimistically so win highlights render immediately
+              winner: optimisticWinner as '1' | '2' | 'draw' | null,
+              status: optimisticWinner ? 'completed' : prev.game.status,
             }
           : null,
       }))
@@ -358,7 +368,8 @@ export function useBotGame() {
             lastConfirmedVersionRef.current = response.moves.length
             optimisticMoveCountRef.current = null
 
-            // Now update with the full server response (including bot's move)
+            // Now update with the full server response (including bot's move if any)
+            // If no bot move, preserve the optimistic board to prevent visual flash
             setState((prev) => ({
               ...prev,
               status: response.status === 'completed' ? 'completed' : 'playing',
@@ -366,7 +377,8 @@ export function useBotGame() {
                 ? {
                     ...prev.game,
                     moves: response.moves,
-                    board: response.board,
+                    // Only update board from server if bot made a move, otherwise keep optimistic board
+                    board: botMadeMove ? response.board : prev.game.board,
                     currentTurn: response.currentTurn,
                     status: response.status,
                     winner: response.winner,
