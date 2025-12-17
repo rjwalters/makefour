@@ -101,9 +101,15 @@ export default function PlayPage() {
     }
   }, [searchParams, navigate])
 
+  // Track the previous mode to detect actual mode changes
+  const prevModeRef = useRef<string | null>(null)
+
   // Handle mode query parameter from navbar navigation
   useEffect(() => {
     const mode = searchParams.get('mode')
+    const prevMode = prevModeRef.current
+    prevModeRef.current = mode
+
     if (mode === 'training') {
       // Coach mode: AI training with hints/analysis
       // Cancel any active matchmaking/challenge when switching to training
@@ -118,7 +124,14 @@ export default function PlayPage() {
         mode: 'ai',
         botGameMode: 'training',
       }))
-      setGamePhase('setup')
+      // Only reset to setup if we're actually switching modes (not just re-running effect)
+      // This prevents resetting the game when the user starts playing
+      if (prevMode !== null && prevMode !== 'training') {
+        setGamePhase('setup')
+      } else if (gamePhase !== 'playing') {
+        // On initial load, only set to setup if not already playing
+        setGamePhase('setup')
+      }
     } else if (mode === 'compete') {
       // Compete mode: Show competition setup (Automatch vs Challenge)
       if (isAuthenticated) {
