@@ -17,6 +17,8 @@ import ProfilePage from './pages/ProfilePage'
 import StatsPage from './pages/StatsPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
 import BotProfilePage from './pages/BotProfilePage'
+import DebugChatPage from './pages/DebugChatPage'
+import DebugGameRenderPage from './pages/DebugGameRenderPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -40,6 +42,10 @@ function App() {
             <Route path="/spectate" element={<SpectatorPage />} />
             <Route path="/verify-email" element={<VerifyEmailPage />} />
             <Route path="/bot/:id" element={<BotProfilePage />} />
+
+            {/* Debug routes - no auth required */}
+            <Route path="/debug/chat" element={<DebugChatPage />} />
+            <Route path="/debug/game-render" element={<DebugGameRenderPage />} />
 
             {/* Protected routes - require authentication */}
             {/* Redirect old dashboard URL to profile */}
