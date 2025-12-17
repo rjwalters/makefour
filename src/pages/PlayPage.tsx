@@ -390,7 +390,11 @@ export default function PlayPage() {
   }, [settings, matchmaking, botGame, sounds, updatePreferences])
 
   const handleNewGame = useCallback(() => {
-    setGamePhase('setup')
+    // Determine which setup screen to return to based on current mode
+    const wasRankedBotGame = settings.botGameMode === 'ranked'
+    const wasCompetition = gamePhase === 'botGame' && wasRankedBotGame
+
+    setGamePhase(wasCompetition ? 'competition-setup' : 'setup')
     setGameState(createGameState())
     setGameSaved(false)
     setSaveError(null)
@@ -400,7 +404,7 @@ export default function PlayPage() {
     setSelectedPersona(null)
     matchmaking.reset()
     botGame.reset()
-  }, [matchmaking, botGame])
+  }, [matchmaking, botGame, settings.botGameMode, gamePhase])
 
   const handlePlayAgain = useCallback(() => {
     setGameState(createGameState())
