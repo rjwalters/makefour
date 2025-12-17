@@ -522,6 +522,7 @@ test.describe('Debug Game Render Page', () => {
   test.describe('Text Render Mode', () => {
     test('should switch to text render mode', async () => {
       const select = debugPage.page.locator('[data-testid="render-mode-select"]')
+      await select.scrollIntoViewIfNeeded()
       await select.selectOption('text')
 
       const textBoard = debugPage.page.locator('[data-testid="text-board"]')
@@ -530,6 +531,7 @@ test.describe('Debug Game Render Page', () => {
 
     test('should display ASCII board in text mode', async () => {
       const select = debugPage.page.locator('[data-testid="render-mode-select"]')
+      await select.scrollIntoViewIfNeeded()
       await select.selectOption('text')
 
       const asciiBoard = debugPage.page.locator('[data-testid="ascii-board"]')
@@ -538,6 +540,7 @@ test.describe('Debug Game Render Page', () => {
 
     test('should show correct data attributes in text mode', async () => {
       const select = debugPage.page.locator('[data-testid="render-mode-select"]')
+      await select.scrollIntoViewIfNeeded()
       await select.selectOption('text')
 
       const textBoard = debugPage.page.locator('[data-testid="text-board"]')
@@ -548,6 +551,7 @@ test.describe('Debug Game Render Page', () => {
 
     test('should update text board after move', async () => {
       const select = debugPage.page.locator('[data-testid="render-mode-select"]')
+      await select.scrollIntoViewIfNeeded()
       await select.selectOption('text')
 
       // Click column 3 in text mode
@@ -562,6 +566,7 @@ test.describe('Debug Game Render Page', () => {
 
     test('should show version and optimistic state in text mode', async () => {
       const select = debugPage.page.locator('[data-testid="render-mode-select"]')
+      await select.scrollIntoViewIfNeeded()
       await select.selectOption('text')
 
       const textBoard = debugPage.page.locator('[data-testid="text-board"]')
@@ -573,12 +578,14 @@ test.describe('Debug Game Render Page', () => {
   test.describe('useGameState Hook', () => {
     test('should enable useGameState hook toggle', async () => {
       const checkbox = debugPage.page.locator('[data-testid="use-new-hook-checkbox"]')
+      await checkbox.scrollIntoViewIfNeeded()
       await checkbox.check()
       await expect(checkbox).toBeChecked()
     })
 
     test('should display version info when hook is enabled', async () => {
       const checkbox = debugPage.page.locator('[data-testid="use-new-hook-checkbox"]')
+      await checkbox.scrollIntoViewIfNeeded()
       await checkbox.check()
 
       const versionInfo = debugPage.page.locator('[data-testid="version-info"]')
@@ -587,6 +594,7 @@ test.describe('Debug Game Render Page', () => {
 
     test('should show initial version as 0', async () => {
       const checkbox = debugPage.page.locator('[data-testid="use-new-hook-checkbox"]')
+      await checkbox.scrollIntoViewIfNeeded()
       await checkbox.check()
 
       const stateVersion = debugPage.page.locator('[data-testid="state-version"]')
@@ -595,6 +603,7 @@ test.describe('Debug Game Render Page', () => {
 
     test('should increment version on each move', async () => {
       const checkbox = debugPage.page.locator('[data-testid="use-new-hook-checkbox"]')
+      await checkbox.scrollIntoViewIfNeeded()
       await checkbox.check()
       await debugPage.page.waitForTimeout(100)
 
@@ -612,6 +621,7 @@ test.describe('Debug Game Render Page', () => {
 
     test('should track moves count correctly', async () => {
       const checkbox = debugPage.page.locator('[data-testid="use-new-hook-checkbox"]')
+      await checkbox.scrollIntoViewIfNeeded()
       await checkbox.check()
 
       await debugPage.dropPieceInColumn(0)
@@ -643,6 +653,7 @@ test.describe('Debug Game Render Page', () => {
     test('should not have phantom pieces after rapid moves', async () => {
       // Enable the new hook for better tracking
       const checkbox = debugPage.page.locator('[data-testid="use-new-hook-checkbox"]')
+      await checkbox.scrollIntoViewIfNeeded()
       await checkbox.check()
       await debugPage.page.waitForTimeout(100)
 
@@ -667,6 +678,7 @@ test.describe('Debug Game Render Page', () => {
     test('should preserve board state integrity during concurrent operations', async () => {
       // Enable new hook
       const checkbox = debugPage.page.locator('[data-testid="use-new-hook-checkbox"]')
+      await checkbox.scrollIntoViewIfNeeded()
       await checkbox.check()
       await debugPage.page.waitForTimeout(100)
 
@@ -719,6 +731,7 @@ test.describe('Debug Game Render Page', () => {
 
     test('should maintain version monotonicity', async () => {
       const checkbox = debugPage.page.locator('[data-testid="use-new-hook-checkbox"]')
+      await checkbox.scrollIntoViewIfNeeded()
       await checkbox.check()
       await debugPage.page.waitForTimeout(100)
 
@@ -740,10 +753,12 @@ test.describe('Debug Game Render Page', () => {
     test('should show consistent state in text mode after moves', async () => {
       // Switch to text mode
       const select = debugPage.page.locator('[data-testid="render-mode-select"]')
+      await select.scrollIntoViewIfNeeded()
       await select.selectOption('text')
 
       // Enable new hook
       const checkbox = debugPage.page.locator('[data-testid="use-new-hook-checkbox"]')
+      await checkbox.scrollIntoViewIfNeeded()
       await checkbox.check()
       await debugPage.page.waitForTimeout(100)
 
@@ -767,6 +782,7 @@ test.describe('Debug Game Render Page', () => {
 
     test('should detect win correctly in text mode', async () => {
       const select = debugPage.page.locator('[data-testid="render-mode-select"]')
+      await select.scrollIntoViewIfNeeded()
       await select.selectOption('text')
 
       // Reset first
@@ -788,6 +804,7 @@ test.describe('Debug Game Render Page', () => {
 
     test('should highlight winning cells in text mode', async () => {
       const select = debugPage.page.locator('[data-testid="render-mode-select"]')
+      await select.scrollIntoViewIfNeeded()
       await select.selectOption('text')
 
       // Reset first

@@ -413,11 +413,11 @@ export default function DebugGameRenderPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Game Board Section */}
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                 Game Board
               </h2>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                 <div className="text-sm text-gray-500" data-testid="render-count">
                   Renders: {renderCount}
                 </div>
