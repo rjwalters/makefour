@@ -94,8 +94,19 @@ export function useBotBattlePlayback() {
       })
 
       if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || 'Failed to generate game')
+        // Try to parse error as JSON, but handle non-JSON responses gracefully
+        let errorMessage = `Server error (${response.status})`
+        try {
+          const data = await response.json()
+          errorMessage = data.error || errorMessage
+        } catch {
+          // Response wasn't JSON (e.g., HTML error page)
+          const text = await response.text().catch(() => '')
+          if (text.length < 100) {
+            errorMessage = text || errorMessage
+          }
+        }
+        throw new Error(errorMessage)
       }
 
       const data = await response.json() as { success: boolean; game: GeneratedGame }

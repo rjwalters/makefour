@@ -29,6 +29,14 @@ interface Env {
 export async function onRequestPost(context: EventContext<Env, any, any>) {
   const { DB } = context.env
 
+  if (!DB) {
+    console.error('POST /api/bot/vs-bot/generate error: Database not configured')
+    return jsonResponse(
+      { error: 'Database not configured' },
+      { status: 503 }
+    )
+  }
+
   try {
     const game = await generateBotGame(DB)
 
@@ -39,10 +47,17 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
   } catch (error) {
     console.error('POST /api/bot/vs-bot/generate error:', error)
 
-    if (error instanceof Error && error.message.includes('Not enough active bot personas')) {
+    if (error instanceof Error) {
+      if (error.message.includes('Not enough active bot personas')) {
+        return jsonResponse(
+          { error: 'No bots available for matchmaking. The database may not have any active bot personas configured.' },
+          { status: 503 }
+        )
+      }
+      // Return the actual error message for debugging
       return jsonResponse(
-        { error: 'No bots available for matchmaking' },
-        { status: 503 }
+        { error: `Failed to generate game: ${error.message}` },
+        { status: 500 }
       )
     }
 
