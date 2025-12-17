@@ -261,12 +261,12 @@ export function useBotBattlePlayback() {
   }, [])
 
   /**
-   * Set playback speed (1 = normal, 2 = 2x, 0.5 = half)
+   * Set playback speed (1 = normal, 2 = 2x, 4 = 4x, 8 = 8x)
    */
   const setSpeed = useCallback((speed: number) => {
     setState((prev) => ({
       ...prev,
-      playbackSpeed: Math.max(0.25, Math.min(4, speed)),
+      playbackSpeed: Math.max(0.5, Math.min(8, speed)),
     }))
   }, [])
 

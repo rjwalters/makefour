@@ -453,48 +453,47 @@ export default function SpectatorPage() {
           </div>
 
           {/* Playback controls */}
-          <div className="flex items-center gap-2">
-            {/* Speed controls */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => botBattle.setSpeed(botBattle.playbackSpeed / 2)}
-              disabled={botBattle.playbackSpeed <= 0.25}
-            >
-              0.5x
-            </Button>
+          <div className="flex flex-col items-center gap-3">
+            {/* Play/Pause/Restart row */}
+            <div className="flex items-center gap-2">
+              {/* Play/Pause */}
+              {botBattle.isPlaying ? (
+                <Button variant="outline" size="sm" onClick={botBattle.pause}>
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                </Button>
+              ) : botBattle.isPaused ? (
+                <Button variant="outline" size="sm" onClick={botBattle.resume}>
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                  </svg>
+                </Button>
+              ) : null}
 
-            {/* Play/Pause */}
-            {botBattle.isPlaying ? (
-              <Button variant="outline" size="sm" onClick={botBattle.pause}>
+              {/* Restart */}
+              <Button variant="outline" size="sm" onClick={botBattle.restart}>
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
                 </svg>
               </Button>
-            ) : botBattle.isPaused ? (
-              <Button variant="outline" size="sm" onClick={botBattle.resume}>
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
-                </svg>
-              </Button>
-            ) : null}
+            </div>
 
-            {/* Restart */}
-            <Button variant="outline" size="sm" onClick={botBattle.restart}>
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-              </svg>
-            </Button>
-
-            {/* Speed controls */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => botBattle.setSpeed(botBattle.playbackSpeed * 2)}
-              disabled={botBattle.playbackSpeed >= 4}
-            >
-              2x
-            </Button>
+            {/* Speed selector row */}
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground mr-1">Speed:</span>
+              {[1, 2, 4, 8].map((speed) => (
+                <Button
+                  key={speed}
+                  variant={botBattle.playbackSpeed === speed ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => botBattle.setSpeed(speed)}
+                  className="px-2 min-w-[40px]"
+                >
+                  {speed}x
+                </Button>
+              ))}
+            </div>
           </div>
 
           {/* Action buttons */}
