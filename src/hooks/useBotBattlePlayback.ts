@@ -96,14 +96,14 @@ export function useBotBattlePlayback() {
       if (!response.ok) {
         // Try to parse error as JSON, but handle non-JSON responses gracefully
         let errorMessage = `Server error (${response.status})`
+        const responseText = await response.text()
         try {
-          const data = await response.json()
+          const data = JSON.parse(responseText)
           errorMessage = data.error || errorMessage
         } catch {
           // Response wasn't JSON (e.g., HTML error page)
-          const text = await response.text().catch(() => '')
-          if (text.length < 100) {
-            errorMessage = text || errorMessage
+          if (responseText.length > 0 && responseText.length < 200 && !responseText.startsWith('<')) {
+            errorMessage = responseText
           }
         }
         throw new Error(errorMessage)
