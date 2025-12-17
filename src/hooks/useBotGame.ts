@@ -77,6 +77,9 @@ export function useBotGame() {
   const isMountedRef = useRef(true)
   // Track version for conflict resolution (uses moves.length as version)
   const lastConfirmedVersionRef = useRef<number>(0)
+  // Track optimistic move count to prevent polls from overwriting optimistic updates
+  // When set, polls with moves.length <= this value will be rejected
+  const optimisticMoveCountRef = useRef<number | null>(null)
 
   // Cleanup on unmount
   useEffect(() => {
@@ -222,11 +225,18 @@ export function useBotGame() {
 
           if (!isMountedRef.current) return
 
-          // Version-based conflict resolution: only accept if moves >= our confirmed version
+          // Version-based conflict resolution
           const responseVersion = response.moves.length
 
           setState((prev) => {
-            // If we have optimistic state (more moves than server), don't overwrite
+            // If we have an optimistic update pending, reject polls that don't have MORE moves
+            // This prevents in-flight polls from overwriting our optimistic state
+            const optimisticCount = optimisticMoveCountRef.current
+            if (optimisticCount !== null && responseVersion <= optimisticCount) {
+              return prev
+            }
+
+            // Also check against current state
             if (prev.game && prev.game.moves.length > responseVersion) {
               return prev
             }
@@ -287,6 +297,10 @@ export function useBotGame() {
 
       // Update state immediately with the human's move
       const optimisticMoves = [...rollbackMoves, column]
+
+      // Set optimistic move count to reject in-flight polls
+      optimisticMoveCountRef.current = optimisticMoves.length
+
       setState((prev) => ({
         ...prev,
         game: prev.game
@@ -340,8 +354,9 @@ export function useBotGame() {
 
             if (!isMountedRef.current) return false
 
-            // Update confirmed version
+            // Update confirmed version and clear optimistic flag
             lastConfirmedVersionRef.current = response.moves.length
+            optimisticMoveCountRef.current = null
 
             // Now update with the full server response (including bot's move)
             setState((prev) => ({
@@ -367,6 +382,8 @@ export function useBotGame() {
             return true
           } catch (error) {
             console.error('Bot game move submission error:', error)
+            // Clear optimistic flag on error
+            optimisticMoveCountRef.current = null
             // Revert optimistic update on error using captured values (not stale closure!)
             setState((prev) => ({
               ...prev,
