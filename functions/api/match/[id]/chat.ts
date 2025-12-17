@@ -177,6 +177,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         status: true,
         winner: true,
         botPersonaId: true,
+        isBotGame: true,
       },
     })
 
@@ -219,9 +220,12 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       createdAt: now,
     })
 
-    // Check if this is a bot game (player ID starts with 'bot_' or is legacy 'bot-opponent')
-    const isVsBot = game.player1Id.startsWith('bot_') || game.player2Id.startsWith('bot_') ||
-                    game.player2Id === 'bot-opponent'
+    // Check if this is a bot game
+    // Use isBotGame flag first (set by matchmaking), fall back to player ID patterns for legacy games
+    const isVsBotByFlag = game.isBotGame === 1
+    const isVsBotByPlayerId = game.player1Id.startsWith('bot_') || game.player2Id.startsWith('bot_') ||
+                              game.player2Id === 'bot-opponent'
+    const isVsBot = isVsBotByFlag || isVsBotByPlayerId
 
     let botResponse: string | null = null
 
@@ -229,21 +233,25 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       // Load bot persona personality if available
       let personality: ChatPersonality | null = null
       if (game.botPersonaId) {
-        const persona = await db.query.botPersonas.findFirst({
-          where: eq(botPersonas.id, game.botPersonaId),
-          columns: {
-            id: true,
-            name: true,
-            chatPersonality: true,
-          },
-        })
+        try {
+          const persona = await db.query.botPersonas.findFirst({
+            where: eq(botPersonas.id, game.botPersonaId),
+            columns: {
+              id: true,
+              name: true,
+              chatPersonality: true,
+            },
+          })
 
-        if (persona) {
-          try {
-            personality = JSON.parse(persona.chatPersonality) as ChatPersonality
-          } catch {
-            // Fall back to default personality
+          if (persona?.chatPersonality) {
+            try {
+              personality = JSON.parse(persona.chatPersonality) as ChatPersonality
+            } catch {
+              // Fall back to default personality if parsing fails
+            }
           }
+        } catch {
+          // DB error - continue with default personality
         }
       }
 
@@ -277,9 +285,9 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
             createdAt: botNow,
           })
         }
-      } catch (aiError) {
+      } catch (err) {
         // Log AI error but don't fail the request - user's message was still saved
-        console.error('Bot response generation failed:', aiError)
+        console.error('Bot response generation failed:', err instanceof Error ? err.message : err)
         // Bot just won't respond to this message, which is acceptable
       }
     }
@@ -333,8 +341,26 @@ async function generateBotResponse(
   personality: ChatPersonality | null
 ): Promise<string | null> {
   try {
-    const pers = personality || DEFAULT_PERSONALITY
-    const moves = JSON.parse(game.moves) as number[]
+    // Merge personality with DEFAULT_PERSONALITY to fill in missing fields
+    // This handles cases where the database personality is empty/partial
+    const pers: ChatPersonality = personality
+      ? {
+          ...DEFAULT_PERSONALITY,
+          ...personality,
+          reactions: {
+            ...DEFAULT_PERSONALITY.reactions,
+            ...(personality.reactions || {}),
+          },
+        }
+      : DEFAULT_PERSONALITY
+
+    // Parse moves - handle both string and array formats
+    let moves: number[] = []
+    try {
+      moves = typeof game.moves === 'string' ? JSON.parse(game.moves) : (game.moves || [])
+    } catch {
+      moves = []
+    }
     const moveCount = moves.length
     const isPlayerTurn = game.current_turn === 1
 
@@ -401,8 +427,8 @@ Remember: You are the yellow player (Player 2), they are red (Player 1).`
   } catch (error) {
     console.error('Bot response generation error:', error)
     // Return a fallback response from canned reactions
-    const pers = personality || DEFAULT_PERSONALITY
-    const fallbacks = pers.reactions.playerGoodMove
+    // Use optional chaining since personality may not have reactions defined
+    const fallbacks = personality?.reactions?.playerGoodMove ?? DEFAULT_PERSONALITY.reactions?.playerGoodMove
     if (fallbacks && fallbacks.length > 0) {
       return fallbacks[Math.floor(Math.random() * fallbacks.length)]
     }

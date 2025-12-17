@@ -96,14 +96,11 @@ export default function ChatPanel({
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    console.log('[Chat Debug] handleSubmit called, inputValue:', inputValue, 'isSending:', isSending)
     if (!inputValue.trim() || isSending) {
-      console.log('[Chat Debug] handleSubmit early return - empty or sending')
       return
     }
 
     const success = await sendMessage(inputValue)
-    console.log('[Chat Debug] sendMessage returned:', success)
     if (success) {
       setInputValue('')
     }

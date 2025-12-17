@@ -84,15 +84,10 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
         const latestTime = Math.max(...response.messages.map(m => m.created_at))
         lastMessageTimeRef.current = latestTime
 
-        console.log('[Chat Debug] fetchMessages received:', response.messages.map(m => ({ id: m.id, content: m.content })))
-
         setState(prev => {
           // Merge new messages, avoiding duplicates
           const existingIds = new Set(prev.messages.map(m => m.id))
           const newMessages = response.messages.filter(m => !existingIds.has(m.id))
-
-          console.log('[Chat Debug] fetchMessages dedup - existing IDs:', Array.from(existingIds))
-          console.log('[Chat Debug] fetchMessages dedup - new messages after filter:', newMessages.map(m => m.id))
 
           // Calculate unread count if chat is not visible
           const unreadCount = isVisibleRef.current ? 0 : prev.unreadCount + newMessages.length
@@ -155,18 +150,13 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
 
     const trimmedContent = content.trim()
 
-    // Debug: Log send attempt
-    console.log('[Chat Debug] sendMessage called:', { content: trimmedContent, gameId, isSendingRef: isSendingRef.current })
-
     // Safeguard: Prevent double sends using ref (more reliable than state)
     if (isSendingRef.current) {
-      console.log('[Chat Debug] BLOCKED - already sending (ref check)')
       return false
     }
 
     // Safeguard: Prevent sending exact same message twice in quick succession
     if (lastSentContentRef.current === trimmedContent) {
-      console.log('[Chat Debug] BLOCKED - same content as last message')
       return false
     }
 
@@ -197,11 +187,15 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
         created_at: Date.now(),
       }
 
-      console.log('[Chat Debug] Adding optimistic message:', { id: response.messageId, content: content.trim() })
-
       setState(prev => {
-        console.log('[Chat Debug] Current message count before add:', prev.messages.length)
-        console.log('[Chat Debug] Existing message IDs:', prev.messages.map(m => m.id))
+        // Check if message already exists (poll may have added it during API call)
+        if (prev.messages.some(m => m.id === response.messageId)) {
+          return {
+            ...prev,
+            isSending: false,
+          }
+        }
+
         return {
           ...prev,
           messages: [...prev.messages, userMessage],
