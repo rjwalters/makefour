@@ -502,14 +502,17 @@ def train_with_curriculum(
     output_dir: Path = None,
 ):
     """
-    Train with curriculum learning.
+    Train with curriculum learning using ACCUMULATED data.
+
+    Key improvement: Instead of replacing data at each depth transition,
+    we ACCUMULATE data from all depths. This prevents catastrophic forgetting.
 
     - Start with shallow oracle (easier to learn from)
-    - Gradually increase oracle depth
-    - Decrease temperature for sharper labels over time
+    - Gradually add higher depth data while keeping old data
+    - Use replay buffer to maintain knowledge from all depths
     """
     logger.info("=" * 60)
-    logger.info("ORACLE-GUIDED CURRICULUM TRAINING")
+    logger.info("ORACLE-GUIDED CURRICULUM TRAINING (v2 - Accumulated)")
     logger.info("=" * 60)
     logger.info(f"Curriculum: depth {start_depth} → {end_depth}")
     logger.info(f"Epochs: {epochs}, Games: {num_games}, Batch: {batch_size}")
@@ -530,6 +533,12 @@ def train_with_curriculum(
         scaler = torch.cuda.amp.GradScaler()
 
     best_accuracy = 0.0
+    best_win_rate = 0.0
+
+    # ACCUMULATED positions from all depths (replay buffer)
+    all_positions: list[dict] = []
+    positions_by_depth: dict[int, list[dict]] = {}
+    prev_depth = -1
 
     for epoch in range(epochs):
         # Curriculum: compute current oracle depth
@@ -544,27 +553,38 @@ def train_with_curriculum(
             temperature = 1.0
         temperature = max(0.3, temperature)
 
-        # Generate data for this epoch (or reuse if depth unchanged)
-        if epoch == 0 or (epoch > 0 and current_depth != prev_depth):
-            logger.info(f"\n[Epoch {epoch+1}] Generating data with depth={current_depth}, temp={temperature:.2f}")
-            positions = generate_oracle_dataset(
-                num_games=num_games,
+        # Generate NEW data only when depth increases, but KEEP old data
+        if current_depth != prev_depth:
+            # Generate data at new depth
+            games_for_depth = num_games // (end_depth - start_depth + 1)
+            logger.info(f"\n[Epoch {epoch+1}] Adding depth={current_depth} data (temp={temperature:.2f})")
+
+            new_positions = generate_oracle_dataset(
+                num_games=games_for_depth,
                 depth=current_depth,
                 temperature=temperature,
                 num_workers=num_workers,
             )
-            dataset = OracleDataset(positions, augment=True)
+
+            # Store by depth and add to accumulated buffer
+            positions_by_depth[current_depth] = new_positions
+            all_positions.extend(new_positions)
+
+            logger.info(f"Total accumulated positions: {len(all_positions)} from depths {list(positions_by_depth.keys())}")
+
+            # Create dataset from ALL accumulated positions
+            dataset = OracleDataset(all_positions, augment=True)
             dataloader = DataLoader(
                 dataset,
                 batch_size=batch_size,
                 shuffle=True,
-                num_workers=0,  # Data already on device
+                num_workers=0,
                 pin_memory=False,
             )
 
         prev_depth = current_depth
 
-        # Train epoch
+        # Train epoch on ALL accumulated data
         loss = train_epoch(model, dataloader, optimizer, device, loss_type="kl", scaler=scaler)
         scheduler.step()
 
@@ -578,21 +598,33 @@ def train_with_curriculum(
             f"LR={current_lr:.6f}, Depth={current_depth}"
         )
 
-        # Save best model
+        # Periodic evaluation vs minimax (more frequent)
+        if (epoch + 1) % 10 == 0 or epoch == epochs - 1:
+            logger.info("\n--- Evaluation vs Minimax ---")
+            wins3, _, _ = evaluate_vs_minimax(model, depth=3, num_games=50, device=device)
+            wins4, _, _ = evaluate_vs_minimax(model, depth=4, num_games=50, device=device)
+
+            # Save best model based on win rate vs depth-4
+            current_win_rate = wins4 / 50
+            if current_win_rate > best_win_rate and output_dir:
+                best_win_rate = current_win_rate
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'win_rate_d4': current_win_rate,
+                }, output_dir / "best_model.pt")
+                logger.info(f"New best model saved (d4 win rate: {current_win_rate*100:.1f}%)")
+
+        # Save best by accuracy
         if top1_acc > best_accuracy and output_dir:
             best_accuracy = top1_acc
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'accuracy': top1_acc,
-            }, output_dir / "best_model.pt")
 
-        # Periodic evaluation vs minimax
-        if (epoch + 1) % 20 == 0 or epoch == epochs - 1:
-            logger.info("\n--- Evaluation vs Minimax ---")
-            evaluate_vs_minimax(model, depth=3, num_games=50, device=device)
-            evaluate_vs_minimax(model, depth=4, num_games=50, device=device)
+    # Load best model for final evaluation
+    if output_dir and (output_dir / "best_model.pt").exists():
+        checkpoint = torch.load(output_dir / "best_model.pt")
+        model.load_state_dict(checkpoint['model_state_dict'])
+        logger.info(f"\nLoaded best model from epoch {checkpoint['epoch']+1}")
 
     return model
 
