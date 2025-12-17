@@ -47,22 +47,26 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
   } catch (error) {
     console.error('POST /api/bot/vs-bot/generate error:', error)
 
-    if (error instanceof Error) {
-      if (error.message.includes('Not enough active bot personas')) {
-        return jsonResponse(
-          { error: 'No bots available for matchmaking. The database may not have any active bot personas configured.' },
-          { status: 503 }
-        )
-      }
-      // Return the actual error message for debugging
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const errorStack = error instanceof Error ? error.stack : undefined
+
+    // Log detailed error info
+    console.error('Error details:', {
+      message: errorMessage,
+      stack: errorStack,
+      type: error?.constructor?.name,
+    })
+
+    if (errorMessage.includes('Not enough active bot personas')) {
       return jsonResponse(
-        { error: `Failed to generate game: ${error.message}` },
-        { status: 500 }
+        { error: 'No bots available. Please ensure bot personas are configured in the database.' },
+        { status: 503 }
       )
     }
 
+    // Return the actual error message for debugging (in production, consider sanitizing)
     return jsonResponse(
-      { error: 'Failed to generate game' },
+      { error: `Game generation failed: ${errorMessage}` },
       { status: 500 }
     )
   }
