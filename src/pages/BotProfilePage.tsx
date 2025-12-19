@@ -28,12 +28,24 @@ interface BotMatchup {
   lastGameAt: number
 }
 
+interface AIConfig {
+  searchDepth?: number
+  errorRate?: number
+  timeMultiplier?: number
+  temperature?: number
+  useHybridSearch?: boolean
+  hybridDepth?: number
+  modelId?: string
+}
+
 interface BotProfile {
   id: string
   name: string
   description: string
   avatarUrl: string | null
   playStyle: string
+  aiEngine?: string
+  aiConfig?: AIConfig
   baseElo: number
   createdAt: number
   rating: number
@@ -106,6 +118,40 @@ export default function BotProfilePage() {
       default:
         return 'text-gray-600 dark:text-gray-400'
     }
+  }
+
+  const getEngineDescription = (engine: string, config?: AIConfig) => {
+    if (engine === 'neural') {
+      const modelName = config?.modelId || 'pattern-based'
+      const temp = config?.temperature ?? 0.5
+      if (config?.useHybridSearch) {
+        return `Neural network (${modelName}) with ${config.hybridDepth}-ply lookahead. Uses learned patterns combined with tactical search.`
+      }
+      return `Neural network (${modelName}) with temperature ${temp}. Plays by intuition using learned patterns.`
+    }
+    // Minimax engine
+    const depth = config?.searchDepth ?? 6
+    const errorRate = config?.errorRate ?? 0
+    const errorPct = Math.round(errorRate * 100)
+    if (errorPct > 0) {
+      return `Minimax search to depth ${depth} with ${errorPct}% chance of suboptimal moves. Uses alpha-beta pruning for efficient lookahead.`
+    }
+    return `Minimax search to depth ${depth} with alpha-beta pruning. Evaluates thousands of positions to find optimal moves.`
+  }
+
+  const getEngineIcon = (engine: string) => {
+    if (engine === 'neural') {
+      return (
+        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+        </svg>
+      )
+    }
+    return (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+      </svg>
+    )
   }
 
   return (
@@ -199,6 +245,59 @@ export default function BotProfilePage() {
                     </div>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Under the Hood Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  {getEngineIcon(profile.aiEngine || 'minimax')}
+                  Under the Hood
+                </CardTitle>
+                <CardDescription>How {profile.name} thinks</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    profile.aiEngine === 'neural'
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200'
+                      : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                  }`}>
+                    {profile.aiEngine === 'neural' ? 'Neural Network' : 'Minimax Engine'}
+                  </div>
+                </div>
+                <p className="text-muted-foreground">
+                  {getEngineDescription(profile.aiEngine || 'minimax', profile.aiConfig)}
+                </p>
+                {profile.aiConfig && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2">
+                    {profile.aiConfig.searchDepth !== undefined && (
+                      <div className="bg-muted/50 rounded-lg p-3">
+                        <div className="text-lg font-semibold">{profile.aiConfig.searchDepth}</div>
+                        <div className="text-xs text-muted-foreground">Search Depth</div>
+                      </div>
+                    )}
+                    {profile.aiConfig.errorRate !== undefined && profile.aiConfig.errorRate > 0 && (
+                      <div className="bg-muted/50 rounded-lg p-3">
+                        <div className="text-lg font-semibold">{Math.round(profile.aiConfig.errorRate * 100)}%</div>
+                        <div className="text-xs text-muted-foreground">Error Rate</div>
+                      </div>
+                    )}
+                    {profile.aiConfig.temperature !== undefined && (
+                      <div className="bg-muted/50 rounded-lg p-3">
+                        <div className="text-lg font-semibold">{profile.aiConfig.temperature}</div>
+                        <div className="text-xs text-muted-foreground">Temperature</div>
+                      </div>
+                    )}
+                    {profile.aiConfig.hybridDepth !== undefined && (
+                      <div className="bg-muted/50 rounded-lg p-3">
+                        <div className="text-lg font-semibold">{profile.aiConfig.hybridDepth}</div>
+                        <div className="text-xs text-muted-foreground">Hybrid Depth</div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
 

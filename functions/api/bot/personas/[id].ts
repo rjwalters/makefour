@@ -194,6 +194,7 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
       description: persona.description,
       avatarUrl: persona.avatarUrl,
       playStyle: persona.playStyle,
+      aiEngine: persona.aiEngine,
       baseElo: persona.baseElo,
       createdAt: persona.createdAt,
       // Stats from bot user (or persona as fallback)
