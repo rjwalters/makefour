@@ -309,19 +309,22 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse('Game is not active', 400)
     }
 
-    // Look up persona AI config if available
+    // Look up persona AI config and engine if available
     let personaAIConfig: AIConfig | null = null
+    let personaAIEngine: string | null = null
     if (game.botPersonaId) {
       const persona = await db.query.botPersonas.findFirst({
         where: eq(botPersonas.id, game.botPersonaId),
         columns: {
           id: true,
           aiConfig: true,
+          aiEngine: true,
         },
       })
 
       if (persona) {
         personaAIConfig = JSON.parse(persona.aiConfig)
+        personaAIEngine = persona.aiEngine
       }
     }
 
@@ -432,10 +435,11 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         const timeBudget = calculateTimeBudget(botTimeRemaining, newMoves.length, difficulty)
         const startTime = Date.now()
 
-        // Use engine-based move suggestion (defaults to minimax)
+        // Use engine-based move suggestion with persona's configured engine
         const botPersonaConfig: BotPersonaConfig = {
           difficulty,
-          engine: 'minimax', // Default engine, can be extended to use stored engine preference
+          engine: (personaAIEngine as 'minimax' | 'neural') || 'minimax',
+          customEngineParams: personaAIConfig || undefined,
         }
 
         const moveResult = await suggestMoveWithEngine(
