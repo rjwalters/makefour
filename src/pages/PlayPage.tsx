@@ -103,6 +103,8 @@ export default function PlayPage() {
 
   // Track the previous mode to detect actual mode changes
   const prevModeRef = useRef<string | null>(null)
+  // Track the previous timestamp to detect NEW forced navigations (not just timestamp existence)
+  const prevTimestampRef = useRef<string | null>(null)
   // Track gamePhase in a ref so the effect doesn't re-run when gamePhase changes
   const gamePhaseRef = useRef(gamePhase)
   gamePhaseRef.current = gamePhase
@@ -114,16 +116,19 @@ export default function PlayPage() {
     const mode = searchParams.get('mode')
     const timestamp = searchParams.get('t') // Timestamp indicates intentional navigation
     const prevMode = prevModeRef.current
+    const prevTimestamp = prevTimestampRef.current
     const currentGamePhase = gamePhaseRef.current
 
-    // Check if this is a forced navigation (has timestamp) - always reset in this case
-    const isForcedNavigation = timestamp !== null
+    // Check if this is a NEW forced navigation (timestamp changed, not just exists)
+    // This prevents treating every effect re-run as a forced navigation
+    const isForcedNavigation = timestamp !== null && timestamp !== prevTimestamp
 
-    // Only process if mode actually changed OR this is a forced navigation
+    // Only process if mode actually changed OR this is a NEW forced navigation
     if (mode === prevMode && !isForcedNavigation) {
       return
     }
     prevModeRef.current = mode
+    prevTimestampRef.current = timestamp
 
     if (mode === 'training') {
       // Coach mode: AI training with hints/analysis
