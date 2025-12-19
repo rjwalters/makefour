@@ -54,10 +54,13 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     const includeBots = url.searchParams.get('includeBots') !== 'false' // default true
 
     // Build WHERE condition based on whether to include bots
+    // Bots always appear (regardless of games played), humans need gamesPlayed > 0 and verified email
     const whereCondition = includeBots
-      ? and(
-          gt(users.gamesPlayed, 0),
-          or(eq(users.emailVerified, 1), eq(users.isBot, 1))
+      ? or(
+          // Humans: must have played games and be verified
+          and(gt(users.gamesPlayed, 0), eq(users.emailVerified, 1), eq(users.isBot, 0)),
+          // Bots: always show (no games played requirement)
+          eq(users.isBot, 1)
         )
       : and(
           gt(users.gamesPlayed, 0),
@@ -65,7 +68,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
           eq(users.isBot, 0)
         )
 
-    // Fetch top players by rating (verified users and optionally bots who have played at least 1 game)
+    // Fetch top players by rating (verified users with games, plus all bots)
     const players = await db
       .select({
         id: users.id,
@@ -178,13 +181,17 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
           },
           where: and(
             eq(users.id, userId),
-            gt(users.gamesPlayed, 0),
-            or(eq(users.emailVerified, 1), eq(users.isBot, 1))
+            or(
+              // Humans: must have played games and be verified
+              and(gt(users.gamesPlayed, 0), eq(users.emailVerified, 1), eq(users.isBot, 0)),
+              // Bots: always eligible
+              eq(users.isBot, 1)
+            )
           ),
         })
 
         if (userRow) {
-          // Calculate global rank (always includes bots for consistent ranking)
+          // Calculate global rank (includes all bots + verified humans with games)
           const rankResult = await db
             .select({
               rank: sql<number>`COUNT(*) + 1`,
@@ -193,8 +200,12 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
             .where(
               and(
                 gt(users.rating, userRow.rating),
-                gt(users.gamesPlayed, 0),
-                or(eq(users.emailVerified, 1), eq(users.isBot, 1))
+                or(
+                  // Humans: must have played games and be verified
+                  and(gt(users.gamesPlayed, 0), eq(users.emailVerified, 1), eq(users.isBot, 0)),
+                  // Bots: always counted
+                  eq(users.isBot, 1)
+                )
               )
             )
 
@@ -234,7 +245,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       }
     }
 
-    return jsonResponse({
+    const response = jsonResponse({
       leaderboard,
       pagination: {
         total,
@@ -244,6 +255,9 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       },
       currentUser,
     })
+    // Prevent CDN caching to ensure fresh data for all users
+    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
+    return response
   } catch (error) {
     console.error('GET /api/leaderboard error:', error)
     return errorResponse('Internal server error', 500)
