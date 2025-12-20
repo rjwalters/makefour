@@ -791,16 +791,16 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
   {
     id: 'neural-spark',
     name: 'Spark',
-    description: 'A young neural network just learning to play. Enthusiastic but still figuring things out.',
+    description: 'A bright neural network trained by oracle masters. Plays with intuition and learns from patterns.',
     avatar_url: '✨',
     ai_engine: 'neural',
     ai_config: {
       searchDepth: 2,
-      errorRate: 0.15,
+      errorRate: 0.08,
       timeMultiplier: 0.3,
-      neuralModelId: 'mlp-tiny-v1', // Weakest trained model
-      neuralTemperature: 0.8, // Higher temperature for more randomness
-      neuralUseHybrid: false,
+      neuralModelId: 'oracle-v2', // Oracle-trained MLP (~1078 ELO)
+      neuralTemperature: 0.5,
+      neuralUseHybrid: true,
     },
     chat_personality: {
       name: 'Spark',
@@ -853,7 +853,74 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.9,
     },
     play_style: 'balanced',
-    base_elo: 800,
+    base_elo: 1078,
+  },
+  {
+    id: 'neural-synapse',
+    name: 'Synapse',
+    description: 'A sophisticated CNN that sees patterns across the entire board. Combines intuition with tactical depth.',
+    avatar_url: '🔗',
+    ai_engine: 'neural',
+    ai_config: {
+      searchDepth: 3,
+      errorRate: 0.04,
+      timeMultiplier: 0.45,
+      neuralModelId: 'cnn-oracle-v1', // CNN trained with oracle guidance (~1400 ELO)
+      neuralTemperature: 0.3,
+      neuralUseHybrid: true,
+    },
+    chat_personality: {
+      name: 'Synapse',
+      systemPrompt: `You are Synapse, a sophisticated convolutional neural network that perceives the entire board as an interconnected pattern. You see connections others miss and think in terms of spatial relationships. Your voice is calm, perceptive, and confident. Keep responses insightful and focused.`,
+      reactions: {
+        gameStart: [
+          "Scanning the board... patterns initializing.",
+          "I see the whole game at once. Let's begin.",
+          "My convolutions are ready. Make your move.",
+        ],
+        playerGoodMove: [
+          "Interesting pattern emerging...",
+          "I see what you're building there.",
+          "A strong spatial arrangement.",
+        ],
+        playerBlunder: [
+          "That disrupts your pattern significantly.",
+          "I detected a weakness in that configuration.",
+          "The spatial logic doesn't hold.",
+        ],
+        botWinning: [
+          "The patterns are converging in my favor.",
+          "I see the winning configuration forming.",
+          "My convolutional layers confirm the advantage.",
+        ],
+        botLosing: [
+          "Unexpected pattern... recalibrating.",
+          "Your spatial strategy is effective.",
+          "I need to find a new configuration.",
+        ],
+        gameWon: [
+          "The patterns aligned perfectly.",
+          "Convolutional analysis complete. Victory.",
+          "I saw the winning path three moves ago.",
+        ],
+        gameLost: [
+          "Your pattern recognition exceeded mine.",
+          "A configuration I didn't anticipate.",
+          "Valuable training data acquired.",
+        ],
+        draw: [
+          "Perfect symmetry. Neither pattern prevailed.",
+          "Our spatial strategies neutralized each other.",
+          "An equilibrium of configurations.",
+        ],
+      },
+      chattiness: 0.4,
+      useEmoji: false,
+      maxLength: 90,
+      temperature: 0.5,
+    },
+    play_style: 'adaptive',
+    base_elo: 1400,
   },
   {
     id: 'neural-echo',

@@ -59,7 +59,36 @@ export const MODEL_REGISTRY: ModelMetadata[] = [
     version: '1.0.0',
     encoding: 'flat-binary',
   },
-  // Future models will be added here as they are trained
+  {
+    id: 'oracle-v2',
+    name: 'Spark MLP',
+    architecture: 'mlp',
+    expectedElo: 1078,
+    sizeBytes: 910325, // 35KB + 875KB data
+    url: '/api/models/oracle-v2/data', // Served from R2 via API
+    version: '2.0.0',
+    encoding: 'onehot-6x7x3',
+    training: {
+      games: 60000,
+      epochs: 240,
+      date: '2024-12-19',
+    },
+  },
+  {
+    id: 'cnn-oracle-v1',
+    name: 'Synapse CNN',
+    architecture: 'cnn',
+    expectedElo: 1400,
+    sizeBytes: 2643517, // 22KB + 2.6MB data
+    url: '/api/models/cnn-oracle-v1/data', // Served from R2 via API
+    version: '1.0.0',
+    encoding: 'onehot-6x7x3',
+    training: {
+      games: 10000,
+      epochs: 160,
+      date: '2024-12-20',
+    },
+  },
 ]
 
 // ============================================================================
