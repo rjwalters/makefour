@@ -514,8 +514,8 @@ class NeuralAgent(Agent):
             encoded = encode_onehot(board, to_move)
 
         # Run inference
-        policy, _ = self._session.run(None, {self._input_name: encoded.reshape(1, -1)})
-        policy = policy[0]
+        outputs = self._session.run(None, {self._input_name: encoded.reshape(1, -1)})
+        policy = outputs[0][0]  # First output, first batch item
 
         # Mask illegal moves
         legal_moves = get_legal_moves(board)

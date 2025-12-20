@@ -13,6 +13,7 @@ dependencies = [
     "tqdm>=4.65.0",
     "requests>=2.31.0",
     "click>=8.0.0",
+    "onnxscript>=0.5.7",
 ]
 
 [project.scripts]
