@@ -84,7 +84,7 @@ def get_oracle_soft_labels(
                 player=player,
                 current_player=opponent,
             )
-            move_scores[col] = -score
+            move_scores[col] = score  # Minimax already returns from player's perspective
 
     valid_mask = move_scores > float("-inf")
     if not np.any(valid_mask):

@@ -87,7 +87,7 @@ def get_oracle_soft_labels(
                 player=player,
                 current_player=opponent,
             )
-            move_scores[col] = -score  # Negate since we want our perspective
+            move_scores[col] = score  # Minimax already returns from player's perspective
 
     # Convert to probabilities with temperature
     valid_mask = move_scores > float("-inf")
