@@ -6,16 +6,13 @@
  * to maximum depth with efficient position caching.
  */
 
-import type { AIEngine, EngineConfig, MoveResult, SearchInfo } from '../ai-engine'
+import type { AIEngine, EngineConfig, MoveResult } from '../ai-engine'
+import { type Board, type Player, applyMove, checkWinner, COLUMNS } from '../game'
 import {
-  type Board,
-  type Player,
-  applyMove,
-  checkWinner,
-  ROWS,
-  COLUMNS,
-  WIN_LENGTH,
-} from '../game'
+  DEFAULT_EVAL_WEIGHTS,
+  evaluatePosition,
+  getValidMoves,
+} from './engine-utils'
 
 // ============================================================================
 // TRANSPOSITION TABLE
@@ -154,103 +151,7 @@ class TranspositionTable {
   }
 }
 
-// ============================================================================
-// EVALUATION (BALANCED)
-// ============================================================================
-
-const EVAL_WEIGHTS = {
-  WIN: 100000,
-  THREE_IN_ROW: 100,
-  TWO_IN_ROW: 10,
-  CENTER_CONTROL: 3,
-}
-
-function evaluateWindow(window: (Player | null)[], player: Player): number {
-  const opponent: Player = player === 1 ? 2 : 1
-  const playerCount = window.filter((c) => c === player).length
-  const opponentCount = window.filter((c) => c === opponent).length
-  const emptyCount = window.filter((c) => c === null).length
-
-  if (opponentCount > 0 && playerCount > 0) return 0
-
-  if (playerCount === 4) return EVAL_WEIGHTS.WIN
-  if (playerCount === 3 && emptyCount === 1) return EVAL_WEIGHTS.THREE_IN_ROW
-  if (playerCount === 2 && emptyCount === 2) return EVAL_WEIGHTS.TWO_IN_ROW
-
-  if (opponentCount === 4) return -EVAL_WEIGHTS.WIN
-  if (opponentCount === 3 && emptyCount === 1) return -EVAL_WEIGHTS.THREE_IN_ROW
-  if (opponentCount === 2 && emptyCount === 2) return -EVAL_WEIGHTS.TWO_IN_ROW
-
-  return 0
-}
-
-function evaluatePosition(board: Board, player: Player): number {
-  let score = 0
-
-  // Center column control
-  const centerCol = Math.floor(COLUMNS / 2)
-  for (let row = 0; row < ROWS; row++) {
-    if (board[row][centerCol] === player) {
-      score += EVAL_WEIGHTS.CENTER_CONTROL
-    } else if (board[row][centerCol] !== null) {
-      score -= EVAL_WEIGHTS.CENTER_CONTROL
-    }
-  }
-
-  // Horizontal windows
-  for (let row = 0; row < ROWS; row++) {
-    for (let col = 0; col <= COLUMNS - WIN_LENGTH; col++) {
-      const window = [
-        board[row][col],
-        board[row][col + 1],
-        board[row][col + 2],
-        board[row][col + 3],
-      ]
-      score += evaluateWindow(window, player)
-    }
-  }
-
-  // Vertical windows
-  for (let col = 0; col < COLUMNS; col++) {
-    for (let row = 0; row <= ROWS - WIN_LENGTH; row++) {
-      const window = [
-        board[row][col],
-        board[row + 1][col],
-        board[row + 2][col],
-        board[row + 3][col],
-      ]
-      score += evaluateWindow(window, player)
-    }
-  }
-
-  // Diagonal windows (down-right)
-  for (let row = 0; row <= ROWS - WIN_LENGTH; row++) {
-    for (let col = 0; col <= COLUMNS - WIN_LENGTH; col++) {
-      const window = [
-        board[row][col],
-        board[row + 1][col + 1],
-        board[row + 2][col + 2],
-        board[row + 3][col + 3],
-      ]
-      score += evaluateWindow(window, player)
-    }
-  }
-
-  // Diagonal windows (down-left)
-  for (let row = 0; row <= ROWS - WIN_LENGTH; row++) {
-    for (let col = WIN_LENGTH - 1; col < COLUMNS; col++) {
-      const window = [
-        board[row][col],
-        board[row + 1][col - 1],
-        board[row + 2][col - 2],
-        board[row + 3][col - 3],
-      ]
-      score += evaluateWindow(window, player)
-    }
-  }
-
-  return score
-}
+// Uses evaluatePosition from engine-utils
 
 // ============================================================================
 // QUIESCENCE SEARCH - THREAT DETECTION
@@ -351,7 +252,7 @@ function quiescenceSearch(
   const winner = checkWinner(board)
   if (winner !== null) {
     if (winner === 'draw') return { score: 0, nodesSearched }
-    const winScore = EVAL_WEIGHTS.WIN + qDepth * 100
+    const winScore = DEFAULT_EVAL_WEIGHTS.win + qDepth * 100
     return {
       score: winner === player ? winScore : -winScore,
       nodesSearched,
@@ -454,16 +355,6 @@ function quiescenceSearch(
 // MOVE GENERATION WITH ORDERING
 // ============================================================================
 
-function getValidMoves(board: Board): number[] {
-  const moves: number[] = []
-  for (let col = 0; col < COLUMNS; col++) {
-    if (board[0][col] === null) {
-      moves.push(col)
-    }
-  }
-  return moves
-}
-
 /**
  * Order moves for better alpha-beta pruning.
  * Prioritizes: 1) TT best move, 2) Center columns, 3) Winning/blocking moves
@@ -545,7 +436,7 @@ function deepMinimax(
   const winner = checkWinner(board)
   if (winner !== null) {
     if (winner === 'draw') return { score: 0, move: null, nodesSearched }
-    const winScore = EVAL_WEIGHTS.WIN + depth * 100
+    const winScore = DEFAULT_EVAL_WEIGHTS.win + depth * 100
     return {
       score: winner === player ? winScore : -winScore,
       move: null,
@@ -766,7 +657,7 @@ export class DeepMinimaxEngine implements AIEngine {
       }
 
       // Stop early if we found a forced win/loss
-      if (Math.abs(bestScore) >= EVAL_WEIGHTS.WIN) break
+      if (Math.abs(bestScore) >= DEFAULT_EVAL_WEIGHTS.win) break
     }
 
     // Oracle never makes random errors (errorRate should be 0)
@@ -787,7 +678,7 @@ export class DeepMinimaxEngine implements AIEngine {
     // Calculate confidence - Oracle should have high confidence
     const confidence = Math.min(
       1,
-      Math.max(0, (bestScore + EVAL_WEIGHTS.WIN) / (2 * EVAL_WEIGHTS.WIN))
+      Math.max(0, (bestScore + DEFAULT_EVAL_WEIGHTS.win) / (2 * DEFAULT_EVAL_WEIGHTS.win))
     )
 
     const ttStats = this.tt.getStats()

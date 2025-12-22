@@ -11,15 +11,15 @@
  * neural-like behavior for testing and fallback.
  */
 
-import type { AIEngine, EngineConfig, MoveResult, SearchInfo } from '../ai-engine'
+import type { AIEngine, EngineConfig, MoveResult } from '../ai-engine'
+import { type Board, type Player, applyMove, checkWinner, ROWS, COLUMNS } from '../game'
 import {
-  type Board,
-  type Player,
-  applyMove,
-  checkWinner,
-  ROWS,
-  COLUMNS,
-} from '../game'
+  DEFAULT_EVAL_WEIGHTS,
+  evaluatePosition,
+  getValidMoves,
+  orderMoves,
+  forEachWindow,
+} from './engine-utils'
 
 // ============================================================================
 // MODEL METADATA TYPES
@@ -544,101 +544,8 @@ function encodeBoardForModel(board: Board, player: Player): Float32Array {
 
 // ============================================================================
 // MINIMAX HELPERS (for hybrid mode)
+// Uses evaluatePosition from engine-utils
 // ============================================================================
-
-const EVAL_WEIGHTS = {
-  WIN: 100000,
-  THREE_IN_ROW: 100,
-  TWO_IN_ROW: 10,
-  CENTER_CONTROL: 3,
-}
-
-function evaluateWindow(window: (Player | null)[], player: Player): number {
-  const opponent: Player = player === 1 ? 2 : 1
-  const playerCount = window.filter((c) => c === player).length
-  const opponentCount = window.filter((c) => c === opponent).length
-  const emptyCount = window.filter((c) => c === null).length
-
-  if (opponentCount > 0 && playerCount > 0) return 0
-
-  if (playerCount === 4) return EVAL_WEIGHTS.WIN
-  if (playerCount === 3 && emptyCount === 1) return EVAL_WEIGHTS.THREE_IN_ROW
-  if (playerCount === 2 && emptyCount === 2) return EVAL_WEIGHTS.TWO_IN_ROW
-
-  if (opponentCount === 4) return -EVAL_WEIGHTS.WIN
-  if (opponentCount === 3 && emptyCount === 1) return -EVAL_WEIGHTS.THREE_IN_ROW
-  if (opponentCount === 2 && emptyCount === 2) return -EVAL_WEIGHTS.TWO_IN_ROW
-
-  return 0
-}
-
-function evaluatePosition(board: Board, player: Player): number {
-  let score = 0
-
-  // Center column control
-  const centerCol = Math.floor(COLUMNS / 2)
-  for (let row = 0; row < ROWS; row++) {
-    if (board[row][centerCol] === player) {
-      score += EVAL_WEIGHTS.CENTER_CONTROL
-    } else if (board[row][centerCol] !== null) {
-      score -= EVAL_WEIGHTS.CENTER_CONTROL
-    }
-  }
-
-  // Horizontal windows
-  for (let row = 0; row < ROWS; row++) {
-    for (let col = 0; col <= COLUMNS - 4; col++) {
-      const window = [
-        board[row][col],
-        board[row][col + 1],
-        board[row][col + 2],
-        board[row][col + 3],
-      ]
-      score += evaluateWindow(window, player)
-    }
-  }
-
-  // Vertical windows
-  for (let col = 0; col < COLUMNS; col++) {
-    for (let row = 0; row <= ROWS - 4; row++) {
-      const window = [
-        board[row][col],
-        board[row + 1][col],
-        board[row + 2][col],
-        board[row + 3][col],
-      ]
-      score += evaluateWindow(window, player)
-    }
-  }
-
-  // Diagonal windows (down-right)
-  for (let row = 0; row <= ROWS - 4; row++) {
-    for (let col = 0; col <= COLUMNS - 4; col++) {
-      const window = [
-        board[row][col],
-        board[row + 1][col + 1],
-        board[row + 2][col + 2],
-        board[row + 3][col + 3],
-      ]
-      score += evaluateWindow(window, player)
-    }
-  }
-
-  // Diagonal windows (down-left)
-  for (let row = 0; row <= ROWS - 4; row++) {
-    for (let col = 3; col < COLUMNS; col++) {
-      const window = [
-        board[row][col],
-        board[row + 1][col - 1],
-        board[row + 2][col - 2],
-        board[row + 3][col - 3],
-      ]
-      score += evaluateWindow(window, player)
-    }
-  }
-
-  return score
-}
 
 interface MinimaxResult {
   score: number
@@ -663,7 +570,7 @@ function minimaxSearch(
   if (winner !== null) {
     if (winner === 'draw') return { score: 0, move: null }
     return {
-      score: winner === player ? EVAL_WEIGHTS.WIN + depth * 100 : -EVAL_WEIGHTS.WIN - depth * 100,
+      score: winner === player ? DEFAULT_EVAL_WEIGHTS.win + depth * 100 : -DEFAULT_EVAL_WEIGHTS.win - depth * 100,
       move: null,
     }
   }
@@ -930,7 +837,7 @@ export class NeuralEngine implements AIEngine {
         )
 
         // Combine policy probability with search score
-        const combinedScore = searchResult.score * 0.7 + candidate.prob * EVAL_WEIGHTS.THREE_IN_ROW * 0.3
+        const combinedScore = searchResult.score * 0.7 + candidate.prob * DEFAULT_EVAL_WEIGHTS.threeInRow * 0.3
 
         if (combinedScore > bestScore) {
           bestScore = combinedScore

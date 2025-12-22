@@ -5,149 +5,14 @@
  * This wraps the existing bot AI implementation as a pluggable engine.
  */
 
-import type { AIEngine, EngineConfig, MoveResult, SearchInfo } from '../ai-engine'
+import type { AIEngine, EngineConfig, MoveResult } from '../ai-engine'
+import { type Board, type Player, applyMove, checkWinner, COLUMNS } from '../game'
 import {
-  type Board,
-  type Player,
-  applyMove,
-  checkWinner,
-  ROWS,
-  COLUMNS,
-  WIN_LENGTH,
-} from '../game'
-
-// ============================================================================
-// EVALUATION WEIGHTS
-// ============================================================================
-
-const EVAL_WEIGHTS = {
-  WIN: 100000,
-  THREE_IN_ROW: 100,
-  TWO_IN_ROW: 10,
-  CENTER_CONTROL: 3,
-}
-
-// ============================================================================
-// POSITION EVALUATION
-// ============================================================================
-
-/**
- * Evaluates a window of 4 cells for scoring potential.
- */
-function evaluateWindow(window: (Player | null)[], player: Player): number {
-  const opponent: Player = player === 1 ? 2 : 1
-  const playerCount = window.filter((c) => c === player).length
-  const opponentCount = window.filter((c) => c === opponent).length
-  const emptyCount = window.filter((c) => c === null).length
-
-  if (opponentCount > 0 && playerCount > 0) return 0
-
-  if (playerCount === 4) return EVAL_WEIGHTS.WIN
-  if (playerCount === 3 && emptyCount === 1) return EVAL_WEIGHTS.THREE_IN_ROW
-  if (playerCount === 2 && emptyCount === 2) return EVAL_WEIGHTS.TWO_IN_ROW
-
-  if (opponentCount === 4) return -EVAL_WEIGHTS.WIN
-  if (opponentCount === 3 && emptyCount === 1) return -EVAL_WEIGHTS.THREE_IN_ROW
-  if (opponentCount === 2 && emptyCount === 2) return -EVAL_WEIGHTS.TWO_IN_ROW
-
-  return 0
-}
-
-/**
- * Evaluates the board position from the perspective of the given player.
- */
-function evaluatePosition(board: Board, player: Player): number {
-  let score = 0
-
-  // Center column control
-  const centerCol = Math.floor(COLUMNS / 2)
-  for (let row = 0; row < ROWS; row++) {
-    if (board[row][centerCol] === player) {
-      score += EVAL_WEIGHTS.CENTER_CONTROL
-    } else if (board[row][centerCol] !== null) {
-      score -= EVAL_WEIGHTS.CENTER_CONTROL
-    }
-  }
-
-  // Horizontal windows
-  for (let row = 0; row < ROWS; row++) {
-    for (let col = 0; col <= COLUMNS - WIN_LENGTH; col++) {
-      const window = [
-        board[row][col],
-        board[row][col + 1],
-        board[row][col + 2],
-        board[row][col + 3],
-      ]
-      score += evaluateWindow(window, player)
-    }
-  }
-
-  // Vertical windows
-  for (let col = 0; col < COLUMNS; col++) {
-    for (let row = 0; row <= ROWS - WIN_LENGTH; row++) {
-      const window = [
-        board[row][col],
-        board[row + 1][col],
-        board[row + 2][col],
-        board[row + 3][col],
-      ]
-      score += evaluateWindow(window, player)
-    }
-  }
-
-  // Diagonal windows (down-right)
-  for (let row = 0; row <= ROWS - WIN_LENGTH; row++) {
-    for (let col = 0; col <= COLUMNS - WIN_LENGTH; col++) {
-      const window = [
-        board[row][col],
-        board[row + 1][col + 1],
-        board[row + 2][col + 2],
-        board[row + 3][col + 3],
-      ]
-      score += evaluateWindow(window, player)
-    }
-  }
-
-  // Diagonal windows (down-left)
-  for (let row = 0; row <= ROWS - WIN_LENGTH; row++) {
-    for (let col = WIN_LENGTH - 1; col < COLUMNS; col++) {
-      const window = [
-        board[row][col],
-        board[row + 1][col - 1],
-        board[row + 2][col - 2],
-        board[row + 3][col - 3],
-      ]
-      score += evaluateWindow(window, player)
-    }
-  }
-
-  return score
-}
-
-// ============================================================================
-// MOVE GENERATION
-// ============================================================================
-
-/**
- * Returns valid column indices for the current board.
- */
-function getValidMoves(board: Board): number[] {
-  const moves: number[] = []
-  for (let col = 0; col < COLUMNS; col++) {
-    if (board[0][col] === null) {
-      moves.push(col)
-    }
-  }
-  return moves
-}
-
-/**
- * Orders moves with center columns first for better alpha-beta pruning.
- */
-function orderMoves(moves: number[]): number[] {
-  const centerCol = Math.floor(COLUMNS / 2)
-  return [...moves].sort((a, b) => Math.abs(a - centerCol) - Math.abs(b - centerCol))
-}
+  DEFAULT_EVAL_WEIGHTS,
+  evaluatePosition,
+  getValidMoves,
+  orderMoves,
+} from './engine-utils'
 
 // ============================================================================
 // MINIMAX SEARCH
@@ -184,7 +49,7 @@ function minimaxSearch(
   const winner = checkWinner(board)
   if (winner !== null) {
     if (winner === 'draw') return { score: 0, move: null, nodesSearched }
-    const winScore = EVAL_WEIGHTS.WIN + depth * 100
+    const winScore = DEFAULT_EVAL_WEIGHTS.win + depth * 100
     return {
       score: winner === player ? winScore : -winScore,
       move: null,
@@ -336,7 +201,7 @@ export class MinimaxEngine implements AIEngine {
       }
 
       // Stop early if we found a forced win
-      if (Math.abs(bestScore) >= EVAL_WEIGHTS.WIN) break
+      if (Math.abs(bestScore) >= DEFAULT_EVAL_WEIGHTS.win) break
     }
 
     // Introduce random errors based on config
@@ -354,7 +219,7 @@ export class MinimaxEngine implements AIEngine {
     }
 
     // Calculate confidence based on score margin
-    const confidence = Math.min(1, Math.max(0, (bestScore + EVAL_WEIGHTS.WIN) / (2 * EVAL_WEIGHTS.WIN)))
+    const confidence = Math.min(1, Math.max(0, (bestScore + DEFAULT_EVAL_WEIGHTS.win) / (2 * DEFAULT_EVAL_WEIGHTS.win)))
 
     return {
       column: bestMove,

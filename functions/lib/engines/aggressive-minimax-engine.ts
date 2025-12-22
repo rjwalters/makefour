@@ -6,16 +6,9 @@
  * prefers double-threat setups, and plays with a faster/riskier style.
  */
 
-import type { AIEngine, EngineConfig, MoveResult, SearchInfo } from '../ai-engine'
-import {
-  type Board,
-  type Player,
-  applyMove,
-  checkWinner,
-  ROWS,
-  COLUMNS,
-  WIN_LENGTH,
-} from '../game'
+import type { AIEngine, EngineConfig, MoveResult } from '../ai-engine'
+import { type Board, type Player, applyMove, checkWinner, COLUMNS, ROWS } from '../game'
+import { getValidMoves, orderMoves, forEachWindow, countThreats } from './engine-utils'
 
 // ============================================================================
 // CONFIGURABLE EVALUATION WEIGHTS
@@ -48,81 +41,11 @@ const DEFAULT_AGGRESSIVE_WEIGHTS: AggressiveEvalWeights = {
 // ============================================================================
 
 /**
- * Count threats (3-in-a-row with one open spot) for a player.
- */
-function countThreats(board: Board, player: Player): number {
-  let threats = 0
-  const opponent: Player = player === 1 ? 2 : 1
-
-  // Check all windows
-  const checkWindow = (window: (Player | null)[]) => {
-    const playerCount = window.filter((c) => c === player).length
-    const opponentCount = window.filter((c) => c === opponent).length
-    const emptyCount = window.filter((c) => c === null).length
-
-    if (playerCount === 3 && emptyCount === 1 && opponentCount === 0) {
-      threats++
-    }
-  }
-
-  // Horizontal
-  for (let row = 0; row < ROWS; row++) {
-    for (let col = 0; col <= COLUMNS - WIN_LENGTH; col++) {
-      checkWindow([
-        board[row][col],
-        board[row][col + 1],
-        board[row][col + 2],
-        board[row][col + 3],
-      ])
-    }
-  }
-
-  // Vertical
-  for (let col = 0; col < COLUMNS; col++) {
-    for (let row = 0; row <= ROWS - WIN_LENGTH; row++) {
-      checkWindow([
-        board[row][col],
-        board[row + 1][col],
-        board[row + 2][col],
-        board[row + 3][col],
-      ])
-    }
-  }
-
-  // Diagonal down-right
-  for (let row = 0; row <= ROWS - WIN_LENGTH; row++) {
-    for (let col = 0; col <= COLUMNS - WIN_LENGTH; col++) {
-      checkWindow([
-        board[row][col],
-        board[row + 1][col + 1],
-        board[row + 2][col + 2],
-        board[row + 3][col + 3],
-      ])
-    }
-  }
-
-  // Diagonal down-left
-  for (let row = 0; row <= ROWS - WIN_LENGTH; row++) {
-    for (let col = WIN_LENGTH - 1; col < COLUMNS; col++) {
-      checkWindow([
-        board[row][col],
-        board[row + 1][col - 1],
-        board[row + 2][col - 2],
-        board[row + 3][col - 3],
-      ])
-    }
-  }
-
-  return threats
-}
-
-/**
  * Count double threats - positions where player has 2+ threats simultaneously.
  * These are extremely valuable as opponent can only block one.
  */
 function countDoubleThreats(board: Board, player: Player): number {
   const threats = countThreats(board, player)
-  // A double threat is when you have 2+ threats at once
   return threats >= 2 ? 1 : 0
 }
 
@@ -176,57 +99,10 @@ function evaluatePositionAggressive(
     }
   }
 
-  // Horizontal windows
-  for (let row = 0; row < ROWS; row++) {
-    for (let col = 0; col <= COLUMNS - WIN_LENGTH; col++) {
-      const window = [
-        board[row][col],
-        board[row][col + 1],
-        board[row][col + 2],
-        board[row][col + 3],
-      ]
-      score += evaluateWindow(window, player, weights)
-    }
-  }
-
-  // Vertical windows
-  for (let col = 0; col < COLUMNS; col++) {
-    for (let row = 0; row <= ROWS - WIN_LENGTH; row++) {
-      const window = [
-        board[row][col],
-        board[row + 1][col],
-        board[row + 2][col],
-        board[row + 3][col],
-      ]
-      score += evaluateWindow(window, player, weights)
-    }
-  }
-
-  // Diagonal windows (down-right)
-  for (let row = 0; row <= ROWS - WIN_LENGTH; row++) {
-    for (let col = 0; col <= COLUMNS - WIN_LENGTH; col++) {
-      const window = [
-        board[row][col],
-        board[row + 1][col + 1],
-        board[row + 2][col + 2],
-        board[row + 3][col + 3],
-      ]
-      score += evaluateWindow(window, player, weights)
-    }
-  }
-
-  // Diagonal windows (down-left)
-  for (let row = 0; row <= ROWS - WIN_LENGTH; row++) {
-    for (let col = WIN_LENGTH - 1; col < COLUMNS; col++) {
-      const window = [
-        board[row][col],
-        board[row + 1][col - 1],
-        board[row + 2][col - 2],
-        board[row + 3][col - 3],
-      ]
-      score += evaluateWindow(window, player, weights)
-    }
-  }
+  // Evaluate all windows using shared iterator
+  forEachWindow(board, (window) => {
+    score += evaluateWindow(window, player, weights)
+  })
 
   // Big bonus for double threats (forks)
   const ownDoubleThreats = countDoubleThreats(board, player)
@@ -235,28 +111,6 @@ function evaluatePositionAggressive(
   score -= oppDoubleThreats * weights.doubleThreats * 0.5 // Less worried about opponent's forks
 
   return score
-}
-
-// ============================================================================
-// MOVE GENERATION
-// ============================================================================
-
-function getValidMoves(board: Board): number[] {
-  const moves: number[] = []
-  for (let col = 0; col < COLUMNS; col++) {
-    if (board[0][col] === null) {
-      moves.push(col)
-    }
-  }
-  return moves
-}
-
-/**
- * Order moves preferring center columns (better for alpha-beta pruning).
- */
-function orderMoves(moves: number[]): number[] {
-  const centerCol = Math.floor(COLUMNS / 2)
-  return [...moves].sort((a, b) => Math.abs(a - centerCol) - Math.abs(b - centerCol))
 }
 
 // ============================================================================
