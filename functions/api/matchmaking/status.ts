@@ -11,6 +11,7 @@ import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
 import { createDb } from '../../../shared/db/client'
 import { users, matchmakingQueue, activeGames } from '../../../shared/db/schema'
 import { eq, and, or, ne, sql } from 'drizzle-orm'
+import { DEFAULT_TIME_CONTROL_MS } from '../../lib/types'
 
 interface Env {
   DB: D1Database
@@ -20,9 +21,6 @@ interface Env {
 const TOLERANCE_EXPANSION_RATE = 50
 const TOLERANCE_EXPANSION_INTERVAL = 10000 // 10 seconds
 const MAX_TOLERANCE = 500
-
-// Default time control: 5 minutes per player
-const DEFAULT_TIME_CONTROL_MS = 300000
 
 // Time after which bot match becomes available
 const BOT_READY_THRESHOLD_MS = 5000 // 5 seconds

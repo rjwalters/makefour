@@ -6,6 +6,7 @@
 import { createDb } from '../../../../shared/db/client'
 import { users, sessionTokens } from '../../../../shared/db/schema'
 import { eq, and } from 'drizzle-orm'
+import { SESSION_DURATION_MS } from '../../../lib/types'
 
 interface Env {
   DB: D1Database
@@ -30,8 +31,6 @@ interface GoogleUserInfo {
   family_name?: string
   picture?: string
 }
-
-const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 
 export async function onRequestGet(context: EventContext<Env, any, any>) {
   const { DB, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = context.env

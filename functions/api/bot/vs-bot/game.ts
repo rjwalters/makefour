@@ -8,7 +8,7 @@
 import { jsonResponse } from '../../../lib/auth'
 import { z } from 'zod'
 import { DEFAULT_BOT_PERSONAS } from '../../../lib/botPersonas'
-import { type BotPersonaRow, type UserRow } from '../../../lib/types'
+import { type BotPersonaRow, type UserRow, BOT_VS_BOT_TIME_CONTROL_MS } from '../../../lib/types'
 import { createDb } from '../../../../shared/db/client'
 import { users, activeGames, botPersonas } from '../../../../shared/db/schema'
 import { eq, and, sql } from 'drizzle-orm'
@@ -24,9 +24,6 @@ function getBotUserId(personaId: string): string {
   return `bot_${personaId}`
 }
 
-// Default time control for bot vs bot games: 2 minutes (faster than human games)
-const DEFAULT_TIME_CONTROL_MS = 120000
-
 // Default move delay: 2 seconds between moves for watchability
 const DEFAULT_MOVE_DELAY_MS = 2000
 
@@ -38,7 +35,7 @@ const createGameSchema = z.object({
   bot1PersonaId: z.string(),
   bot2PersonaId: z.string(),
   moveDelayMs: z.number().int().min(500).max(10000).optional().default(DEFAULT_MOVE_DELAY_MS),
-  timeControlMs: z.number().int().min(30000).max(600000).optional().default(DEFAULT_TIME_CONTROL_MS),
+  timeControlMs: z.number().int().min(30000).max(600000).optional().default(BOT_VS_BOT_TIME_CONTROL_MS),
 })
 
 /**

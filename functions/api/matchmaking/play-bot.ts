@@ -10,13 +10,11 @@ import { users, matchmakingQueue, activeGames, botPersonas } from '../../../shar
 import { eq, and, or, sql } from 'drizzle-orm'
 import { createGameState, makeMove } from '../../lib/game'
 import { suggestMoveWithEngine, type BotPersonaConfig, type AIConfig } from '../../lib/bot'
+import { DEFAULT_TIME_CONTROL_MS } from '../../lib/types'
 
 interface Env {
   DB: D1Database
 }
-
-// Default time control: 5 minutes per player
-const DEFAULT_TIME_CONTROL_MS = 300000
 
 export async function onRequestPost(context: EventContext<Env, any, any>) {
   const { DB } = context.env

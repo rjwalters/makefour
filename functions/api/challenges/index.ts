@@ -9,6 +9,7 @@ import { z } from 'zod'
 import { createDb } from '../../../shared/db/client'
 import { users, challenges, activeGames } from '../../../shared/db/schema'
 import { eq, and, or, gt, lt, sql, desc } from 'drizzle-orm'
+import { DEFAULT_TIME_CONTROL_MS } from '../../lib/types'
 
 interface Env {
   DB: D1Database
@@ -126,7 +127,6 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         // Mutual challenge! Create game immediately
         const gameId = crypto.randomUUID()
         const now = Date.now()
-        const TIME_CONTROL_MS = 300000 // 5 minutes
 
         // Create active game
         await db.insert(activeGames).values({
@@ -141,9 +141,9 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
           player2Rating: targetUser.rating,
           spectatable: 1,
           lastMoveAt: now,
-          timeControlMs: TIME_CONTROL_MS,
-          player1TimeMs: TIME_CONTROL_MS,
-          player2TimeMs: TIME_CONTROL_MS,
+          timeControlMs: DEFAULT_TIME_CONTROL_MS,
+          player1TimeMs: DEFAULT_TIME_CONTROL_MS,
+          player2TimeMs: DEFAULT_TIME_CONTROL_MS,
           turnStartedAt: now,
           createdAt: now,
           updatedAt: now,

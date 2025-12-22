@@ -4,12 +4,11 @@ import { loginRequestSchema, formatZodError } from '../../lib/schemas'
 import { createDb } from '../../../shared/db/client'
 import { users, sessionTokens } from '../../../shared/db/schema'
 import { eq } from 'drizzle-orm'
+import { SESSION_DURATION_MS } from '../../lib/types'
 
 interface Env {
   DB: D1Database
 }
-
-const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 
 export async function onRequestPost(context: EventContext<Env, any, any>) {
   const { DB } = context.env

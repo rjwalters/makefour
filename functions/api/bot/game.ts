@@ -7,7 +7,7 @@
 import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
 import { z } from 'zod'
 import type { EngineType } from '../../lib/ai-engine'
-import { type BotPersonaRow } from '../../lib/types'
+import { type BotPersonaRow, DEFAULT_TIME_CONTROL_MS } from '../../lib/types'
 import { createDb } from '../../../shared/db/client'
 import { users, activeGames, botPersonas } from '../../../shared/db/schema'
 import { eq, and, or } from 'drizzle-orm'
@@ -42,9 +42,6 @@ const LEGACY_DIFFICULTY_PERSONAS: Record<string, string> = {
   expert: 'scholar',
   perfect: 'oracle',
 }
-
-// Default time control: 5 minutes
-const DEFAULT_TIME_CONTROL_MS = 300000
 
 // Supported engine types for validation
 const ENGINE_TYPES = ['minimax', 'heuristic', 'mcts', 'neural', 'hybrid'] as const

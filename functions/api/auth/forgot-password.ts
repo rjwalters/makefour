@@ -5,6 +5,7 @@ import { sendEmail, generatePasswordResetEmail } from '../../lib/email'
 import { createDb } from '../../../shared/db/client'
 import { users, passwordResetTokens } from '../../../shared/db/schema'
 import { eq, and } from 'drizzle-orm'
+import { PASSWORD_RESET_TOKEN_EXPIRY_MS } from '../../lib/types'
 
 interface Env {
   DB: D1Database
@@ -14,8 +15,6 @@ interface Env {
   EMAIL_DOMAIN?: string
   APP_URL?: string
 }
-
-const TOKEN_EXPIRY_MS = 60 * 60 * 1000 // 1 hour
 
 /**
  * POST /api/auth/forgot-password
@@ -94,7 +93,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     // Generate new token
     const tokenId = crypto.randomUUID()
     const now = Date.now()
-    const expiresAt = now + TOKEN_EXPIRY_MS
+    const expiresAt = now + PASSWORD_RESET_TOKEN_EXPIRY_MS
 
     // Insert reset token
     await db.insert(passwordResetTokens).values({

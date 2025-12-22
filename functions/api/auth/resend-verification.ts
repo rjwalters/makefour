@@ -14,6 +14,7 @@ import {
 import { createDb } from '../../../shared/db/client'
 import { users } from '../../../shared/db/schema'
 import { eq } from 'drizzle-orm'
+import { VERIFICATION_EMAIL_RATE_LIMIT_MS } from '../../lib/types'
 
 interface Env {
   DB: D1Database
@@ -24,7 +25,6 @@ interface Env {
 }
 
 // Rate limit: 3 resend requests per hour per user
-const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000 // 1 hour
 const RATE_LIMIT_MAX_REQUESTS = 3
 
 export async function onRequestPost(context: EventContext<Env, any, any>) {
@@ -58,7 +58,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
       // Increment count with TTL
       await RATE_LIMIT.put(rateLimitKey, String(count + 1), {
-        expirationTtl: Math.ceil(RATE_LIMIT_WINDOW_MS / 1000),
+        expirationTtl: Math.ceil(VERIFICATION_EMAIL_RATE_LIMIT_MS / 1000),
       })
     }
 

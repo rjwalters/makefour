@@ -120,8 +120,21 @@ export function safeParseMoves(movesJson: string | null | undefined): number[] {
 }
 
 /**
- * Game constants - import these instead of hardcoding
+ * Game board constants
  */
 export const ROWS = 6
 export const COLUMNS = 7
 export const WIN_LENGTH = 4
+
+/**
+ * Time control constants (in milliseconds)
+ */
+export const DEFAULT_TIME_CONTROL_MS = 300000 // 5 minutes for human games
+export const BOT_VS_BOT_TIME_CONTROL_MS = 120000 // 2 minutes for bot vs bot
+
+/**
+ * Authentication/session constants (in milliseconds)
+ */
+export const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+export const PASSWORD_RESET_TOKEN_EXPIRY_MS = 60 * 60 * 1000 // 1 hour
+export const VERIFICATION_EMAIL_RATE_LIMIT_MS = 60 * 60 * 1000 // 1 hour
