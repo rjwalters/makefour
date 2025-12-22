@@ -8,28 +8,26 @@
 
 import type { AIEngine, EngineConfig, MoveResult } from '../ai-engine'
 import { type Board, type Player, applyMove, checkWinner, COLUMNS, ROWS } from '../game'
-import { getValidMoves, orderMoves, forEachWindow, countThreats } from './engine-utils'
+import {
+  getValidMoves,
+  orderMoves,
+  forEachWindow,
+  countThreats,
+  evaluateWindow,
+  type EvalWeights,
+} from './engine-utils'
 
 // ============================================================================
 // CONFIGURABLE EVALUATION WEIGHTS
 // ============================================================================
 
 /**
- * Evaluation weights for aggressive play style.
- * Higher threat weights, lower defense priority.
+ * Default aggressive weights for the Blitz-style play.
+ * Uses shared EvalWeights interface for compatibility with shared evaluateWindow.
  */
-export interface AggressiveEvalWeights {
-  win: number
-  ownThreats: number // 3-in-row with open end
-  opponentThreats: number // Lower priority on blocking
-  centerControl: number
-  doubleThreats: number // Loves setting up forks
-  twoInRow: number
-}
-
-const DEFAULT_AGGRESSIVE_WEIGHTS: AggressiveEvalWeights = {
+const DEFAULT_AGGRESSIVE_WEIGHTS: EvalWeights = {
   win: 100000,
-  ownThreats: 150, // Higher than standard minimax
+  threeInRow: 150, // Higher than standard - prioritizes creating threats
   opponentThreats: 80, // Lower priority on defense
   centerControl: 5,
   doubleThreats: 500, // High value for double-threat setups
@@ -50,41 +48,13 @@ function countDoubleThreats(board: Board, player: Player): number {
 }
 
 /**
- * Evaluates a window for aggressive scoring.
- */
-function evaluateWindow(
-  window: (Player | null)[],
-  player: Player,
-  weights: AggressiveEvalWeights
-): number {
-  const opponent: Player = player === 1 ? 2 : 1
-  const playerCount = window.filter((c) => c === player).length
-  const opponentCount = window.filter((c) => c === opponent).length
-  const emptyCount = window.filter((c) => c === null).length
-
-  // Mixed windows are worthless
-  if (opponentCount > 0 && playerCount > 0) return 0
-
-  // Own pieces - prioritize threats
-  if (playerCount === 4) return weights.win
-  if (playerCount === 3 && emptyCount === 1) return weights.ownThreats
-  if (playerCount === 2 && emptyCount === 2) return weights.twoInRow
-
-  // Opponent pieces - lower priority on defense
-  if (opponentCount === 4) return -weights.win
-  if (opponentCount === 3 && emptyCount === 1) return -weights.opponentThreats
-  if (opponentCount === 2 && emptyCount === 2) return -weights.twoInRow * 0.5
-
-  return 0
-}
-
-/**
  * Aggressive position evaluation emphasizing threats and double-threats.
+ * Uses the shared evaluateWindow function with aggressive weights.
  */
 function evaluatePositionAggressive(
   board: Board,
   player: Player,
-  weights: AggressiveEvalWeights
+  weights: EvalWeights
 ): number {
   let score = 0
   const opponent: Player = player === 1 ? 2 : 1
@@ -105,10 +75,11 @@ function evaluatePositionAggressive(
   })
 
   // Big bonus for double threats (forks)
+  const doubleThreatsWeight = weights.doubleThreats ?? 500
   const ownDoubleThreats = countDoubleThreats(board, player)
   const oppDoubleThreats = countDoubleThreats(board, opponent)
-  score += ownDoubleThreats * weights.doubleThreats
-  score -= oppDoubleThreats * weights.doubleThreats * 0.5 // Less worried about opponent's forks
+  score += ownDoubleThreats * doubleThreatsWeight
+  score -= oppDoubleThreats * doubleThreatsWeight * 0.5 // Less worried about opponent's forks
 
   return score
 }
@@ -133,7 +104,7 @@ function minimaxSearch(
   currentPlayer: Player,
   deadline: number,
   nodesSearched: number,
-  weights: AggressiveEvalWeights
+  weights: EvalWeights
 ): MinimaxSearchResult {
   nodesSearched++
 
@@ -257,9 +228,9 @@ export class AggressiveMinimaxEngine implements AIEngine {
   readonly description =
     'Aggressive minimax favoring threats and double-threat setups (for Blitz)'
 
-  private weights: AggressiveEvalWeights
+  private weights: EvalWeights
 
-  constructor(customWeights?: Partial<AggressiveEvalWeights>) {
+  constructor(customWeights?: Partial<EvalWeights>) {
     this.weights = { ...DEFAULT_AGGRESSIVE_WEIGHTS, ...customWeights }
   }
 
@@ -291,7 +262,7 @@ export class AggressiveMinimaxEngine implements AIEngine {
 
     // Get custom weights from config if provided
     const weights = config.customParams?.evalWeights
-      ? { ...this.weights, ...(config.customParams.evalWeights as Partial<AggressiveEvalWeights>) }
+      ? { ...this.weights, ...(config.customParams.evalWeights as Partial<EvalWeights>) }
       : this.weights
 
     const deadline = startTime + timeBudget * 0.9
