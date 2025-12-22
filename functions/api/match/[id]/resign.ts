@@ -4,31 +4,13 @@
 
 import { validateSession, errorResponse, jsonResponse } from '../../../lib/auth'
 import { calculateNewRating, type GameOutcome } from '../../../lib/elo'
+import { type ActiveGameRow, type UserRow, safeParseMoves } from '../../../lib/types'
 import { createDb } from '../../../../shared/db/client'
 import { users, games, activeGames, ratingHistory } from '../../../../shared/db/schema'
 import { eq } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
-}
-
-interface ActiveGameRow {
-  id: string
-  player1_id: string
-  player2_id: string
-  moves: string
-  current_turn: number
-  status: string
-  mode: string
-  winner: string | null
-  player1_rating: number
-  player2_rating: number
-}
-
-interface UserRow {
-  id: string
-  rating: number
-  games_played: number
 }
 
 export async function onRequestPost(context: EventContext<Env, any, any>) {
@@ -112,7 +94,7 @@ async function updateRatingsOnResign(
   now: number
 ) {
   const db = createDb(DB)
-  const moves = JSON.parse(game.moves) as number[]
+  const moves = safeParseMoves(game.moves)
 
   // Get both players' current stats
   const [player1, player2] = await Promise.all([

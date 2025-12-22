@@ -8,6 +8,7 @@
 import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
 import { replayMoves, makeMove, isValidMove, createGameState } from '../../lib/game'
 import { calculateNewRating, type GameOutcome } from '../../lib/elo'
+import { type ActiveGameRow, type UserRow, safeParseMoves } from '../../lib/types'
 import { z } from 'zod'
 import { createDb } from '../../../shared/db/client'
 import { users, games, activeGames, ratingHistory } from '../../../shared/db/schema'
@@ -15,36 +16,6 @@ import { eq, and } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
-}
-
-interface ActiveGameRow {
-  id: string
-  player1_id: string
-  player2_id: string
-  moves: string
-  current_turn: number
-  status: string
-  mode: string
-  winner: string | null
-  player1_rating: number
-  player2_rating: number
-  last_move_at: number
-  // Timer fields (null = untimed game)
-  time_control_ms: number | null
-  player1_time_ms: number | null
-  player2_time_ms: number | null
-  turn_started_at: number | null
-  // Bot game fields
-  is_bot_game: number
-  bot_difficulty: string | null
-  created_at: number
-  updated_at: number
-}
-
-interface UserRow {
-  id: string
-  rating: number
-  games_played: number
 }
 
 const moveSchema = z.object({
@@ -91,7 +62,7 @@ async function checkAndHandleTimeout(
 
     // Update ELO if ranked
     if (game.mode === 'ranked') {
-      const moves = JSON.parse(game.moves) as number[]
+      const moves = safeParseMoves(game.moves)
       await updateRatings(DB, { ...game, status: 'completed', winner }, winner, moves, now)
     }
 
@@ -204,7 +175,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
       winner = timeoutResult.winner ?? null
     }
 
-    const moves = JSON.parse(game.moves) as number[]
+    const moves = safeParseMoves(game.moves)
 
     // Reconstruct board state from moves
     const gameState = moves.length > 0 ? replayMoves(moves) : createGameState()
@@ -347,7 +318,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
           // Update ELO if ranked
           if (game.mode === 'ranked') {
-            const moves = JSON.parse(game.moves) as number[]
+            const moves = safeParseMoves(game.moves)
             await updateRatings(DB, { ...gameRow, status: 'completed', winner }, winner, moves, now)
           }
 
@@ -364,7 +335,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     // Validate and apply the move
-    const moves = JSON.parse(game.moves) as number[]
+    const moves = safeParseMoves(game.moves)
     const currentState = moves.length > 0 ? replayMoves(moves) : createGameState()
 
     if (!currentState) {

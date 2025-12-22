@@ -7,6 +7,7 @@
 import { validateSession, errorResponse, jsonResponse } from '../../lib/auth'
 import { z } from 'zod'
 import type { EngineType } from '../../lib/ai-engine'
+import { type BotPersonaRow } from '../../lib/types'
 import { createDb } from '../../../shared/db/client'
 import { users, activeGames, botPersonas } from '../../../shared/db/schema'
 import { eq, and, or } from 'drizzle-orm'
@@ -59,14 +60,6 @@ const createGameSchema = z.object({
   (data) => data.personaId || data.difficulty,
   { message: 'Either personaId or difficulty is required' }
 )
-
-// Bot persona row from database
-interface BotPersonaRow {
-  id: string
-  name: string
-  current_elo: number
-  ai_config: string
-}
 
 /**
  * POST /api/bot/game - Create a new ranked bot game

@@ -8,6 +8,7 @@
  */
 
 import { jsonResponse } from '../../../lib/auth'
+import { type ActiveGameRow, type BotPersonaRow } from '../../../lib/types'
 import { createDb } from '../../../../shared/db/client'
 import { activeGames, gameMessages, botPersonas } from '../../../../shared/db/schema'
 import { eq, and, gt, asc } from 'drizzle-orm'
@@ -23,20 +24,6 @@ interface GameMessageRow {
   sender_type: 'human' | 'bot'
   content: string
   created_at: number
-}
-
-interface ActiveGameRow {
-  id: string
-  spectatable: number
-  status: string
-  is_bot_vs_bot: number
-  bot1_persona_id: string | null
-  bot2_persona_id: string | null
-}
-
-interface BotPersonaRow {
-  id: string
-  name: string
 }
 
 export interface SpectatorChatMessage {

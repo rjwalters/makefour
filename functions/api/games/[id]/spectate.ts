@@ -6,46 +6,13 @@
 
 import { jsonResponse } from '../../../lib/auth'
 import { replayMoves, createGameState } from '../../../lib/game'
+import { type ActiveGameRow, type UserRow, safeParseMoves } from '../../../lib/types'
 import { createDb } from '../../../../shared/db/client'
 import { activeGames, users, botPersonas } from '../../../../shared/db/schema'
 import { eq } from 'drizzle-orm'
 
 interface Env {
   DB: D1Database
-}
-
-interface ActiveGameRow {
-  id: string
-  player1_id: string
-  player2_id: string
-  moves: string
-  current_turn: number
-  status: string
-  mode: string
-  winner: string | null
-  player1_rating: number
-  player2_rating: number
-  spectatable: number
-  spectator_count: number
-  last_move_at: number
-  time_control_ms: number | null
-  player1_time_ms: number | null
-  player2_time_ms: number | null
-  turn_started_at: number | null
-  created_at: number
-  updated_at: number
-  // Bot vs bot fields
-  is_bot_vs_bot: number
-  bot1_persona_id: string | null
-  bot2_persona_id: string | null
-  move_delay_ms: number | null
-  next_move_at: number | null
-}
-
-interface UserRow {
-  id: string
-  email: string
-  username: string | null
 }
 
 export interface SpectatorGameState {
@@ -139,7 +106,7 @@ export async function onRequestGet(context: EventContext<Env, any, { id: string 
       }),
     ])
 
-    const moves = JSON.parse(game.moves) as number[]
+    const moves = safeParseMoves(game.moves)
     const isBotVsBot = game.isBotVsBot === 1
 
     // Reconstruct board state from moves

@@ -8,28 +8,10 @@ import { eq, asc } from 'drizzle-orm'
 import { createDb } from '../../../shared/db/client'
 import { botPersonas } from '../../../shared/db/schema'
 import { jsonResponse, errorResponse } from '../../lib/auth'
+import { type BotPersonaRow } from '../../lib/types'
 
 interface Env {
   DB: D1Database
-}
-
-// Schema for bot persona from database
-interface BotPersonaRow {
-  id: string
-  name: string
-  description: string
-  avatar_url: string | null
-  ai_engine: string
-  ai_config: string
-  chat_personality: string
-  play_style: string
-  base_elo: number
-  current_elo: number
-  games_played: number
-  wins: number
-  losses: number
-  draws: number
-  is_active: number
 }
 
 // Public persona for API response

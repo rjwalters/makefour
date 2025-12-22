@@ -11,6 +11,14 @@
 import { validateSession, errorResponse, jsonResponse } from '../../../lib/auth'
 import type { ChatPersonality, ReactionType } from '../../../lib/botPersonas'
 import { getRandomReaction, shouldBotSpeak } from '../../../lib/botPersonas'
+import {
+  type ActiveGameRow,
+  type BotPersonaRow,
+  safeParseMoves,
+  ROWS,
+  COLUMNS,
+  WIN_LENGTH,
+} from '../../../lib/types'
 import { createDb } from '../../../../shared/db/client'
 import { activeGames, gameMessages, botPersonas } from '../../../../shared/db/schema'
 import { eq, and, count } from 'drizzle-orm'
@@ -19,30 +27,6 @@ interface Env {
   DB: D1Database
   AI: Ai
 }
-
-interface ActiveGameRow {
-  id: string
-  player1_id: string
-  player2_id: string
-  moves: string
-  current_turn: number
-  status: string
-  winner: string | null
-  is_bot_game: number
-  bot_difficulty: string | null
-  bot_persona_id: string | null
-}
-
-interface BotPersonaRow {
-  id: string
-  name: string
-  chat_personality: string
-}
-
-// Board dimensions
-const ROWS = 6
-const COLUMNS = 7
-const WIN_LENGTH = 4
 
 type Board = (1 | 2 | null)[][]
 type Player = 1 | 2
@@ -92,7 +76,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse('You are not the player in this game', 403)
     }
 
-    const moves = JSON.parse(game.moves) as number[]
+    const moves = safeParseMoves(game.moves)
 
     // Need at least one move to react to
     if (moves.length === 0) {

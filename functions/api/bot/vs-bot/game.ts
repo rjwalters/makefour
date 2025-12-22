@@ -8,6 +8,7 @@
 import { jsonResponse } from '../../../lib/auth'
 import { z } from 'zod'
 import { DEFAULT_BOT_PERSONAS } from '../../../lib/botPersonas'
+import { type BotPersonaRow, type UserRow } from '../../../lib/types'
 import { createDb } from '../../../../shared/db/client'
 import { users, activeGames, botPersonas } from '../../../../shared/db/schema'
 import { eq, and, sql } from 'drizzle-orm'
@@ -39,19 +40,6 @@ const createGameSchema = z.object({
   moveDelayMs: z.number().int().min(500).max(10000).optional().default(DEFAULT_MOVE_DELAY_MS),
   timeControlMs: z.number().int().min(30000).max(600000).optional().default(DEFAULT_TIME_CONTROL_MS),
 })
-
-interface BotPersonaRow {
-  id: string
-  name: string
-  current_elo: number
-  ai_engine: string
-  ai_config: string
-}
-
-interface BotUserRow {
-  id: string
-  rating: number
-}
 
 /**
  * POST /api/bot/vs-bot/game - Create a new bot vs bot game

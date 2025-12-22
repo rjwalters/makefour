@@ -22,6 +22,7 @@ import {
   type BotPersonaConfig,
   type AIConfig,
 } from '../../../lib/bot'
+import { type ActiveGameRow, type BotPersonaRow, safeParseMoves } from '../../../lib/types'
 import { z } from 'zod'
 import { createDb } from '../../../../shared/db/client'
 import { users, activeGames, botPersonas, games, ratingHistory, playerBotStats } from '../../../../shared/db/schema'
@@ -45,34 +46,6 @@ function getBotUserId(game: ActiveGameRow): string | null {
   if (isBotUserId(game.player1_id)) return game.player1_id
   if (isBotUserId(game.player2_id)) return game.player2_id
   return null
-}
-
-interface ActiveGameRow {
-  id: string
-  player1_id: string
-  player2_id: string
-  moves: string
-  current_turn: number
-  status: string
-  mode: string
-  winner: string | null
-  player1_rating: number
-  player2_rating: number
-  last_move_at: number
-  time_control_ms: number | null
-  player1_time_ms: number | null
-  player2_time_ms: number | null
-  turn_started_at: number | null
-  is_bot_game: number
-  bot_difficulty: string | null
-  bot_persona_id: string | null
-  created_at: number
-  updated_at: number
-}
-
-interface BotPersonaRow {
-  id: string
-  ai_config: string
 }
 
 const moveSchema = z.object({
@@ -195,7 +168,7 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
 
     const now = Date.now()
     const playerNumber = isPlayer1 ? 1 : 2
-    const moves = JSON.parse(game.moves) as number[]
+    const moves = safeParseMoves(game.moves)
     const gameState = moves.length > 0 ? replayMoves(moves) : createGameState()
     const gameRow: ActiveGameRow = {
       id: game.id,
@@ -402,7 +375,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     }
 
     // Validate and apply human's move
-    const moves = JSON.parse(game.moves) as number[]
+    const moves = safeParseMoves(game.moves)
     const currentState = moves.length > 0 ? replayMoves(moves) : createGameState()
 
     if (!currentState) {
@@ -602,7 +575,7 @@ async function updateUserRating(
 
   const gameId = crypto.randomUUID()
   const ratingHistoryId = crypto.randomUUID()
-  const moves = JSON.parse(game.moves) as number[]
+  const moves = safeParseMoves(game.moves)
 
   // Build player_bot_stats update if we have a persona
   if (game.bot_persona_id) {

@@ -8,6 +8,7 @@
 import { validateSession, errorResponse, jsonResponse } from '../../../lib/auth'
 import { z } from 'zod'
 import type { ChatPersonality } from '../../../lib/botPersonas'
+import { type ActiveGameRow, type BotPersonaRow, safeParseMoves } from '../../../lib/types'
 import { createDb } from '../../../../shared/db/client'
 import { activeGames, gameMessages, botPersonas } from '../../../../shared/db/schema'
 import { eq, and, gt, count } from 'drizzle-orm'
@@ -25,23 +26,6 @@ interface GameMessageRow {
   sender_type: 'human' | 'bot'
   content: string
   created_at: number
-}
-
-interface ActiveGameRow {
-  id: string
-  player1_id: string
-  player2_id: string
-  moves: string
-  current_turn: number
-  status: string
-  winner: string | null
-  bot_persona_id: string | null
-}
-
-interface BotPersonaRow {
-  id: string
-  name: string
-  chat_personality: string
 }
 
 const messageSchema = z.object({
@@ -357,7 +341,7 @@ async function generateBotResponse(
     // Parse moves - handle both string and array formats
     let moves: number[] = []
     try {
-      moves = typeof game.moves === 'string' ? JSON.parse(game.moves) : (game.moves || [])
+      moves = safeParseMoves(game.moves)
     } catch {
       moves = []
     }
