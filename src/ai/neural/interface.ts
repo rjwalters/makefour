@@ -45,7 +45,7 @@ export interface ModelMetadata {
   /** Human-readable name */
   name: string
   /** Model architecture type */
-  architecture: 'mlp' | 'cnn' | 'transformer'
+  architecture: 'mlp' | 'cnn' | 'resnet' | 'transformer'
   /** Expected ELO rating based on training */
   expectedElo: number
   /** Model file size in bytes */

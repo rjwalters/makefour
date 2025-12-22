@@ -16,6 +16,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useAuthenticatedApi } from './useAuthenticatedApi'
 import { useRequestCoordinator } from './useRequestCoordinator'
+import { useNeuralBot } from './useNeuralBot'
 import { makeMove as applyMove, replayMoves, type Board } from '../game/makefour'
 
 // Minimum time before bot responds (ms) - makes the interaction feel more natural
@@ -52,12 +53,18 @@ export interface BotGameState {
   botPersonaId: string | null
 }
 
+interface NeuralConfig {
+  modelId: string
+  temperature: number
+}
+
 interface BotGameHookState {
   status: BotGameStatus
   error: string | null
   game: BotGameState | null
   difficulty: BotDifficulty
   personaId: string | null
+  neuralConfig: NeuralConfig | null
 }
 
 const GAME_POLL_INTERVAL = 500 // 500ms for responsive gameplay
@@ -65,12 +72,14 @@ const GAME_POLL_INTERVAL = 500 // 500ms for responsive gameplay
 export function useBotGame() {
   const { apiCall } = useAuthenticatedApi()
   const coordinator = useRequestCoordinator()
+  const neuralBot = useNeuralBot()
   const [state, setState] = useState<BotGameHookState>({
     status: 'idle',
     error: null,
     game: null,
     difficulty: 'intermediate',
     personaId: null,
+    neuralConfig: null,
   })
 
   const gamePollRef = useRef<NodeJS.Timeout | null>(null)
@@ -97,7 +106,7 @@ export function useBotGame() {
    */
   const createGameWithPersona = useCallback(
     async (personaId: string, playerColor: 1 | 2) => {
-      setState((prev) => ({ ...prev, status: 'creating', error: null, personaId }))
+      setState((prev) => ({ ...prev, status: 'creating', error: null, personaId, neuralConfig: null }))
 
       try {
         const response = await apiCall<{
@@ -108,12 +117,20 @@ export function useBotGame() {
           botRating: number
           botMovedFirst: boolean
           botMove?: number
+          neuralConfig?: { modelId: string; temperature: number } | null
         }>('/api/bot/game', {
           method: 'POST',
           body: JSON.stringify({ personaId, playerColor }),
         })
 
         if (!isMountedRef.current) return
+
+        // Store neural config and load model if this is a neural bot
+        if (response.neuralConfig) {
+          setState((prev) => ({ ...prev, neuralConfig: response.neuralConfig ?? null }))
+          // Pre-load the neural model for faster inference
+          await neuralBot.loadModel(response.neuralConfig.modelId)
+        }
 
         // Fetch initial game state
         await fetchGameState(response.gameId)
@@ -126,7 +143,7 @@ export function useBotGame() {
         }))
       }
     },
-    [apiCall]
+    [apiCall, neuralBot]
   )
 
   /**
@@ -270,6 +287,7 @@ export function useBotGame() {
    * Submit a move (bot will respond automatically)
    * Optimistically renders human move, then delays before showing bot's response
    * Uses coordinator to prevent polling from overwriting optimistic state
+   * For neural bots, computes bot move client-side for real ONNX inference
    */
   const submitMove = useCallback(
     async (column: number) => {
@@ -281,6 +299,7 @@ export function useBotGame() {
       const rollbackTurn = state.game.currentTurn
       const rollbackIsYourTurn = state.game.isYourTurn
       const gameId = state.game.id
+      const neuralConfig = state.neuralConfig
 
       const startTime = Date.now()
 
@@ -290,6 +309,22 @@ export function useBotGame() {
 
       const afterHumanMove = applyMove(gameState, column)
       if (!afterHumanMove) return false
+
+      // For neural bots, compute the bot's response client-side
+      // This uses real ONNX inference instead of server-side simulation
+      let clientBotMove: number | undefined
+      if (neuralConfig && neuralBot.isReady && afterHumanMove.winner === null) {
+        const botPlayer: 1 | 2 = state.game.playerNumber === 1 ? 2 : 1
+        const result = await neuralBot.computeMove(
+          afterHumanMove.board,
+          botPlayer,
+          [...rollbackMoves, column],
+          neuralConfig.temperature
+        )
+        if (result) {
+          clientBotMove = result.column
+        }
+      }
 
       // Pause polling BEFORE updating optimistic state to prevent race conditions
       // This ensures no poll responses can overwrite our optimistic update
@@ -329,6 +364,12 @@ export function useBotGame() {
       try {
         return await coordinator.withSubmission(async () => {
           try {
+            // Include pre-computed bot move for neural bots
+            const requestBody: { column: number; botMove?: number } = { column }
+            if (clientBotMove !== undefined) {
+              requestBody.botMove = clientBotMove
+            }
+
             const response = await apiCall<{
               success: boolean
               moves: number[]
@@ -343,7 +384,7 @@ export function useBotGame() {
               turnStartedAt: number | null
             }>(`/api/bot/game/${gameId}`, {
               method: 'POST',
-              body: JSON.stringify({ column }),
+              body: JSON.stringify(requestBody),
             })
 
             if (!isMountedRef.current) return false
@@ -417,7 +458,7 @@ export function useBotGame() {
         coordinator.resumePolling()
       }
     },
-    [apiCall, state.game, coordinator]
+    [apiCall, state.game, state.neuralConfig, coordinator, neuralBot]
   )
 
   /**
@@ -435,6 +476,7 @@ export function useBotGame() {
       game: null,
       difficulty: 'intermediate',
       personaId: null,
+      neuralConfig: null,
     })
   }, [])
 

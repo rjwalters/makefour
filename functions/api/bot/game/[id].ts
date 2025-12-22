@@ -77,6 +77,8 @@ interface BotPersonaRow {
 
 const moveSchema = z.object({
   column: z.number().int().min(0).max(6),
+  // Optional pre-computed bot move for client-side neural inference
+  botMove: z.number().int().min(0).max(6).optional(),
 })
 
 /**
@@ -287,7 +289,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       return errorResponse(parseResult.error.errors[0].message, 400)
     }
 
-    const { column } = parseResult.data
+    const { column, botMove: clientBotMove } = parseResult.data
 
     const db = createDb(DB)
     const game = await db.query.activeGames.findFirst({
@@ -427,27 +429,40 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       newStatus = 'completed'
       winner = afterHumanMove.winner === 'draw' ? 'draw' : String(afterHumanMove.winner)
     } else {
-      // Bot makes its move using engine-based API
-      const difficulty = (game.bot_difficulty || 'intermediate') as DifficultyLevel
+      // Bot makes its move
+      const difficulty = (game.botDifficulty || 'intermediate') as DifficultyLevel
       const botTimeRemaining = botPlayerNumber === 1 ? player1Time : player2Time
 
       if (botTimeRemaining !== null && botTimeRemaining > 0) {
-        const timeBudget = calculateTimeBudget(botTimeRemaining, newMoves.length, difficulty)
         const startTime = Date.now()
+        let botMoveColumn: number
 
-        // Use engine-based move suggestion with persona's configured engine
-        const botPersonaConfig: BotPersonaConfig = {
-          difficulty,
-          engine: (personaAIEngine as 'minimax' | 'neural') || 'minimax',
-          customEngineParams: personaAIConfig || undefined,
+        // Check if client provided a pre-computed bot move (for neural bots)
+        if (clientBotMove !== undefined && personaAIEngine === 'neural') {
+          // Validate the client-provided move is legal
+          if (!isValidMove(afterHumanMove.board, clientBotMove)) {
+            return errorResponse('Invalid bot move: column is full or out of bounds', 400)
+          }
+          botMoveColumn = clientBotMove
+        } else {
+          // Compute bot move server-side
+          const timeBudget = calculateTimeBudget(botTimeRemaining, newMoves.length, difficulty)
+
+          // Use engine-based move suggestion with persona's configured engine
+          const botPersonaConfig: BotPersonaConfig = {
+            difficulty,
+            engine: (personaAIEngine as 'minimax' | 'neural') || 'minimax',
+            customEngineParams: personaAIConfig || undefined,
+          }
+
+          const moveResult = await suggestMoveWithEngine(
+            afterHumanMove.board,
+            botPlayerNumber as Player,
+            botPersonaConfig,
+            timeBudget
+          )
+          botMoveColumn = moveResult.column
         }
-
-        const moveResult = await suggestMoveWithEngine(
-          afterHumanMove.board,
-          botPlayerNumber as Player,
-          botPersonaConfig,
-          timeBudget
-        )
 
         const botElapsed = Date.now() - startTime
 
@@ -466,9 +481,9 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
           winner = String(playerNumber)
         } else {
           // Apply bot's move
-          const afterBotMove = makeMove(afterHumanMove, moveResult.column)
+          const afterBotMove = makeMove(afterHumanMove, botMoveColumn)
           if (afterBotMove) {
-            newMoves = [...newMoves, moveResult.column]
+            newMoves = [...newMoves, botMoveColumn]
             board = afterBotMove.board
 
             if (afterBotMove.winner !== null) {

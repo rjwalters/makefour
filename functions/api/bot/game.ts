@@ -95,6 +95,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
     let botPersonaId: string | null = null
     let botUserId: string
     let effectiveDifficulty: string | null = difficulty || null
+    let neuralConfig: { modelId: string; temperature: number } | null = null
 
     const db = createDb(DB)
 
@@ -107,6 +108,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
           name: true,
           currentElo: true,
           aiConfig: true,
+          aiEngine: true,
         },
       })
 
@@ -116,6 +118,21 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
 
       botPersonaId = persona.id
       botUserId = getBotUserId(persona.id)
+
+      // Check if this is a neural bot and extract neural config for client-side inference
+      if (persona.aiEngine === 'neural') {
+        try {
+          const aiConfig = JSON.parse(persona.aiConfig)
+          if (aiConfig.neuralModelId) {
+            neuralConfig = {
+              modelId: aiConfig.neuralModelId,
+              temperature: aiConfig.neuralTemperature ?? 0,
+            }
+          }
+        } catch {
+          // Ignore JSON parse errors - will fall back to server-side inference
+        }
+      }
 
       // Get the bot's current rating from users table
       const botUser = await db.query.users.findFirst({
@@ -258,6 +275,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
         botMovedFirst: true,
         botMove: moveResult.column,
         searchInfo: moveResult.searchInfo,
+        neuralConfig, // For client-side inference
       })
     }
 
@@ -269,6 +287,7 @@ export async function onRequestPost(context: EventContext<Env, any, any>) {
       engine,
       botRating,
       botMovedFirst: false,
+      neuralConfig, // For client-side inference
     })
   } catch (error) {
     console.error('POST /api/bot/game error:', error)
