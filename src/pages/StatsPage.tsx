@@ -5,6 +5,9 @@ import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import Navbar from '../components/Navbar'
+import { API_USERS } from '../lib/apiEndpoints'
+import { calculateWinRate } from '../lib/numberFormatting'
+import type { UserStatsSimple, StatsHistoryResponse } from '../lib/types/api'
 import {
   LineChart,
   Line,
@@ -23,86 +26,6 @@ import {
   Area,
 } from 'recharts'
 
-interface UserStats {
-  user: {
-    rating: number
-    gamesPlayed: number
-    wins: number
-    losses: number
-    draws: number
-  }
-  stats: {
-    peakRating: number
-    lowestRating: number
-    currentStreak: number
-    longestWinStreak: number
-    longestLossStreak: number
-    ratingTrend: 'improving' | 'declining' | 'stable'
-    recentRatingChange: number
-  }
-  ratingHistory: Array<{
-    rating: number
-    createdAt: number
-  }>
-}
-
-interface StatsHistory {
-  dateRange: {
-    start: number
-    end: number
-  }
-  summary: {
-    totalGames: number
-    wins: number
-    losses: number
-    draws: number
-    avgMovesToWin: number
-    avgMovesToLoss: number
-    player1WinRate: number
-    player2WinRate: number
-  }
-  dailyStats: Array<{
-    date: string
-    games: number
-    wins: number
-    losses: number
-    draws: number
-    ratingChange: number
-    avgMoveCount: number
-  }>
-  weeklyStats: Array<{
-    week: string
-    games: number
-    wins: number
-    losses: number
-    draws: number
-  }>
-  winRateOverTime: Array<{
-    date: string
-    winRate: number
-    games: number
-  }>
-  openingStats: Array<{
-    column: number
-    games: number
-    wins: number
-    losses: number
-    draws: number
-    winRate: number
-  }>
-  recentGames: Array<{
-    id: string
-    outcome: string
-    opponentType: string
-    aiDifficulty: string | null
-    playerNumber: number
-    moveCount: number
-    ratingChange: number
-    createdAt: number
-    firstMove: number | null
-  }>
-}
-
 type DateRange = '7d' | '30d' | '90d' | 'all'
 
 const COLORS = {
@@ -118,8 +41,8 @@ export default function StatsPage() {
   const { user } = useAuth()
   const { apiCall } = useAuthenticatedApi()
 
-  const [stats, setStats] = useState<UserStats | null>(null)
-  const [history, setHistory] = useState<StatsHistory | null>(null)
+  const [stats, setStats] = useState<UserStatsSimple | null>(null)
+  const [history, setHistory] = useState<StatsHistoryResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [dateRange, setDateRange] = useState<DateRange>('30d')
@@ -145,8 +68,8 @@ export default function StatsPage() {
         const { start, end } = getDateRangeParams(dateRange)
 
         const [statsData, historyData] = await Promise.all([
-          apiCall<UserStats>('/api/users/me/stats'),
-          apiCall<StatsHistory>(`/api/users/me/stats/history?start=${start}&end=${end}`),
+          apiCall<UserStatsSimple>(API_USERS.ME_STATS),
+          apiCall<StatsHistoryResponse>(API_USERS.meStatsHistory(start.toString(), end.toString())),
         ])
 
         setStats(statsData)
@@ -189,7 +112,7 @@ export default function StatsPage() {
     URL.revokeObjectURL(url)
   }
 
-  const winRate = user && user.gamesPlayed > 0 ? Math.round((user.wins / user.gamesPlayed) * 100) : 0
+  const winRate = user ? calculateWinRate(user.wins, user.gamesPlayed) : 0
 
   const pieData = history
     ? [

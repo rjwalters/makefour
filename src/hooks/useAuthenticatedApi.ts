@@ -6,6 +6,7 @@
  */
 
 import { useCallback } from 'react'
+import { STORAGE_KEY_SESSION_TOKEN } from '../lib/storageKeys'
 
 interface ApiCallOptions extends RequestInit {
   headers?: HeadersInit
@@ -16,7 +17,7 @@ export function useAuthenticatedApi() {
    * Get the session token from localStorage
    */
   const getSessionToken = useCallback(() => {
-    return localStorage.getItem('makefour_session_token')
+    return localStorage.getItem(STORAGE_KEY_SESSION_TOKEN)
   }, [])
 
   /**

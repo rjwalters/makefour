@@ -5,6 +5,12 @@ import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import ThemeToggle from '../components/ThemeToggle'
+import {
+  MIN_USERNAME_LENGTH,
+  MAX_USERNAME_LENGTH,
+  MIN_PASSWORD_LENGTH,
+  USERNAME_HTML_PATTERN,
+} from '../lib/validation'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -81,12 +87,12 @@ export default function LoginPage() {
                   required
                   disabled={isLoading}
                   autoComplete="username"
-                  minLength={3}
-                  maxLength={20}
-                  pattern="^[a-zA-Z][a-zA-Z0-9_]{2,19}$"
+                  minLength={MIN_USERNAME_LENGTH}
+                  maxLength={MAX_USERNAME_LENGTH}
+                  pattern={USERNAME_HTML_PATTERN}
                 />
                 <p className="text-xs text-muted-foreground">
-                  3-20 characters, letters, numbers, and underscores only
+                  {MIN_USERNAME_LENGTH}-{MAX_USERNAME_LENGTH} characters, letters, numbers, and underscores only
                 </p>
               </div>
             )}
@@ -117,13 +123,13 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 disabled={isLoading}
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
                 autoComplete={isNewUser ? 'new-password' : 'current-password'}
               />
               <div className="flex justify-between items-center">
                 <p className="text-xs text-muted-foreground">
                   {isNewUser
-                    ? 'Choose a strong password (min 8 characters)'
+                    ? `Choose a strong password (min ${MIN_PASSWORD_LENGTH} characters)`
                     : 'Enter your password to access your account'
                   }
                 </p>

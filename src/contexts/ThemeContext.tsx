@@ -1,5 +1,6 @@
 import type React from 'react'
 import { createContext, useContext, useEffect, useState } from 'react'
+import { STORAGE_KEY_THEME } from '../lib/storageKeys'
 
 type Theme = 'light' | 'dark' | 'system'
 
@@ -13,7 +14,7 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
-    const stored = localStorage.getItem('makefour_theme') as Theme
+    const stored = localStorage.getItem(STORAGE_KEY_THEME) as Theme
     return stored || 'system'
   })
 
@@ -36,7 +37,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
     root.classList.add(effective)
     setEffectiveTheme(effective)
-    localStorage.setItem('makefour_theme', theme)
+    localStorage.setItem(STORAGE_KEY_THEME, theme)
   }, [theme])
 
   // Listen for system theme changes

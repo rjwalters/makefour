@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { API_AUTH } from '../lib/apiEndpoints'
 
 type VerificationState = 'loading' | 'success' | 'error' | 'no-token'
 
@@ -20,7 +21,7 @@ export default function VerifyEmailPage() {
 
     const verifyEmail = async () => {
       try {
-        const response = await fetch('/api/auth/verify-email', {
+        const response = await fetch(API_AUTH.VERIFY_EMAIL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token }),

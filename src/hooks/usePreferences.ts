@@ -11,6 +11,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useAuthenticatedApi } from './useAuthenticatedApi'
+import { STORAGE_KEY_PREFERENCES } from '../lib/storageKeys'
+import { API_PREFERENCES } from '../lib/apiEndpoints'
 
 export interface UserPreferences {
   // Sound settings
@@ -39,7 +41,6 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   theme: 'system',
 }
 
-const STORAGE_KEY = 'makefour-preferences'
 const DEBOUNCE_MS = 1000
 
 /**
@@ -47,7 +48,7 @@ const DEBOUNCE_MS = 1000
  */
 function loadLocalPreferences(): UserPreferences {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY)
+    const saved = localStorage.getItem(STORAGE_KEY_PREFERENCES)
     if (saved) {
       const parsed = JSON.parse(saved)
       return mergeWithDefaults(parsed)
@@ -62,7 +63,7 @@ function loadLocalPreferences(): UserPreferences {
  * Save preferences to localStorage
  */
 function saveLocalPreferences(preferences: UserPreferences) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences))
+  localStorage.setItem(STORAGE_KEY_PREFERENCES, JSON.stringify(preferences))
 }
 
 /**
@@ -117,7 +118,7 @@ export function usePreferences() {
 
     try {
       setIsSyncing(true)
-      await apiCall('/api/preferences', {
+      await apiCall(API_PREFERENCES, {
         method: 'PUT',
         body: JSON.stringify({ preferences: prefs }),
       })
@@ -138,7 +139,7 @@ export function usePreferences() {
 
     try {
       setIsLoading(true)
-      const response = await apiCall<{ preferences: UserPreferences }>('/api/preferences')
+      const response = await apiCall<{ preferences: UserPreferences }>(API_PREFERENCES)
       setError(null)
       return response.preferences
     } catch (err) {

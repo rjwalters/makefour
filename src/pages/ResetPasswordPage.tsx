@@ -4,6 +4,8 @@ import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import ThemeToggle from '../components/ThemeToggle'
+import { API_AUTH } from '../lib/apiEndpoints'
+import { validatePassword, validatePasswordMatch, MIN_PASSWORD_LENGTH } from '../lib/validation'
 
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams()
@@ -27,22 +29,23 @@ export default function ResetPasswordPage() {
     e.preventDefault()
     setError('')
 
-    // Validate passwords match
-    if (password !== confirmPassword) {
-      setError('Passwords do not match')
+    // Client-side validation
+    const passwordValidation = validatePassword(password)
+    if (!passwordValidation.isValid) {
+      setError(passwordValidation.error!)
       return
     }
 
-    // Validate password length
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters')
+    const matchValidation = validatePasswordMatch(password, confirmPassword)
+    if (!matchValidation.isValid) {
+      setError(matchValidation.error!)
       return
     }
 
     setIsLoading(true)
 
     try {
-      const response = await fetch('/api/auth/reset-password', {
+      const response = await fetch(API_AUTH.RESET_PASSWORD, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -137,12 +140,12 @@ export default function ResetPasswordPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 disabled={isLoading}
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
                 autoComplete="new-password"
                 autoFocus
               />
               <p className="text-xs text-muted-foreground">
-                Must be at least 8 characters
+                Must be at least {MIN_PASSWORD_LENGTH} characters
               </p>
             </div>
 
@@ -158,7 +161,7 @@ export default function ResetPasswordPage() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
                 disabled={isLoading}
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
                 autoComplete="new-password"
               />
             </div>

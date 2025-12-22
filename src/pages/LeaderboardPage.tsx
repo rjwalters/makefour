@@ -5,38 +5,10 @@ import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import Navbar from '../components/Navbar'
 import BotAvatar from '../components/BotAvatar'
-
-interface LeaderboardEntry {
-  rank: number
-  userId: string
-  username: string
-  rating: number
-  gamesPlayed: number
-  wins: number
-  losses: number
-  draws: number
-  winRate: number
-  isBot: boolean
-  botPersonaId: string | null
-  botDescription: string | null
-  botAvatarUrl: string | null
-}
-
-interface CurrentUserPosition {
-  rank: number
-  entry: LeaderboardEntry
-}
-
-interface LeaderboardResponse {
-  leaderboard: LeaderboardEntry[]
-  pagination: {
-    total: number
-    limit: number
-    offset: number
-    hasMore: boolean
-  }
-  currentUser: CurrentUserPosition | null
-}
+import { STORAGE_KEY_SESSION_TOKEN } from '../lib/storageKeys'
+import { API_LEADERBOARD } from '../lib/apiEndpoints'
+import type { LeaderboardEntry, LeaderboardResponse, CurrentUserPosition } from '../lib/types/api'
+import { getErrorMessage } from '../lib/errorUtils'
 
 export default function LeaderboardPage() {
   const { user } = useAuth()
@@ -56,13 +28,13 @@ export default function LeaderboardPage() {
     async function fetchLeaderboard() {
       try {
         setLoading(true)
-        const sessionToken = localStorage.getItem('makefour_session_token')
+        const sessionToken = localStorage.getItem(STORAGE_KEY_SESSION_TOKEN)
         const headers: HeadersInit = {}
         if (sessionToken) {
           headers['Authorization'] = `Bearer ${sessionToken}`
         }
         const response = await fetch(
-          `/api/leaderboard?limit=${pagination.limit}&offset=${pagination.offset}&includeBots=${includeBots}`,
+          API_LEADERBOARD.withParams(pagination.limit, pagination.offset, includeBots),
           { headers }
         )
         if (!response.ok) {
@@ -73,7 +45,7 @@ export default function LeaderboardPage() {
         setPagination(data.pagination)
         setCurrentUserPosition(data.currentUser)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'An error occurred')
+        setError(getErrorMessage(err))
       } finally {
         setLoading(false)
       }

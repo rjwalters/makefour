@@ -9,8 +9,9 @@
  * - Proactive bot reactions to game moves
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useAuthenticatedApi } from './useAuthenticatedApi'
+import { usePolling, useIsMounted } from './usePolling'
 import { CHAT_POLL_INTERVAL } from '../lib/pollingConstants'
 
 export interface ChatMessage {
@@ -44,24 +45,12 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
     isRequestingReaction: false,
   })
 
-  const pollRef = useRef<NodeJS.Timeout | null>(null)
-  const isMountedRef = useRef(true)
+  const isMounted = useIsMounted()
   const lastMessageTimeRef = useRef(0)
   const isVisibleRef = useRef(true) // Track if chat panel is visible
   const lastMoveCountRef = useRef(0) // Track move count for bot reactions
   const isSendingRef = useRef(false) // Additional safeguard against double sends
   const lastSentContentRef = useRef<string | null>(null) // Track last sent message
-
-  // Cleanup on unmount
-  useEffect(() => {
-    isMountedRef.current = true
-    return () => {
-      isMountedRef.current = false
-      if (pollRef.current) {
-        clearInterval(pollRef.current)
-      }
-    }
-  }, [])
 
   /**
    * Fetch messages from the server
@@ -76,7 +65,7 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
         gameStatus: string
       }>(`/api/match/${gameId}/chat?since=${since}`)
 
-      if (!isMountedRef.current) return
+      if (!isMounted.current) return
 
       if (response.messages.length > 0) {
         // Update last message time
@@ -105,41 +94,12 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
     }
   }, [apiCall, gameId, state.isMuted])
 
-  /**
-   * Start polling for messages
-   */
-  const startPolling = useCallback(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current)
-    }
-
-    // Initial fetch
-    fetchMessages()
-
-    // Poll on interval
-    pollRef.current = setInterval(fetchMessages, CHAT_POLL_INTERVAL)
-  }, [fetchMessages])
-
-  /**
-   * Stop polling for messages
-   */
-  const stopPolling = useCallback(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current)
-      pollRef.current = null
-    }
-  }, [])
-
-  // Start/stop polling based on gameId and active state
-  useEffect(() => {
-    if (gameId && isActive && !state.isMuted) {
-      startPolling()
-    } else {
-      stopPolling()
-    }
-
-    return () => stopPolling()
-  }, [gameId, isActive, state.isMuted, startPolling, stopPolling])
+  // Use polling hook for message fetching
+  usePolling(fetchMessages, {
+    interval: CHAT_POLL_INTERVAL,
+    enabled: Boolean(gameId) && isActive && !state.isMuted,
+    deps: [gameId],
+  })
 
   /**
    * Send a message
@@ -174,7 +134,7 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
         body: JSON.stringify({ content: content.trim() }),
       })
 
-      if (!isMountedRef.current) return false
+      if (!isMounted.current) return false
 
       // Add the user's message optimistically (will be deduplicated by poll)
       const userMessage: ChatMessage = {
@@ -219,7 +179,7 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
       isSendingRef.current = false
       lastSentContentRef.current = null
 
-      if (!isMountedRef.current) return false
+      if (!isMounted.current) return false
 
       const errorMessage = error instanceof Error ? error.message : 'Failed to send message'
 
@@ -246,14 +206,8 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
    * Toggle mute state
    */
   const toggleMute = useCallback(() => {
-    setState(prev => {
-      const newMuted = !prev.isMuted
-      if (newMuted) {
-        stopPolling()
-      }
-      return { ...prev, isMuted: newMuted }
-    })
-  }, [stopPolling])
+    setState(prev => ({ ...prev, isMuted: !prev.isMuted }))
+  }, [])
 
   /**
    * Mark chat as visible/focused (clears unread count)
@@ -320,7 +274,7 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
         method: 'POST',
       })
 
-      if (!isMountedRef.current) return
+      if (!isMounted.current) return
 
       // If bot generated a message, poll to get it
       if (response.message) {
@@ -332,7 +286,7 @@ export function useGameChat(gameId: string | null, isActive: boolean = true) {
     } catch (error) {
       // Silently fail - bot reactions are nice-to-have, not critical
       console.error('Bot reaction error:', error)
-      if (isMountedRef.current) {
+      if (isMounted.current) {
         setState(prev => ({ ...prev, isRequestingReaction: false }))
       }
     }

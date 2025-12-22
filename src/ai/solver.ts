@@ -14,6 +14,7 @@
 
 import { type Board, COLUMNS, ROWS, getValidMoves } from '../game/makefour'
 import type { Position } from './coach'
+import { LRUCache } from '../lib/cache'
 
 // ============================================================================
 // POSITION ENCODING
@@ -125,11 +126,11 @@ export function scoreToDistance(score: number): number | undefined {
 
 const SOLVER_API_BASE = 'https://connect4.gamesolver.org/solve'
 
-/** Cache for solver results to avoid redundant API calls */
-const solverCache = new Map<string, SolverResult>()
-
 /** Maximum cache size to prevent memory issues */
 const MAX_CACHE_SIZE = 10000
+
+/** Cache for solver results to avoid redundant API calls */
+const solverCache = new LRUCache<string, SolverResult>(MAX_CACHE_SIZE)
 
 /**
  * Queries the solver API for a position.
@@ -192,12 +193,7 @@ export async function queryPosition(
       moveScores,
     }
 
-    // Cache the result (with LRU-style eviction)
-    if (solverCache.size >= MAX_CACHE_SIZE) {
-      // Remove oldest entry
-      const firstKey = solverCache.keys().next().value
-      if (firstKey) solverCache.delete(firstKey)
-    }
+    // Cache the result (LRU eviction handled automatically)
     solverCache.set(encoded, result)
 
     return result

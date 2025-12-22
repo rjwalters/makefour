@@ -7,53 +7,13 @@ import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import Navbar from '../components/Navbar'
-
-interface UserStats {
-  user: {
-    id: string
-    email: string
-    email_verified: boolean
-    oauth_provider: string | null
-    rating: number
-    gamesPlayed: number
-    wins: number
-    losses: number
-    draws: number
-    createdAt: number
-    lastLogin: number
-    updatedAt: number
-  }
-  stats: {
-    peakRating: number
-    lowestRating: number
-    currentStreak: number
-    longestWinStreak: number
-    longestLossStreak: number
-    avgMoveCount: number
-    gamesAsPlayer1: number
-    gamesAsPlayer2: number
-    aiGames: number
-    humanGames: number
-    ratingTrend: 'improving' | 'declining' | 'stable'
-    recentRatingChange: number
-  }
-  ratingHistory: Array<{
-    rating: number
-    createdAt: number
-  }>
-}
+import { API_USERS, API_GAMES } from '../lib/apiEndpoints'
+import { calculateWinRate } from '../lib/numberFormatting'
+import { validateUsername, MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH } from '../lib/validation'
+import type { UserStatsResponse, RecentGame, UsernameStatus, UsernameChangeResponse } from '../lib/types/api'
+import { getErrorMessage } from '../lib/errorUtils'
 
 type TabType = 'overview' | 'account' | 'statistics' | 'bot-records' | 'security' | 'settings'
-
-interface RecentGame {
-  id: string
-  outcome: 'win' | 'loss' | 'draw'
-  moveCount: number
-  ratingChange: number
-  opponentType: 'human' | 'ai'
-  aiDifficulty: string | null
-  createdAt: number
-}
 
 export default function ProfilePage() {
   const { user, logout } = useAuth()
@@ -62,7 +22,7 @@ export default function ProfilePage() {
   const { data: botStatsData, loading: botStatsLoading } = usePlayerBotStats()
 
   const [activeTab, setActiveTab] = useState<TabType>('overview')
-  const [stats, setStats] = useState<UserStats | null>(null)
+  const [stats, setStats] = useState<UserStatsResponse | null>(null)
   const [recentGames, setRecentGames] = useState<RecentGame[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -81,12 +41,7 @@ export default function ProfilePage() {
   const [deleting, setDeleting] = useState(false)
 
   // Username state
-  const [usernameStatus, setUsernameStatus] = useState<{
-    username: string | null
-    displayName: string
-    canChange: boolean
-    nextChangeAt: number | null
-  } | null>(null)
+  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus | null>(null)
   const [newUsername, setNewUsername] = useState('')
   const [usernameError, setUsernameError] = useState<string | null>(null)
   const [usernameSuccess, setUsernameSuccess] = useState(false)
@@ -97,8 +52,8 @@ export default function ProfilePage() {
       try {
         setLoading(true)
         const [statsData, gamesData] = await Promise.all([
-          apiCall<UserStats>('/api/users/me/stats'),
-          apiCall<{ games: RecentGame[] }>('/api/games?limit=5'),
+          apiCall<UserStatsResponse>(API_USERS.ME_STATS),
+          apiCall<{ games: RecentGame[] }>(API_GAMES.withParams(5, 0)),
         ])
         setStats(statsData)
         setRecentGames(gamesData.games)
@@ -118,12 +73,7 @@ export default function ProfilePage() {
   useEffect(() => {
     const fetchUsernameStatus = async () => {
       try {
-        const data = await apiCall<{
-          username: string | null
-          displayName: string
-          canChange: boolean
-          nextChangeAt: number | null
-        }>('/api/users/me/username')
+        const data = await apiCall<UsernameStatus>(API_USERS.ME_USERNAME)
         setUsernameStatus(data)
         if (data.username) {
           setNewUsername(data.username)
@@ -141,26 +91,15 @@ export default function ProfilePage() {
     setUsernameSuccess(false)
 
     // Client-side validation
-    if (!newUsername) {
-      setUsernameError('Username is required')
-      return
-    }
-    if (newUsername.length < 3) {
-      setUsernameError('Username must be at least 3 characters')
-      return
-    }
-    if (newUsername.length > 20) {
-      setUsernameError('Username must be at most 20 characters')
-      return
-    }
-    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(newUsername)) {
-      setUsernameError('Username must start with a letter and contain only letters, numbers, and underscores')
+    const validation = validateUsername(newUsername)
+    if (!validation.isValid) {
+      setUsernameError(validation.error)
       return
     }
 
     try {
       setSavingUsername(true)
-      const data = await apiCall<{ success: boolean; username: string; nextChangeAt: number }>('/api/users/me/username', {
+      const data = await apiCall<UsernameChangeResponse>(API_USERS.ME_USERNAME, {
         method: 'PUT',
         body: JSON.stringify({ username: newUsername }),
       })
@@ -173,7 +112,7 @@ export default function ProfilePage() {
         nextChangeAt: data.nextChangeAt,
       } : null)
     } catch (err) {
-      setUsernameError(err instanceof Error ? err.message : 'Failed to save username')
+      setUsernameError(getErrorMessage(err, 'Failed to save username'))
     } finally {
       setSavingUsername(false)
     }
@@ -196,7 +135,7 @@ export default function ProfilePage() {
 
     try {
       setChangingPassword(true)
-      await apiCall('/api/users/me/password', {
+      await apiCall(API_USERS.ME_PASSWORD, {
         method: 'PUT',
         body: JSON.stringify({
           old_password: oldPassword,
@@ -208,7 +147,7 @@ export default function ProfilePage() {
       setNewPassword('')
       setConfirmPassword('')
     } catch (err) {
-      setPasswordError(err instanceof Error ? err.message : 'Failed to change password')
+      setPasswordError(getErrorMessage(err, 'Failed to change password'))
     } finally {
       setChangingPassword(false)
     }
@@ -219,20 +158,18 @@ export default function ProfilePage() {
 
     try {
       setDeleting(true)
-      await apiCall('/api/users/me', {
+      await apiCall(API_USERS.ME, {
         method: 'DELETE',
       })
       await logout()
       navigate('/login')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete account')
+      setError(getErrorMessage(err, 'Failed to delete account'))
       setDeleting(false)
     }
   }
 
-  const winRate = user && user.gamesPlayed > 0
-    ? Math.round((user.wins / user.gamesPlayed) * 100)
-    : 0
+  const winRate = user ? calculateWinRate(user.wins, user.gamesPlayed) : 0
 
   const formatDate = (timestamp: number) => {
     return new Date(timestamp).toLocaleDateString('en-US', {
@@ -515,11 +452,11 @@ export default function ProfilePage() {
                           onChange={(e) => setNewUsername(e.target.value)}
                           placeholder={usernameStatus?.displayName || 'Enter username'}
                           disabled={usernameStatus ? !usernameStatus.canChange : false}
-                          minLength={3}
-                          maxLength={20}
+                          minLength={MIN_USERNAME_LENGTH}
+                          maxLength={MAX_USERNAME_LENGTH}
                         />
                         <p className="text-xs text-muted-foreground mt-1">
-                          3-20 characters, letters, numbers, and underscores only. Must start with a letter.
+                          {MIN_USERNAME_LENGTH}-{MAX_USERNAME_LENGTH} characters, letters, numbers, and underscores only. Must start with a letter.
                         </p>
                       </div>
                       {usernameStatus && !usernameStatus.canChange && usernameStatus.nextChangeAt && (

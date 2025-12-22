@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { useAuthenticatedApi } from './useAuthenticatedApi'
+import { useAuthenticatedApiCall } from './useApi'
+import { API_USERS } from '../lib/apiEndpoints'
 
 export interface BotStatsRecord {
   botId: string
@@ -47,72 +47,17 @@ export interface SingleBotStatsResponse extends BotStatsRecord {
  * Hook for fetching player's stats against all bots
  */
 export function usePlayerBotStats() {
-  const { apiCall, getSessionToken } = useAuthenticatedApi()
-  const [data, setData] = useState<PlayerBotStatsResponse | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const fetchStats = useCallback(async () => {
-    const token = getSessionToken()
-    if (!token) {
-      setData(null)
-      return
-    }
-
-    setLoading(true)
-    setError(null)
-
-    try {
-      const result = await apiCall<PlayerBotStatsResponse>('/api/users/me/bot-stats')
-      setData(result)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
-    } finally {
-      setLoading(false)
-    }
-  }, [apiCall, getSessionToken])
-
-  useEffect(() => {
-    fetchStats()
-  }, [fetchStats])
-
-  return { data, loading, error, refetch: fetchStats }
+  return useAuthenticatedApiCall<PlayerBotStatsResponse>(API_USERS.ME_BOT_STATS)
 }
 
 /**
  * Hook for fetching player's stats against a specific bot
  */
 export function useSingleBotStats(botId: string | null) {
-  const { apiCall, getSessionToken } = useAuthenticatedApi()
-  const [data, setData] = useState<SingleBotStatsResponse | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const fetchStats = useCallback(async () => {
-    const token = getSessionToken()
-    if (!token || !botId) {
-      setData(null)
-      return
-    }
-
-    setLoading(true)
-    setError(null)
-
-    try {
-      const result = await apiCall<SingleBotStatsResponse>(`/api/users/me/bot-stats/${botId}`)
-      setData(result)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
-    } finally {
-      setLoading(false)
-    }
-  }, [apiCall, getSessionToken, botId])
-
-  useEffect(() => {
-    fetchStats()
-  }, [fetchStats])
-
-  return { data, loading, error, refetch: fetchStats }
+  return useAuthenticatedApiCall<SingleBotStatsResponse>(
+    botId ? API_USERS.meBotStatsById(botId) : null,
+    { skip: !botId }
+  )
 }
 
 /**

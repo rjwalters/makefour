@@ -2,6 +2,8 @@ import type React from 'react'
 import { createContext, useContext, useState, useEffect } from 'react'
 import type { PublicUser } from '../lib/schemas/auth'
 import { decryptDEK } from '../lib/crypto'
+import { STORAGE_KEY_SESSION_TOKEN, STORAGE_KEY_DEK } from '../lib/storageKeys'
+import { API_AUTH } from '../lib/apiEndpoints'
 
 interface AuthContextType {
   isAuthenticated: boolean
@@ -53,10 +55,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         window.history.replaceState({}, '', window.location.pathname)
 
         // Store the session token and fetch user data
-        localStorage.setItem('makefour_session_token', oauthToken)
+        localStorage.setItem(STORAGE_KEY_SESSION_TOKEN, oauthToken)
 
         try {
-          const response = await fetch('/api/auth/me', {
+          const response = await fetch(API_AUTH.ME, {
             headers: { 'Authorization': `Bearer ${oauthToken}` }
           })
 
@@ -66,11 +68,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsAuthenticated(true)
             console.log(`✓ OAuth login successful (${oauthProvider}):`, data.user.email)
           } else {
-            localStorage.removeItem('makefour_session_token')
+            localStorage.removeItem(STORAGE_KEY_SESSION_TOKEN)
           }
         } catch (error) {
           console.error('OAuth callback failed:', error)
-          localStorage.removeItem('makefour_session_token')
+          localStorage.removeItem(STORAGE_KEY_SESSION_TOKEN)
         }
         return
       }
@@ -82,12 +84,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Check if user is already authenticated via session token
     const checkSession = async () => {
-      const sessionToken = localStorage.getItem('makefour_session_token')
-      const storedDEK = localStorage.getItem('makefour_dek')
+      const sessionToken = localStorage.getItem(STORAGE_KEY_SESSION_TOKEN)
+      const storedDEK = localStorage.getItem(STORAGE_KEY_DEK)
 
       if (sessionToken) {
         try {
-          const response = await fetch('/api/auth/me', {
+          const response = await fetch(API_AUTH.ME, {
             headers: {
               'Authorization': `Bearer ${sessionToken}`
             }
@@ -107,18 +109,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 console.log('✓ Encryption key restored')
               } catch (error) {
                 console.error('Failed to restore encryption key:', error)
-                localStorage.removeItem('makefour_dek')
+                localStorage.removeItem(STORAGE_KEY_DEK)
               }
             }
           } else {
             // Invalid/expired session, clear it
-            localStorage.removeItem('makefour_session_token')
-            localStorage.removeItem('makefour_dek')
+            localStorage.removeItem(STORAGE_KEY_SESSION_TOKEN)
+            localStorage.removeItem(STORAGE_KEY_DEK)
           }
         } catch (error) {
           console.error('Session check failed:', error)
-          localStorage.removeItem('makefour_session_token')
-          localStorage.removeItem('makefour_dek')
+          localStorage.removeItem(STORAGE_KEY_SESSION_TOKEN)
+          localStorage.removeItem(STORAGE_KEY_DEK)
         }
       }
     }
@@ -128,7 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const register = async (email: string, password: string, username: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      const response = await fetch('/api/auth/register', {
+      const response = await fetch(API_AUTH.REGISTER, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, username })
@@ -158,7 +160,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch(API_AUTH.LOGIN, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -174,7 +176,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Store session token
-      localStorage.setItem('makefour_session_token', data.session_token)
+      localStorage.setItem(STORAGE_KEY_SESSION_TOKEN, data.session_token)
 
       // Set user data
       setUser(data.user)
@@ -190,7 +192,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           // Store DEK in localStorage for session persistence
           const exportedDEK = await exportKeyToStorage(dek)
-          localStorage.setItem('makefour_dek', exportedDEK)
+          localStorage.setItem(STORAGE_KEY_DEK, exportedDEK)
 
           console.log('✓ Encryption key decrypted and stored')
         } catch (error) {
@@ -210,11 +212,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const logout = async () => {
-    const sessionToken = localStorage.getItem('makefour_session_token')
+    const sessionToken = localStorage.getItem(STORAGE_KEY_SESSION_TOKEN)
 
     if (sessionToken) {
       try {
-        await fetch('/api/auth/logout', {
+        await fetch(API_AUTH.LOGOUT, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -228,8 +230,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Clear local state and stored keys
-    localStorage.removeItem('makefour_session_token')
-    localStorage.removeItem('makefour_dek')
+    localStorage.removeItem(STORAGE_KEY_SESSION_TOKEN)
+    localStorage.removeItem(STORAGE_KEY_DEK)
     setUser(null)
     setEncryptionKey(null)
     setIsAuthenticated(false)
@@ -237,18 +239,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loginWithGoogle = () => {
     // Redirect to Google OAuth endpoint
-    window.location.href = '/api/auth/google'
+    window.location.href = API_AUTH.GOOGLE
   }
 
   const resendVerification = async (): Promise<{ success: boolean; error?: string }> => {
-    const sessionToken = localStorage.getItem('makefour_session_token')
+    const sessionToken = localStorage.getItem(STORAGE_KEY_SESSION_TOKEN)
 
     if (!sessionToken) {
       return { success: false, error: 'Not authenticated' }
     }
 
     try {
-      const response = await fetch('/api/auth/resend-verification', {
+      const response = await fetch(API_AUTH.RESEND_VERIFICATION, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -270,14 +272,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const refreshUser = async (): Promise<void> => {
-    const sessionToken = localStorage.getItem('makefour_session_token')
+    const sessionToken = localStorage.getItem(STORAGE_KEY_SESSION_TOKEN)
 
     if (!sessionToken) {
       return
     }
 
     try {
-      const response = await fetch('/api/auth/me', {
+      const response = await fetch(API_AUTH.ME, {
         headers: { 'Authorization': `Bearer ${sessionToken}` },
       })
 

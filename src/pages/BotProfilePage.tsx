@@ -5,59 +5,10 @@ import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import Navbar from '../components/Navbar'
 import BotAvatar from '../components/BotAvatar'
-
-interface RecentGame {
-  id: string
-  outcome: 'win' | 'loss' | 'draw'
-  moveCount: number
-  ratingChange: number
-  opponentType: string
-  createdAt: number
-}
-
-interface BotMatchup {
-  opponentId: string
-  opponentName: string
-  opponentAvatarUrl: string | null
-  totalGames: number
-  wins: number
-  losses: number
-  draws: number
-  winRate: number
-  avgMoves: number
-  lastGameAt: number
-}
-
-interface AIConfig {
-  searchDepth?: number
-  errorRate?: number
-  timeMultiplier?: number
-  temperature?: number
-  useHybridSearch?: boolean
-  hybridDepth?: number
-  modelId?: string
-}
-
-interface BotProfile {
-  id: string
-  name: string
-  description: string
-  avatarUrl: string | null
-  playStyle: string
-  aiEngine?: string
-  aiConfig?: AIConfig
-  baseElo: number
-  createdAt: number
-  rating: number
-  gamesPlayed: number
-  wins: number
-  losses: number
-  draws: number
-  winRate: number
-  recentGames: RecentGame[]
-  ratingHistory: Array<{ rating: number; createdAt: number }>
-  matchups?: BotMatchup[]
-}
+import { API_BOT } from '../lib/apiEndpoints'
+import { getWinRateColor } from '../lib/numberFormatting'
+import type { BotProfile, AIConfig } from '../lib/types/api'
+import { getErrorMessage } from '../lib/errorUtils'
 
 export default function BotProfilePage() {
   const { id } = useParams<{ id: string }>()
@@ -73,7 +24,7 @@ export default function BotProfilePage() {
 
       try {
         setLoading(true)
-        const response = await fetch(`/api/bot/personas/${id}`)
+        const response = await fetch(API_BOT.personaById(id))
         if (!response.ok) {
           if (response.status === 404) {
             throw new Error('Bot not found')
@@ -83,7 +34,7 @@ export default function BotProfilePage() {
         const data = await response.json()
         setProfile(data)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'An error occurred')
+        setError(getErrorMessage(err))
       } finally {
         setLoading(false)
       }
@@ -379,17 +330,11 @@ export default function BotProfilePage() {
                             <div className="flex items-center gap-2">
                               <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
                                 <div
-                                  className={`h-full rounded-full ${
-                                    matchup.winRate >= 60 ? 'bg-green-500' :
-                                    matchup.winRate >= 40 ? 'bg-yellow-500' : 'bg-red-500'
-                                  }`}
+                                  className={`h-full rounded-full ${getWinRateColor(matchup.winRate, 'bg')}`}
                                   style={{ width: `${matchup.winRate}%` }}
                                 />
                               </div>
-                              <span className={`text-xs font-medium min-w-[2.5rem] text-right ${
-                                matchup.winRate >= 60 ? 'text-green-600 dark:text-green-400' :
-                                matchup.winRate >= 40 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'
-                              }`}>
+                              <span className={`text-xs font-medium min-w-[2.5rem] text-right ${getWinRateColor(matchup.winRate)}`}>
                                 {matchup.winRate}%
                               </span>
                             </div>

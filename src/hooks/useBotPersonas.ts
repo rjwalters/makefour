@@ -2,7 +2,8 @@
  * Hook for fetching and managing bot personas
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useApi } from './useApi'
+import { API_BOT } from '../lib/apiEndpoints'
 
 export interface BotPersona {
   id: string
@@ -25,37 +26,23 @@ interface UseBotPersonasResult {
   refetch: () => void
 }
 
+interface BotPersonasResponse {
+  personas: BotPersona[]
+}
+
 export function useBotPersonas(): UseBotPersonasResult {
-  const [personas, setPersonas] = useState<BotPersona[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  const fetchPersonas = useCallback(async () => {
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      const response = await fetch('/api/bot/personas')
-      if (!response.ok) {
-        throw new Error('Failed to fetch bot personas')
-      }
-      const data = await response.json()
-      setPersonas(data.personas)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
-    } finally {
-      setIsLoading(false)
+  const { data, loading, error, refetch } = useApi<BotPersona[], BotPersonasResponse>(
+    API_BOT.PERSONAS,
+    {
+      transform: (response) => response.personas,
+      initialData: [],
     }
-  }, [])
-
-  useEffect(() => {
-    fetchPersonas()
-  }, [fetchPersonas])
+  )
 
   return {
-    personas,
-    isLoading,
+    personas: data ?? [],
+    isLoading: loading,
     error,
-    refetch: fetchPersonas,
+    refetch,
   }
 }

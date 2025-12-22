@@ -5,6 +5,8 @@
 // KEK (Key Encryption Key): Derived from user password, used to encrypt DEK
 // This allows password changes without re-encrypting all user data
 
+import { STORAGE_KEY_COACH_SALT } from './storageKeys'
+
 /**
  * Generate a random Data Encryption Key (DEK)
  * This key will be used to encrypt/decrypt user data
@@ -170,12 +172,12 @@ export async function deriveKey(passphrase: string, salt?: Uint8Array): Promise<
   // Use provided salt or get from localStorage, or generate new one
   let actualSalt = salt
   if (!actualSalt) {
-    const storedSalt = localStorage.getItem('coach_salt')
+    const storedSalt = localStorage.getItem(STORAGE_KEY_COACH_SALT)
     if (storedSalt) {
       actualSalt = new Uint8Array(JSON.parse(storedSalt))
     } else {
       actualSalt = crypto.getRandomValues(new Uint8Array(16))
-      localStorage.setItem('coach_salt', JSON.stringify(Array.from(actualSalt)))
+      localStorage.setItem(STORAGE_KEY_COACH_SALT, JSON.stringify(Array.from(actualSalt)))
     }
   }
 

@@ -14,6 +14,8 @@ import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { useGameChat, QUICK_REACTIONS, type ChatMessage } from '../hooks/useGameChat'
 import { useAuth } from '../contexts/AuthContext'
+import { STORAGE_KEY_SESSION_TOKEN } from '../lib/storageKeys'
+import { API_DEBUG } from '../lib/apiEndpoints'
 
 export default function DebugChatPage() {
   const { user, isAuthenticated } = useAuth()
@@ -124,7 +126,7 @@ export default function DebugChatPage() {
     log('info', 'Attempting debug login...')
 
     try {
-      const response = await fetch('/api/debug/login', {
+      const response = await fetch(API_DEBUG.LOGIN, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       })
@@ -139,7 +141,7 @@ export default function DebugChatPage() {
       log('success', 'Debug login successful', { userId: data.user.id, username: data.user.username })
 
       // Store the session token and reload to update auth context
-      localStorage.setItem('makefour_session_token', data.session_token)
+      localStorage.setItem(STORAGE_KEY_SESSION_TOKEN, data.session_token)
       window.location.reload()
     } catch (error) {
       log('error', 'Debug login error', { error: String(error) })
@@ -159,8 +161,8 @@ export default function DebugChatPage() {
     log('info', 'Creating debug game...')
 
     try {
-      const token = localStorage.getItem('makefour_session_token')
-      const response = await fetch('/api/debug/game', {
+      const token = localStorage.getItem(STORAGE_KEY_SESSION_TOKEN)
+      const response = await fetch(API_DEBUG.GAME, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
