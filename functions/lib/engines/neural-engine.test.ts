@@ -338,7 +338,7 @@ describe('Model Registry', () => {
       for (const model of MODEL_REGISTRY) {
         expect(model.id).toBeTruthy()
         expect(model.name).toBeTruthy()
-        expect(model.architecture).toMatch(/^(mlp|cnn|transformer)$/)
+        expect(model.architecture).toMatch(/^(mlp|cnn|resnet|transformer)$/)
         expect(model.expectedElo).toBeGreaterThan(0)
         expect(model.version).toBeTruthy()
         expect(model.encoding).toMatch(/^(onehot-6x7x3|bitboard|flat-binary)$/)

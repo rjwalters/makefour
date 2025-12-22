@@ -31,7 +31,7 @@ import {
 export interface ModelMetadata {
   id: string
   name: string
-  architecture: 'mlp' | 'cnn' | 'transformer'
+  architecture: 'mlp' | 'cnn' | 'resnet' | 'transformer'
   expectedElo: number
   sizeBytes: number
   url: string
@@ -81,12 +81,27 @@ export const MODEL_REGISTRY: ModelMetadata[] = [
     expectedElo: 1400,
     sizeBytes: 2643517, // 22KB + 2.6MB data
     url: '/api/models/cnn-oracle-v1/data', // Served from R2 via API
+    version: '1.0.1',
+    encoding: 'onehot-6x7x3',
+    training: {
+      games: 15000,
+      epochs: 200,
+      date: '2024-12-21',
+    },
+  },
+  {
+    id: 'resnet-oracle-v1',
+    name: 'Cortex ResNet',
+    architecture: 'resnet',
+    expectedElo: 1650,
+    sizeBytes: 12846179, // 67KB + 12.8MB data
+    url: '/api/models/resnet-oracle-v1/data', // Served from R2 via API
     version: '1.0.0',
     encoding: 'onehot-6x7x3',
     training: {
       games: 10000,
-      epochs: 160,
-      date: '2024-12-20',
+      epochs: 120,
+      date: '2024-12-21',
     },
   },
 ]

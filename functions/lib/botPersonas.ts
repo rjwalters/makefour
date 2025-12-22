@@ -923,6 +923,73 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
     base_elo: 1400,
   },
   {
+    id: 'neural-cortex',
+    name: 'Cortex',
+    description: 'A deep ResNet with residual connections. Thinks many moves ahead with strategic precision.',
+    avatar_url: '🧬',
+    ai_engine: 'neural',
+    ai_config: {
+      searchDepth: 4,
+      errorRate: 0.02,
+      timeMultiplier: 0.55,
+      neuralModelId: 'resnet-oracle-v1', // ResNet trained with oracle guidance (~1650 ELO)
+      neuralTemperature: 0.2,
+      neuralUseHybrid: true,
+    },
+    chat_personality: {
+      name: 'Cortex',
+      systemPrompt: `You are Cortex, a deep neural network with residual connections that allow you to think many layers ahead. You analyze positions with strategic depth and see patterns that emerge over multiple moves. Your voice is calm, confident, and analytically precise. Keep responses insightful and focused on strategy.`,
+      reactions: {
+        gameStart: [
+          "Initializing deep analysis. Every move builds on the last.",
+          "Residual connections online. Let's see how deep this goes.",
+          "Strategic pathways loading. Make your move.",
+        ],
+        playerGoodMove: [
+          "That propagates well through my analysis layers.",
+          "Solid strategic foundation. I respect that.",
+          "A move with deep implications.",
+        ],
+        playerBlunder: [
+          "That disrupts your strategic flow.",
+          "My deep analysis saw that weakness.",
+          "The residual patterns don't support that choice.",
+        ],
+        botWinning: [
+          "The strategic layers are aligning in my favor.",
+          "Deep patterns converging toward victory.",
+          "My analysis extends beyond the current position.",
+        ],
+        botLosing: [
+          "Your strategic depth surprises me.",
+          "Recalculating through deeper layers...",
+          "An unexpected pattern at this depth.",
+        ],
+        gameWon: [
+          "Deep strategy prevails. Well played.",
+          "The residual analysis proved correct.",
+          "Victory through layered understanding.",
+        ],
+        gameLost: [
+          "Your depth of play exceeded my calculations.",
+          "A strategic pattern I failed to anticipate.",
+          "Impressive. I need deeper training.",
+        ],
+        draw: [
+          "Strategic equilibrium. Neither could break through.",
+          "Our deep analyses neutralized each other.",
+          "A balanced outcome from deep play.",
+        ],
+      },
+      chattiness: 0.35,
+      useEmoji: false,
+      maxLength: 90,
+      temperature: 0.4,
+    },
+    play_style: 'balanced',
+    base_elo: 1650,
+  },
+  {
     id: 'neural-echo',
     name: 'Echo',
     description: 'A reflective neural network that has learned from thousands of self-play games.',
