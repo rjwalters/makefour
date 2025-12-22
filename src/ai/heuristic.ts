@@ -91,6 +91,83 @@ export interface HeuristicEngine {
 }
 
 // ============================================================================
+// BASE HEURISTIC ENGINE
+// ============================================================================
+
+/**
+ * Abstract base class for heuristic engines.
+ * Provides common functionality shared across multiple engine implementations.
+ */
+export abstract class BaseHeuristicEngine implements HeuristicEngine {
+  abstract readonly id: string
+  abstract readonly name: string
+  abstract readonly description: string
+
+  protected config: HeuristicConfig
+
+  constructor(config: Partial<HeuristicConfig> = {}) {
+    this.config = { ...DEFAULT_HEURISTIC_CONFIG, ...config }
+  }
+
+  getConfig(): HeuristicConfig {
+    return { ...this.config }
+  }
+
+  abstract selectMove(board: Board, player: Player): number
+
+  /**
+   * Finds a winning move for the given player.
+   * @returns Column index if a winning move exists, null otherwise
+   */
+  protected findWinningMove(board: Board, player: Player): number | null {
+    const validMoves = getValidMoves(board)
+
+    for (const col of validMoves) {
+      const result = applyMove(board, col, player)
+      if (result.success && result.board) {
+        const winner = checkWinner(result.board)
+        if (winner === player) {
+          return col
+        }
+      }
+    }
+
+    return null
+  }
+
+  /**
+   * Selects a random move from valid moves.
+   */
+  protected selectRandomMove(validMoves: number[]): number {
+    const index = Math.floor(Math.random() * validMoves.length)
+    return validMoves[index]
+  }
+
+  /**
+   * Selects a move with center column bias.
+   */
+  protected selectCenterBiasedMove(validMoves: number[]): number {
+    const centerCol = Math.floor(COLUMNS / 2)
+    const sorted = [...validMoves].sort(
+      (a, b) => Math.abs(a - centerCol) - Math.abs(b - centerCol)
+    )
+
+    const weights = sorted.map((_, i) => this.config.centerBias ** (sorted.length - i - 1))
+    const totalWeight = weights.reduce((sum, w) => sum + w, 0)
+    let random = Math.random() * totalWeight
+
+    for (let i = 0; i < sorted.length; i++) {
+      random -= weights[i]
+      if (random <= 0) {
+        return sorted[i]
+      }
+    }
+
+    return sorted[sorted.length - 1]
+  }
+}
+
+// ============================================================================
 // RANDOM ENGINE
 // ============================================================================
 
@@ -187,20 +264,10 @@ export class RandomEngine implements HeuristicEngine {
  * - Defensive focus
  * - Predictable but characterful play
  */
-export class ThreatHeuristicEngine implements HeuristicEngine {
+export class ThreatHeuristicEngine extends BaseHeuristicEngine {
   readonly id = 'threat-heuristic'
   readonly name = 'Threat Heuristic Engine'
   readonly description = 'Priority-based defensive engine that focuses on blocking threats'
-
-  private config: HeuristicConfig
-
-  constructor(config: Partial<HeuristicConfig> = {}) {
-    this.config = { ...DEFAULT_HEURISTIC_CONFIG, ...config }
-  }
-
-  getConfig(): HeuristicConfig {
-    return { ...this.config }
-  }
 
   selectMove(board: Board, player: Player): number {
     const validMoves = getValidMoves(board)
@@ -260,26 +327,6 @@ export class ThreatHeuristicEngine implements HeuristicEngine {
 
     // Priority 6: Random from remaining (with center bias)
     return this.selectCenterBiasedMove(validMoves)
-  }
-
-  /**
-   * Finds a winning move for the given player.
-   * @returns Column index if winning move exists, null otherwise
-   */
-  private findWinningMove(board: Board, player: Player): number | null {
-    const validMoves = getValidMoves(board)
-
-    for (const col of validMoves) {
-      const result = applyMove(board, col, player)
-      if (result.success && result.board) {
-        const winner = checkWinner(result.board)
-        if (winner === player) {
-          return col
-        }
-      }
-    }
-
-    return null
   }
 
   /**
@@ -358,40 +405,6 @@ export class ThreatHeuristicEngine implements HeuristicEngine {
     const threats = analyzeThreats(board, player)
     return threats.winningMoves.length
   }
-
-  /**
-   * Selects a random move from the given list.
-   */
-  private selectRandomMove(validMoves: number[]): number {
-    const index = Math.floor(Math.random() * validMoves.length)
-    return validMoves[index]
-  }
-
-  /**
-   * Selects a move with bias toward center columns.
-   */
-  private selectCenterBiasedMove(validMoves: number[]): number {
-    const centerCol = Math.floor(COLUMNS / 2)
-
-    // Sort by distance from center
-    const sorted = [...validMoves].sort(
-      (a, b) => Math.abs(a - centerCol) - Math.abs(b - centerCol)
-    )
-
-    // Apply center bias - pick from the more central moves more often
-    const weights = sorted.map((_, i) => this.config.centerBias ** (sorted.length - i - 1))
-    const totalWeight = weights.reduce((sum, w) => sum + w, 0)
-    let random = Math.random() * totalWeight
-
-    for (let i = 0; i < sorted.length; i++) {
-      random -= weights[i]
-      if (random <= 0) {
-        return sorted[i]
-      }
-    }
-
-    return sorted[0]
-  }
 }
 
 // ============================================================================
@@ -416,21 +429,12 @@ export class ThreatHeuristicEngine implements HeuristicEngine {
  * - 2swap YouTube: "Claimeven" video
  * - https://2swap.github.io/WeakC4/explanation/
  */
-export class ClaimEvenEngine implements HeuristicEngine {
+export class ClaimEvenEngine extends BaseHeuristicEngine {
   readonly id = 'claimeven'
   readonly name = 'ClaimEven Engine'
   readonly description = "2swap's claimeven strategy - responds above opponent's moves"
 
-  private config: HeuristicConfig
   private lastOpponentMove: number | null = null
-
-  constructor(config: Partial<HeuristicConfig> = {}) {
-    this.config = { ...DEFAULT_HEURISTIC_CONFIG, ...config }
-  }
-
-  getConfig(): HeuristicConfig {
-    return { ...this.config }
-  }
 
   /**
    * Records the opponent's last move so we can respond to it.
@@ -594,47 +598,6 @@ export class ClaimEvenEngine implements HeuristicEngine {
     const rowFromBottom = ROWS - row // 1-indexed from bottom
     return rowFromBottom % 2 === 1
   }
-
-  private findWinningMove(board: Board, player: Player): number | null {
-    const validMoves = getValidMoves(board)
-
-    for (const col of validMoves) {
-      const result = applyMove(board, col, player)
-      if (result.success && result.board) {
-        const winner = checkWinner(result.board)
-        if (winner === player) {
-          return col
-        }
-      }
-    }
-
-    return null
-  }
-
-  private selectRandomMove(validMoves: number[]): number {
-    const index = Math.floor(Math.random() * validMoves.length)
-    return validMoves[index]
-  }
-
-  private selectCenterBiasedMove(validMoves: number[]): number {
-    const centerCol = Math.floor(COLUMNS / 2)
-    const sorted = [...validMoves].sort(
-      (a, b) => Math.abs(a - centerCol) - Math.abs(b - centerCol)
-    )
-
-    const weights = sorted.map((_, i) => this.config.centerBias ** (sorted.length - i - 1))
-    const totalWeight = weights.reduce((sum, w) => sum + w, 0)
-    let random = Math.random() * totalWeight
-
-    for (let i = 0; i < sorted.length; i++) {
-      random -= weights[i]
-      if (random <= 0) {
-        return sorted[i]
-      }
-    }
-
-    return sorted[0]
-  }
 }
 
 // ============================================================================
@@ -670,20 +633,10 @@ interface Threat {
  * - 2swap YouTube: "Parity" video
  * - https://2swap.github.io/WeakC4/explanation/
  */
-export class ParityEngine implements HeuristicEngine {
+export class ParityEngine extends BaseHeuristicEngine {
   readonly id = 'parity'
   readonly name = 'Parity Engine'
   readonly description = "2swap's parity strategy - prioritizes threats on favored rows"
-
-  private config: HeuristicConfig
-
-  constructor(config: Partial<HeuristicConfig> = {}) {
-    this.config = { ...DEFAULT_HEURISTIC_CONFIG, ...config }
-  }
-
-  getConfig(): HeuristicConfig {
-    return { ...this.config }
-  }
 
   selectMove(board: Board, player: Player): number {
     const validMoves = getValidMoves(board)
@@ -918,47 +871,6 @@ export class ParityEngine implements HeuristicEngine {
 
     return null
   }
-
-  private findWinningMove(board: Board, player: Player): number | null {
-    const validMoves = getValidMoves(board)
-
-    for (const col of validMoves) {
-      const result = applyMove(board, col, player)
-      if (result.success && result.board) {
-        const winner = checkWinner(result.board)
-        if (winner === player) {
-          return col
-        }
-      }
-    }
-
-    return null
-  }
-
-  private selectRandomMove(validMoves: number[]): number {
-    const index = Math.floor(Math.random() * validMoves.length)
-    return validMoves[index]
-  }
-
-  private selectCenterBiasedMove(validMoves: number[]): number {
-    const centerCol = Math.floor(COLUMNS / 2)
-    const sorted = [...validMoves].sort(
-      (a, b) => Math.abs(a - centerCol) - Math.abs(b - centerCol)
-    )
-
-    const weights = sorted.map((_, i) => this.config.centerBias ** (sorted.length - i - 1))
-    const totalWeight = weights.reduce((sum, w) => sum + w, 0)
-    let random = Math.random() * totalWeight
-
-    for (let i = 0; i < sorted.length; i++) {
-      random -= weights[i]
-      if (random <= 0) {
-        return sorted[i]
-      }
-    }
-
-    return sorted[0]
-  }
 }
 
 // ============================================================================
@@ -1003,20 +915,10 @@ interface MinorThreat {
  * References:
  * - 2swap YouTube: "Threat Pairs" / "Combinatoric Wins" video
  */
-export class ThreatPairsEngine implements HeuristicEngine {
+export class ThreatPairsEngine extends BaseHeuristicEngine {
   readonly id = 'threat-pairs'
   readonly name = 'ThreatPairs Engine'
   readonly description = "2swap's threat pairs strategy - creates combinatoric wins"
-
-  private config: HeuristicConfig
-
-  constructor(config: Partial<HeuristicConfig> = {}) {
-    this.config = { ...DEFAULT_HEURISTIC_CONFIG, ...config }
-  }
-
-  getConfig(): HeuristicConfig {
-    return { ...this.config }
-  }
 
   selectMove(board: Board, player: Player): number {
     const validMoves = getValidMoves(board)
@@ -1387,47 +1289,6 @@ export class ThreatPairsEngine implements HeuristicEngine {
     }
 
     return null
-  }
-
-  private findWinningMove(board: Board, player: Player): number | null {
-    const validMoves = getValidMoves(board)
-
-    for (const col of validMoves) {
-      const result = applyMove(board, col, player)
-      if (result.success && result.board) {
-        const winner = checkWinner(result.board)
-        if (winner === player) {
-          return col
-        }
-      }
-    }
-
-    return null
-  }
-
-  private selectRandomMove(validMoves: number[]): number {
-    const index = Math.floor(Math.random() * validMoves.length)
-    return validMoves[index]
-  }
-
-  private selectCenterBiasedMove(validMoves: number[]): number {
-    const centerCol = Math.floor(COLUMNS / 2)
-    const sorted = [...validMoves].sort(
-      (a, b) => Math.abs(a - centerCol) - Math.abs(b - centerCol)
-    )
-
-    const weights = sorted.map((_, i) => this.config.centerBias ** (sorted.length - i - 1))
-    const totalWeight = weights.reduce((sum, w) => sum + w, 0)
-    let random = Math.random() * totalWeight
-
-    for (let i = 0; i < sorted.length; i++) {
-      random -= weights[i]
-      if (random <= 0) {
-        return sorted[i]
-      }
-    }
-
-    return sorted[0]
   }
 }
 
