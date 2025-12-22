@@ -23,6 +23,7 @@
 import type { AIEngine, EngineConfig, MoveResult } from '../ai-engine'
 import type { Board, Player } from '../game'
 import { getValidMoves, applyMove, checkWinner, ROWS, COLUMNS } from '../game'
+import { selectCenterBiasedMove } from './engine-utils'
 
 // ============================================================================
 // THREAT TYPES
@@ -294,14 +295,6 @@ function findCreateThreatMove(board: Board, player: Player): number | null {
   }
 
   return null
-}
-
-function selectCenterBiasedMove(validMoves: number[]): number {
-  const centerCol = Math.floor(COLUMNS / 2)
-  const sorted = [...validMoves].sort(
-    (a, b) => Math.abs(a - centerCol) - Math.abs(b - centerCol)
-  )
-  return sorted[0]
 }
 
 function selectThreatPairsMove(board: Board, player: Player): number {

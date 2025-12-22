@@ -75,6 +75,18 @@ export function orderMoves(moves: number[]): number[] {
   return [...moves].sort((a, b) => Math.abs(a - centerCol) - Math.abs(b - centerCol))
 }
 
+/**
+ * Selects the most center-biased move from a list of valid moves.
+ * Returns the move closest to the center column.
+ */
+export function selectCenterBiasedMove(validMoves: number[]): number {
+  const centerCol = Math.floor(COLUMNS / 2)
+  const sorted = [...validMoves].sort(
+    (a, b) => Math.abs(a - centerCol) - Math.abs(b - centerCol)
+  )
+  return sorted[0]
+}
+
 // ============================================================================
 // WINDOW EVALUATION
 // ============================================================================

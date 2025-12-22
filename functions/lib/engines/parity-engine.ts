@@ -22,6 +22,7 @@
 import type { AIEngine, EngineConfig, MoveResult } from '../ai-engine'
 import type { Board, Player } from '../game'
 import { getValidMoves, applyMove, checkWinner, ROWS, COLUMNS, WIN_LENGTH } from '../game'
+import { selectCenterBiasedMove } from './engine-utils'
 
 // ============================================================================
 // THREAT DETECTION
@@ -162,17 +163,6 @@ function findWinningMove(board: Board, player: Player): number | null {
   }
 
   return null
-}
-
-/**
- * Selects the best center-biased move from a list of valid moves.
- */
-function selectCenterBiasedMove(validMoves: number[]): number {
-  const centerCol = Math.floor(COLUMNS / 2)
-  const sorted = [...validMoves].sort(
-    (a, b) => Math.abs(a - centerCol) - Math.abs(b - centerCol)
-  )
-  return sorted[0]
 }
 
 /**
