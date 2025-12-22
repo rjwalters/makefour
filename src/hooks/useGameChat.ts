@@ -11,6 +11,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useAuthenticatedApi } from './useAuthenticatedApi'
+import { CHAT_POLL_INTERVAL } from '../lib/pollingConstants'
 
 export interface ChatMessage {
   id: string
@@ -30,8 +31,6 @@ interface ChatState {
   unreadCount: number
   isRequestingReaction: boolean
 }
-
-const CHAT_POLL_INTERVAL = 1000 // 1 second for responsive chat
 
 export function useGameChat(gameId: string | null, isActive: boolean = true) {
   const { apiCall } = useAuthenticatedApi()

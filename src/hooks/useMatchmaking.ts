@@ -18,9 +18,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { useAuthenticatedApi } from './useAuthenticatedApi'
 import { useRequestCoordinator } from './useRequestCoordinator'
 import { makeMove as applyMove, replayMoves, type Board } from '../game/makefour'
-
-// Minimum time before bot responds (ms) - makes the interaction feel more natural
-const BOT_MIN_RESPONSE_TIME_MS = 1000
+import { GAME_POLL_INTERVAL, BOT_MIN_RESPONSE_TIME_MS } from '../lib/pollingConstants'
 
 export type MatchmakingMode = 'ranked' | 'casual'
 
@@ -68,7 +66,6 @@ interface MatchmakingState {
 }
 
 const QUEUE_POLL_INTERVAL = 2000 // 2 seconds
-const GAME_POLL_INTERVAL = 500 // 500ms for responsive gameplay
 
 export function useMatchmaking() {
   const { apiCall } = useAuthenticatedApi()

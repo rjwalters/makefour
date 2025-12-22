@@ -18,9 +18,7 @@ import { useAuthenticatedApi } from './useAuthenticatedApi'
 import { useRequestCoordinator } from './useRequestCoordinator'
 import { useNeuralBot } from './useNeuralBot'
 import { makeMove as applyMove, replayMoves, type Board } from '../game/makefour'
-
-// Minimum time before bot responds (ms) - makes the interaction feel more natural
-const BOT_MIN_RESPONSE_TIME_MS = 1000
+import { GAME_POLL_INTERVAL, BOT_MIN_RESPONSE_TIME_MS } from '../lib/pollingConstants'
 
 export type BotDifficulty = 'beginner' | 'intermediate' | 'expert' | 'perfect'
 
@@ -66,8 +64,6 @@ interface BotGameHookState {
   personaId: string | null
   neuralConfig: NeuralConfig | null
 }
-
-const GAME_POLL_INTERVAL = 500 // 500ms for responsive gameplay
 
 export function useBotGame() {
   const { apiCall } = useAuthenticatedApi()

@@ -10,6 +10,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { Board } from '../game/makefour'
+import { GAME_POLL_INTERVAL } from '../lib/pollingConstants'
 
 export interface LiveGame {
   id: string
@@ -82,7 +83,6 @@ interface SpectatorState {
 }
 
 const LIVE_GAMES_POLL_INTERVAL = 5000 // 5 seconds for list refresh
-const GAME_POLL_INTERVAL = 500 // 500ms for game state (same as players)
 
 export function useSpectate() {
   const [state, setState] = useState<SpectatorState>({

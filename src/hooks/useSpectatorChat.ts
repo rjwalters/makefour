@@ -6,6 +6,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { CHAT_POLL_INTERVAL } from '../lib/pollingConstants'
 
 export interface SpectatorChatMessage {
   id: string
@@ -20,8 +21,6 @@ interface SpectatorChatState {
   isLoading: boolean
   error: string | null
 }
-
-const CHAT_POLL_INTERVAL = 1000 // 1 second for responsive chat
 
 export function useSpectatorChat(gameId: string | null, isActive: boolean = true) {
   const [state, setState] = useState<SpectatorChatState>({
