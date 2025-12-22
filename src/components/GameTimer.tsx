@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { cn } from '../lib/utils'
+import { formatTimeMs } from '../lib/timeFormatting'
 
 interface GameTimerProps {
   /** Time remaining in milliseconds from server */
@@ -84,19 +85,9 @@ export function GameTimer({
     return () => clearInterval(interval)
   }, [timeMs, turnStartedAt, isActive])
 
-  // Format time for display
+  // Format time for display - show tenths when critical
   const formatTime = (ms: number): string => {
-    const totalSeconds = Math.floor(ms / 1000)
-    const minutes = Math.floor(totalSeconds / 60)
-    const seconds = totalSeconds % 60
-
-    if (ms < CRITICAL_TIME_THRESHOLD) {
-      // Show tenths of seconds when critical
-      const tenths = Math.floor((ms % 1000) / 100)
-      return `${minutes}:${seconds.toString().padStart(2, '0')}.${tenths}`
-    }
-
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`
+    return formatTimeMs(ms, ms < CRITICAL_TIME_THRESHOLD)
   }
 
   const isLowTime = displayTime > 0 && displayTime < LOW_TIME_THRESHOLD

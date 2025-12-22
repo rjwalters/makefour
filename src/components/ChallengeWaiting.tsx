@@ -7,6 +7,7 @@
 import { useState, useEffect } from 'react'
 import { Button } from './ui/button'
 import { Card, CardContent } from './ui/card'
+import { formatTimeSeconds } from '../lib/timeFormatting'
 
 interface ChallengeWaitingProps {
   targetUsername: string
@@ -40,11 +41,6 @@ export default function ChallengeWaiting({
     return () => clearInterval(interval)
   }, [expiresAt])
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
 
   return (
     <Card className="w-full max-w-md mx-auto">
@@ -105,7 +101,7 @@ export default function ChallengeWaiting({
               />
             </svg>
             <span className={`font-mono font-medium ${timeRemaining < 60 ? 'text-amber-600 dark:text-amber-400' : ''}`}>
-              {formatTime(timeRemaining)}
+              {formatTimeSeconds(timeRemaining)}
             </span>
           </div>
           <p className="text-xs text-muted-foreground mt-2">

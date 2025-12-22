@@ -15,6 +15,7 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { cn } from '@/lib/utils'
 import { useGameChat, QUICK_REACTIONS, type ChatMessage } from '../hooks/useGameChat'
+import { formatTimeOfDay } from '../lib/timeFormatting'
 import BotAvatar from './BotAvatar'
 
 interface ChatPanelProps {
@@ -108,11 +109,6 @@ export default function ChatPanel({
 
   const handleQuickReaction = async (message: string) => {
     await sendReaction(message)
-  }
-
-  const formatTime = (timestamp: number) => {
-    const date = new Date(timestamp)
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
 
   const getSenderName = (message: ChatMessage) => {
@@ -248,7 +244,7 @@ export default function ChatPanel({
                       {message.content}
                     </div>
                     <span className="text-xs text-muted-foreground mt-0.5">
-                      {getSenderName(message)} · {formatTime(message.created_at)}
+                      {getSenderName(message)} · {formatTimeOfDay(message.created_at)}
                     </span>
                   </div>
                 </div>

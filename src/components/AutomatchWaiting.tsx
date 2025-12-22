@@ -8,6 +8,7 @@
 import { useState, useEffect } from 'react'
 import { Button } from './ui/button'
 import { Card, CardContent } from './ui/card'
+import { formatTimeSeconds } from '../lib/timeFormatting'
 
 interface AutomatchWaitingProps {
   waitTime: number // seconds since joining queue
@@ -40,11 +41,6 @@ export default function AutomatchWaiting({
     return () => clearInterval(interval)
   }, [waitTime])
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
 
   const botReadyProgress = Math.min(100, (displayTime / BOT_READY_THRESHOLD) * 100)
   const isBotReady = displayTime >= BOT_READY_THRESHOLD
@@ -84,7 +80,7 @@ export default function AutomatchWaiting({
         {/* Wait time display */}
         <div className="mt-4 mb-4">
           <span className="text-3xl font-mono font-bold tabular-nums">
-            {formatTime(displayTime)}
+            {formatTimeSeconds(displayTime)}
           </span>
         </div>
 
