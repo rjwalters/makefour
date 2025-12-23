@@ -8,9 +8,10 @@
  * - Leaving spectator mode
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import type { Board } from '../game/makefour'
-import { GAME_POLL_INTERVAL } from '../lib/pollingConstants'
+import { usePolling, useIsMounted } from './usePolling'
+import { GAME_POLL_INTERVAL, LIVE_GAMES_POLL_INTERVAL } from '../lib/pollingConstants'
 
 export interface LiveGame {
   id: string
@@ -82,9 +83,9 @@ interface SpectatorState {
   isLoading: boolean
 }
 
-const LIVE_GAMES_POLL_INTERVAL = 5000 // 5 seconds for list refresh
-
 export function useSpectate() {
+  const isMounted = useIsMounted()
+
   const [state, setState] = useState<SpectatorState>({
     status: 'idle',
     error: null,
@@ -94,23 +95,8 @@ export function useSpectate() {
     isLoading: false,
   })
 
-  const liveGamesPollRef = useRef<NodeJS.Timeout | null>(null)
-  const gamePollRef = useRef<NodeJS.Timeout | null>(null)
-  const isMountedRef = useRef(true)
-
-  // Cleanup on unmount
-  useEffect(() => {
-    isMountedRef.current = true
-    return () => {
-      isMountedRef.current = false
-      if (liveGamesPollRef.current) {
-        clearInterval(liveGamesPollRef.current)
-      }
-      if (gamePollRef.current) {
-        clearInterval(gamePollRef.current)
-      }
-    }
-  }, [])
+  // Track the current game ID for polling
+  const currentGameIdRef = useRef<string | null>(null)
 
   /**
    * Fetch list of live games
@@ -144,7 +130,7 @@ export function useSpectate() {
         offset: number
       }
 
-      if (!isMountedRef.current) return
+      if (!isMounted.current) return
 
       setState((prev) => ({
         ...prev,
@@ -155,13 +141,13 @@ export function useSpectate() {
 
       return data
     } catch (error) {
-      if (!isMountedRef.current) return
+      if (!isMounted.current) return
       setState((prev) => ({
         ...prev,
         error: error instanceof Error ? error.message : 'Failed to fetch live games',
       }))
     }
-  }, [])
+  }, [isMounted])
 
   /**
    * Start browsing live games
@@ -171,25 +157,17 @@ export function useSpectate() {
 
     await fetchLiveGames()
 
-    if (!isMountedRef.current) return
+    if (!isMounted.current) return
 
     setState((prev) => ({ ...prev, isLoading: false }))
-
-    // Start polling for live games updates
-    if (liveGamesPollRef.current) {
-      clearInterval(liveGamesPollRef.current)
-    }
-    liveGamesPollRef.current = setInterval(() => fetchLiveGames(), LIVE_GAMES_POLL_INTERVAL)
-  }, [fetchLiveGames])
+    // Polling will start automatically via usePolling when status becomes 'browsing'
+  }, [fetchLiveGames, isMounted])
 
   /**
    * Stop browsing live games
    */
   const stopBrowsing = useCallback(() => {
-    if (liveGamesPollRef.current) {
-      clearInterval(liveGamesPollRef.current)
-      liveGamesPollRef.current = null
-    }
+    currentGameIdRef.current = null
     setState({
       status: 'idle',
       error: null,
@@ -198,6 +176,7 @@ export function useSpectate() {
       currentGame: null,
       isLoading: false,
     })
+    // Polling will stop automatically via usePolling when status becomes 'idle'
   }, [])
 
   /**
@@ -214,7 +193,7 @@ export function useSpectate() {
 
       const gameState = await response.json() as SpectatorGameState
 
-      if (!isMountedRef.current) return null
+      if (!isMounted.current) return null
 
       setState((prev) => ({
         ...prev,
@@ -223,9 +202,14 @@ export function useSpectate() {
         error: null,
       }))
 
+      // Stop polling if game is over
+      if (gameState.status !== 'active') {
+        currentGameIdRef.current = null
+      }
+
       return gameState
     } catch (error) {
-      if (!isMountedRef.current) return null
+      if (!isMounted.current) return null
       setState((prev) => ({
         ...prev,
         status: 'error',
@@ -233,54 +217,34 @@ export function useSpectate() {
       }))
       return null
     }
-  }, [])
+  }, [isMounted])
 
   /**
    * Join a game as spectator
    */
   const watchGame = useCallback(async (gameId: string) => {
-    // Stop live games polling
-    if (liveGamesPollRef.current) {
-      clearInterval(liveGamesPollRef.current)
-      liveGamesPollRef.current = null
-    }
-
     setState((prev) => ({ ...prev, status: 'loading', isLoading: true }))
 
     const gameState = await fetchGameState(gameId)
 
-    if (!isMountedRef.current) return
+    if (!isMounted.current) return
 
     setState((prev) => ({ ...prev, isLoading: false }))
 
     if (!gameState) return
 
-    // Start polling for game state updates if game is active
+    // Set the game ID for polling (if game is active)
     if (gameState.status === 'active') {
-      if (gamePollRef.current) {
-        clearInterval(gamePollRef.current)
-      }
-      gamePollRef.current = setInterval(async () => {
-        const updated = await fetchGameState(gameId)
-        // Stop polling if game is over
-        if (updated && updated.status !== 'active') {
-          if (gamePollRef.current) {
-            clearInterval(gamePollRef.current)
-            gamePollRef.current = null
-          }
-        }
-      }, GAME_POLL_INTERVAL)
+      currentGameIdRef.current = gameId
     }
-  }, [fetchGameState])
+    // Polling will start automatically via usePolling
+  }, [fetchGameState, isMounted])
 
   /**
    * Leave spectator mode and return to browsing
    */
   const leaveGame = useCallback(() => {
-    if (gamePollRef.current) {
-      clearInterval(gamePollRef.current)
-      gamePollRef.current = null
-    }
+    currentGameIdRef.current = null
 
     setState((prev) => ({
       ...prev,
@@ -288,24 +252,15 @@ export function useSpectate() {
       currentGame: null,
     }))
 
-    // Resume live games polling
+    // Fetch live games immediately, polling will resume via usePolling
     fetchLiveGames()
-    liveGamesPollRef.current = setInterval(() => fetchLiveGames(), LIVE_GAMES_POLL_INTERVAL)
   }, [fetchLiveGames])
 
   /**
    * Reset to idle state
    */
   const reset = useCallback(() => {
-    if (liveGamesPollRef.current) {
-      clearInterval(liveGamesPollRef.current)
-      liveGamesPollRef.current = null
-    }
-    if (gamePollRef.current) {
-      clearInterval(gamePollRef.current)
-      gamePollRef.current = null
-    }
-
+    currentGameIdRef.current = null
     setState({
       status: 'idle',
       error: null,
@@ -314,7 +269,33 @@ export function useSpectate() {
       currentGame: null,
       isLoading: false,
     })
+    // Polling will stop automatically via usePolling when status becomes 'idle'
   }, [])
+
+  // Poll for live games when browsing
+  const pollLiveGames = useCallback(async () => {
+    await fetchLiveGames()
+  }, [fetchLiveGames])
+
+  usePolling(pollLiveGames, {
+    interval: LIVE_GAMES_POLL_INTERVAL,
+    enabled: state.status === 'browsing',
+    immediate: false, // Already fetched in startBrowsing
+  })
+
+  // Poll for game state when watching an active game
+  const pollCurrentGame = useCallback(async () => {
+    const gameId = currentGameIdRef.current
+    if (gameId) {
+      await fetchGameState(gameId)
+    }
+  }, [fetchGameState])
+
+  usePolling(pollCurrentGame, {
+    interval: GAME_POLL_INTERVAL,
+    enabled: state.status === 'watching' && currentGameIdRef.current !== null,
+    immediate: false, // Already fetched in watchGame
+  })
 
   return {
     ...state,

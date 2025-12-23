@@ -18,7 +18,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { useAuthenticatedApi } from './useAuthenticatedApi'
 import { useRequestCoordinator } from './useRequestCoordinator'
 import { makeMove as applyMove, replayMoves, type Board } from '../game/makefour'
-import { GAME_POLL_INTERVAL, BOT_MIN_RESPONSE_TIME_MS } from '../lib/pollingConstants'
+import { GAME_POLL_INTERVAL, BOT_MIN_RESPONSE_TIME_MS, QUEUE_POLL_INTERVAL } from '../lib/pollingConstants'
 
 export type MatchmakingMode = 'ranked' | 'casual'
 
@@ -64,8 +64,6 @@ interface MatchmakingState {
   botMatchReady: boolean
   userRating: number
 }
-
-const QUEUE_POLL_INTERVAL = 2000 // 2 seconds
 
 export function useMatchmaking() {
   const { apiCall } = useAuthenticatedApi()

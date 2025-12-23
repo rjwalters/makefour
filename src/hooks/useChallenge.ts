@@ -8,10 +8,12 @@
  * - Showing toast notifications for incoming challenges
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useAuthenticatedApi } from './useAuthenticatedApi'
+import { usePolling, useIsMounted } from './usePolling'
 import { useToast } from '../contexts/ToastContext'
 import { useAuth } from '../contexts/AuthContext'
+import { CHALLENGE_POLL_INTERVAL } from '../lib/pollingConstants'
 
 export type ChallengeStatus = 'idle' | 'sending' | 'waiting' | 'matched' | 'error'
 
@@ -49,12 +51,11 @@ interface ChallengeState {
   matchedGame: MatchedGame | null
 }
 
-const CHALLENGE_POLL_INTERVAL = 3000 // 3 seconds
-
 export function useChallenge() {
   const { apiCall } = useAuthenticatedApi()
   const { showToast, dismissToast } = useToast()
   const { isAuthenticated } = useAuth()
+  const isMounted = useIsMounted()
 
   const [state, setState] = useState<ChallengeState>({
     status: 'idle',
@@ -64,21 +65,8 @@ export function useChallenge() {
     matchedGame: null,
   })
 
-  const pollRef = useRef<NodeJS.Timeout | null>(null)
-  const isMountedRef = useRef(true)
   const shownChallengeIds = useRef<Set<string>>(new Set())
   const toastIds = useRef<Map<string, string>>(new Map())
-
-  // Cleanup on unmount
-  useEffect(() => {
-    isMountedRef.current = true
-    return () => {
-      isMountedRef.current = false
-      if (pollRef.current) {
-        clearInterval(pollRef.current)
-      }
-    }
-  }, [])
 
   /**
    * Poll for incoming challenges
@@ -92,7 +80,7 @@ export function useChallenge() {
         matchedGame: { gameId: string; opponentUsername: string; opponentRating: number } | null
       }>('/api/challenges/incoming')
 
-      if (!isMountedRef.current) return
+      if (!isMounted.current) return
 
       // Check for new challenges and show toasts
       for (const challenge of response.incoming) {
@@ -131,7 +119,6 @@ export function useChallenge() {
 
       // Check if our outgoing challenge was matched
       if (response.matchedGame) {
-        stopPolling()
         setState((prev) => ({
           ...prev,
           status: 'matched',
@@ -143,6 +130,7 @@ export function useChallenge() {
           },
           outgoingChallenge: null,
         }))
+        return // Stop processing, polling will be disabled by state change
       }
 
       setState((prev) => ({
@@ -153,41 +141,14 @@ export function useChallenge() {
       // Silently ignore polling errors
       console.error('Challenge polling error:', error)
     }
-  }, [apiCall, isAuthenticated, showToast, dismissToast])
+  }, [apiCall, isAuthenticated, showToast, dismissToast, isMounted])
 
-  /**
-   * Start polling for incoming challenges
-   */
-  const startPolling = useCallback(() => {
-    if (pollRef.current) return
-
-    // Initial poll
-    pollIncoming()
-
-    // Set up interval
-    pollRef.current = setInterval(pollIncoming, CHALLENGE_POLL_INTERVAL)
-  }, [pollIncoming])
-
-  /**
-   * Stop polling
-   */
-  const stopPolling = useCallback(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current)
-      pollRef.current = null
-    }
-  }, [])
-
-  // Auto-start polling when authenticated
-  useEffect(() => {
-    if (isAuthenticated) {
-      startPolling()
-    } else {
-      stopPolling()
-    }
-
-    return () => stopPolling()
-  }, [isAuthenticated, startPolling, stopPolling])
+  // Poll for incoming challenges when authenticated and not matched
+  const shouldPoll = isAuthenticated && state.status !== 'matched'
+  usePolling(pollIncoming, {
+    interval: CHALLENGE_POLL_INTERVAL,
+    enabled: shouldPoll,
+  })
 
   /**
    * Send a challenge to a specific player
@@ -209,7 +170,7 @@ export function useChallenge() {
           body: JSON.stringify({ targetUsername }),
         })
 
-        if (!isMountedRef.current) return
+        if (!isMounted.current) return
 
         if (response.status === 'matched') {
           // Mutual challenge - game started immediately
@@ -241,7 +202,7 @@ export function useChallenge() {
           }))
         }
       } catch (error) {
-        if (!isMountedRef.current) return
+        if (!isMounted.current) return
         setState((prev) => ({
           ...prev,
           status: 'error',
@@ -265,7 +226,7 @@ export function useChallenge() {
       // Ignore errors
     }
 
-    if (!isMountedRef.current) return
+    if (!isMounted.current) return
 
     setState((prev) => ({
       ...prev,
@@ -295,9 +256,8 @@ export function useChallenge() {
           opponent: { username: string; rating: number }
         }>(`/api/challenges/${challengeId}/accept`, { method: 'POST' })
 
-        if (!isMountedRef.current) return
+        if (!isMounted.current) return
 
-        stopPolling()
         setState((prev) => ({
           ...prev,
           status: 'matched',
@@ -310,14 +270,14 @@ export function useChallenge() {
           incomingChallenges: prev.incomingChallenges.filter((c) => c.id !== challengeId),
         }))
       } catch (error) {
-        if (!isMountedRef.current) return
+        if (!isMounted.current) return
         setState((prev) => ({
           ...prev,
           error: error instanceof Error ? error.message : 'Failed to accept challenge',
         }))
       }
     },
-    [apiCall, dismissToast, stopPolling]
+    [apiCall, dismissToast]
   )
 
   /**
@@ -339,7 +299,7 @@ export function useChallenge() {
         // Ignore errors
       }
 
-      if (!isMountedRef.current) return
+      if (!isMounted.current) return
 
       setState((prev) => ({
         ...prev,
@@ -353,7 +313,6 @@ export function useChallenge() {
    * Reset to idle state
    */
   const reset = useCallback(() => {
-    stopPolling()
     setState({
       status: 'idle',
       error: null,
@@ -361,8 +320,8 @@ export function useChallenge() {
       incomingChallenges: [],
       matchedGame: null,
     })
-    startPolling()
-  }, [stopPolling, startPolling])
+    // Polling will automatically restart via usePolling when status becomes 'idle'
+  }, [])
 
   return {
     ...state,
