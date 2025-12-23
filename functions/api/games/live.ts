@@ -5,6 +5,7 @@
  */
 
 import { eq, and, gte, lte, desc, count, sql } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/sqlite-core'
 import { createDb } from '../../../shared/db/client'
 import { activeGames, users, botPersonas } from '../../../shared/db/schema'
 import { jsonResponse } from '../../lib/auth'
@@ -117,10 +118,11 @@ export async function onRequestGet(context: EventContext<Env, any, any>) {
     const total = countResult[0]?.total ?? 0
 
     // Get games with player info (including bot vs bot games)
-    const u1 = users
-    const u2 = users
-    const bp1 = botPersonas
-    const bp2 = botPersonas
+    // Create proper SQL aliases for self-joins
+    const u1 = alias(users, 'u1')
+    const u2 = alias(users, 'u2')
+    const bp1 = alias(botPersonas, 'bp1')
+    const bp2 = alias(botPersonas, 'bp2')
 
     const games = await db
       .select({
