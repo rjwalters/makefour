@@ -150,7 +150,7 @@ export async function advanceGame(
   let player1Time = game.player1_time_ms
   let player2Time = game.player2_time_ms
 
-  // Map persona rating to difficulty level
+  // Map persona rating to difficulty level (fallback only)
   const difficulty: DifficultyLevel =
     persona.currentElo < 900 ? 'beginner' :
     persona.currentElo < 1300 ? 'intermediate' :
@@ -159,10 +159,17 @@ export async function advanceGame(
   const timeBudget = calculateTimeBudget(botTimeRemaining ?? 60000, moves.length, difficulty)
   const startTime = Date.now()
 
-  // Get bot's move using the engine
+  // Parse persona's actual aiConfig for searchDepth and errorRate
+  const aiConfig = typeof persona.aiConfig === 'string'
+    ? JSON.parse(persona.aiConfig)
+    : persona.aiConfig
+
+  // Get bot's move using the engine with persona's actual config
   const botPersonaConfig: BotPersonaConfig = {
     difficulty,
     engine: (persona.aiEngine || 'minimax') as EngineType,
+    searchDepth: aiConfig?.searchDepth,
+    errorRate: aiConfig?.errorRate,
   }
 
   const moveResult = await suggestMoveWithEngine(
@@ -656,8 +663,8 @@ export interface GeneratedGame {
  * Returns the full move sequence and result.
  */
 export async function playFullGame(
-  bot1Config: { difficulty: DifficultyLevel; engine: EngineType },
-  bot2Config: { difficulty: DifficultyLevel; engine: EngineType },
+  bot1Config: { difficulty: DifficultyLevel; engine: EngineType; searchDepth?: number; errorRate?: number },
+  bot2Config: { difficulty: DifficultyLevel; engine: EngineType; searchDepth?: number; errorRate?: number },
   timeBudgetPerMove: number = 100
 ): Promise<{ moves: number[]; winner: 1 | 2 | 'draw' }> {
   let state = createGameState()
@@ -718,6 +725,7 @@ export async function generateBotGame(DB: D1Database): Promise<GeneratedGame> {
     name: botPersonas.name,
     currentElo: botPersonas.currentElo,
     aiEngine: botPersonas.aiEngine,
+    aiConfig: botPersonas.aiConfig,
   })
   .from(botPersonas)
   .where(eq(botPersonas.isActive, 1))
@@ -754,10 +762,29 @@ export async function generateBotGame(DB: D1Database): Promise<GeneratedGame> {
   const bot1Engine = (persona1.aiEngine || 'minimax') as EngineType
   const bot2Engine = (persona2.aiEngine || 'minimax') as EngineType
 
-  // Play the game to completion
+  // Parse persona aiConfig to get actual searchDepth and errorRate
+  // This ensures bots play at their configured strength, not generic difficulty levels
+  const bot1AiConfig = typeof persona1.aiConfig === 'string'
+    ? JSON.parse(persona1.aiConfig)
+    : persona1.aiConfig
+  const bot2AiConfig = typeof persona2.aiConfig === 'string'
+    ? JSON.parse(persona2.aiConfig)
+    : persona2.aiConfig
+
+  // Play the game to completion using persona's actual config
   const gameResult = await playFullGame(
-    { difficulty: bot1Difficulty, engine: bot1Engine },
-    { difficulty: bot2Difficulty, engine: bot2Engine },
+    {
+      difficulty: bot1Difficulty,
+      engine: bot1Engine,
+      searchDepth: bot1AiConfig?.searchDepth,
+      errorRate: bot1AiConfig?.errorRate,
+    },
+    {
+      difficulty: bot2Difficulty,
+      engine: bot2Engine,
+      searchDepth: bot2AiConfig?.searchDepth,
+      errorRate: bot2AiConfig?.errorRate,
+    },
     100 // 100ms per move for quick generation
   )
 

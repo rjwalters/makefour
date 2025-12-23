@@ -95,25 +95,25 @@ BOT_CONFIGS: dict[str, dict] = {
     "2swap-threats": {"error_rate": 0.05, "engine": "threat-pairs"},
 }
 
-# Base ELO ratings from botPersonas.ts
+# Base ELO ratings - calibrated via 31,500 game tournament (Dec 2025)
 BASE_ELOS: dict[str, int] = {
     "random": 0,
-    "rookie": 700,
-    "rusty": 900,
-    "blitz": 1000,
-    "nova": 1100,
-    "neuron": 1200,
-    "scholar": 1350,
-    "viper": 1250,
-    "titan": 1550,
-    "sentinel": 1800,
+    "rookie": 1065,
+    "rusty": 1200,
+    "blitz": 1275,
+    "nova": 1315,
+    "neuron": 1370,
+    "scholar": 1490,
+    "viper": 1425,
+    "titan": 1580,
+    "sentinel": 1680,
     "oracle": 2200,
-    "neural-intuition": 1000,
-    "neural-spark": 800,
-    "neural-echo": 900,
-    "2swap-claimeven": 1150,
-    "2swap-parity": 1200,
-    "2swap-threats": 1250,
+    "neural-intuition": 665,
+    "neural-spark": 585,
+    "neural-echo": 575,
+    "2swap-claimeven": 720,
+    "2swap-parity": 1095,
+    "2swap-threats": 1115,
 }
 
 # All bot IDs in order of strength (approximately)

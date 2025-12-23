@@ -142,7 +142,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.8,
     },
     play_style: 'balanced',
-    base_elo: 700,
+    base_elo: 1065,
   },
   {
     id: 'rusty',
@@ -206,7 +206,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.7,
     },
     play_style: 'defensive',
-    base_elo: 900,
+    base_elo: 1200,
   },
   {
     id: 'blitz',
@@ -270,7 +270,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.9,
     },
     play_style: 'aggressive',
-    base_elo: 1000,
+    base_elo: 1275,
   },
   {
     id: 'nova',
@@ -334,7 +334,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.7,
     },
     play_style: 'aggressive',
-    base_elo: 1100,
+    base_elo: 1315,
   },
   {
     id: 'neuron',
@@ -398,7 +398,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.6,
     },
     play_style: 'balanced',
-    base_elo: 1200,
+    base_elo: 1370,
   },
   {
     id: 'scholar',
@@ -462,7 +462,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.5,
     },
     play_style: 'balanced',
-    base_elo: 1350,
+    base_elo: 1490,
   },
   {
     id: 'viper',
@@ -526,7 +526,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.7,
     },
     play_style: 'tricky',
-    base_elo: 1250,
+    base_elo: 1425,
   },
   {
     id: 'titan',
@@ -590,7 +590,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.4,
     },
     play_style: 'aggressive',
-    base_elo: 1550,
+    base_elo: 1580,
   },
   {
     id: 'sentinel',
@@ -654,7 +654,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.3,
     },
     play_style: 'defensive',
-    base_elo: 1800,
+    base_elo: 1680,
   },
   {
     id: 'oracle',
@@ -786,7 +786,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.7,
     },
     play_style: 'adaptive',
-    base_elo: 1000,
+    base_elo: 665,
   },
   {
     id: 'neural-spark',
@@ -853,7 +853,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.9,
     },
     play_style: 'balanced',
-    base_elo: 1078,
+    base_elo: 585,
   },
   {
     id: 'neural-synapse',
@@ -1054,7 +1054,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.6,
     },
     play_style: 'balanced',
-    base_elo: 900,
+    base_elo: 575,
   },
   // ============================================================================
   // 2SWAP STRATEGY BOTS
@@ -1122,7 +1122,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.5,
     },
     play_style: 'defensive',
-    base_elo: 1150,
+    base_elo: 720,
   },
   {
     id: '2swap-parity',
@@ -1187,7 +1187,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.5,
     },
     play_style: 'balanced',
-    base_elo: 1200,
+    base_elo: 1095,
   },
   {
     id: '2swap-threats',
@@ -1252,7 +1252,7 @@ export const DEFAULT_BOT_PERSONAS: BotPersona[] = [
       temperature: 0.5,
     },
     play_style: 'aggressive',
-    base_elo: 1250,
+    base_elo: 1115,
   },
 ]
 

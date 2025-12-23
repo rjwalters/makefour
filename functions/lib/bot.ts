@@ -40,6 +40,10 @@ export interface BotPersonaConfig {
   difficulty: DifficultyLevel
   engine?: EngineType
   customEngineParams?: Record<string, unknown>
+  /** Override difficulty-based search depth with persona's actual config */
+  searchDepth?: number
+  /** Override difficulty-based error rate with persona's actual config */
+  errorRate?: number
 }
 
 const DIFFICULTY_CONFIGS: Record<DifficultyLevel, DifficultyConfig> = {
@@ -522,6 +526,14 @@ export async function suggestMoveWithEngine(
     engineType,
     config.customEngineParams
   )
+
+  // Apply persona-specific overrides if provided (use actual bot config instead of generic difficulty)
+  if (config.searchDepth !== undefined) {
+    engineConfig.searchDepth = config.searchDepth
+  }
+  if (config.errorRate !== undefined) {
+    engineConfig.errorRate = config.errorRate
+  }
 
   return engine.selectMove(board, currentPlayer, engineConfig, timeBudgetMs)
 }
