@@ -30,7 +30,9 @@ jobs:
         run: npm test
 
       - name: Run tests with coverage
-        run: npm test -- --coverage
+        # Coverage targets functions/. Run the full suite, including timing checks,
+        # without instrumentation in the preceding step.
+        run: npm test -- --coverage functions/
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
