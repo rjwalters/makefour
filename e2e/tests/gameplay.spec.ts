@@ -10,7 +10,7 @@ test.describe('Gameplay Flow', () => {
       // Register and navigate to play
       await loginPage.goto()
       await loginPage.register(testUser.email, testUser.password)
-      await page.waitForURL('/dashboard')
+      await page.waitForURL('/play?mode=training')
       await playPage.goto()
 
       // Start training game (vs AI)
@@ -35,7 +35,7 @@ test.describe('Gameplay Flow', () => {
 
       await loginPage.goto()
       await loginPage.register(testUser.email, testUser.password)
-      await page.waitForURL('/dashboard')
+      await page.waitForURL('/play?mode=training')
       await playPage.goto()
 
       // Should see Training Mode title
@@ -57,7 +57,7 @@ test.describe('Gameplay Flow', () => {
       // Setup
       await loginPage.goto()
       await loginPage.register(testUser.email, testUser.password)
-      await page.waitForURL('/dashboard')
+      await page.waitForURL('/play?mode=training')
       await playPage.goto()
       await playPage.startHotseatGame()
 
@@ -76,7 +76,7 @@ test.describe('Gameplay Flow', () => {
       // Setup
       await loginPage.goto()
       await loginPage.register(testUser.email, testUser.password)
-      await page.waitForURL('/dashboard')
+      await page.waitForURL('/play?mode=training')
       await playPage.goto()
       await playPage.startHotseatGame()
 
@@ -100,12 +100,12 @@ test.describe('Gameplay Flow', () => {
       // Setup
       await loginPage.goto()
       await loginPage.register(testUser.email, testUser.password)
-      await page.waitForURL('/dashboard')
+      await page.waitForURL('/play?mode=training')
       await playPage.goto()
       await playPage.startHotseatGame()
 
       // Should show player vs AI header
-      await expect(page.locator('text=You')).toBeVisible()
+      await expect(page.getByText('You', { exact: true })).toBeVisible()
       await expect(page.locator('text=AI')).toBeVisible()
     })
 
@@ -116,7 +116,7 @@ test.describe('Gameplay Flow', () => {
       // Setup
       await loginPage.goto()
       await loginPage.register(testUser.email, testUser.password)
-      await page.waitForURL('/dashboard')
+      await page.waitForURL('/play?mode=training')
       await playPage.goto()
       await playPage.startHotseatGame()
 
@@ -137,7 +137,7 @@ test.describe('Gameplay Flow', () => {
       // Setup and play some moves
       await loginPage.goto()
       await loginPage.register(testUser.email, testUser.password)
-      await page.waitForURL('/dashboard')
+      await page.waitForURL('/play?mode=training')
       await playPage.goto()
       await playPage.startHotseatGame()
 
@@ -157,33 +157,34 @@ test.describe('Gameplay Flow', () => {
   })
 
   test.describe('Navigation', () => {
-    test('should navigate from play to dashboard', async ({ page, testUser }) => {
+    test('should navigate from play to profile', async ({ page, testUser }) => {
       const loginPage = new LoginPage(page)
       const playPage = new PlayPage(page)
 
       // Setup
       await loginPage.goto()
       await loginPage.register(testUser.email, testUser.password)
-      await page.waitForURL('/dashboard')
+      await page.waitForURL('/play?mode=training')
       await playPage.goto()
 
-      // Navigate to dashboard via navbar
-      await page.locator('a[href="/dashboard"]').first().click()
+      // Navigate to the protected account page through the user menu
+      await new DashboardPage(page).navigateToProfile()
 
-      // Should be on dashboard
-      await expect(page).toHaveURL('/dashboard')
+      // Should be on profile
+      await expect(page).toHaveURL('/profile')
     })
 
-    test('should navigate from dashboard to play', async ({ page, testUser }) => {
+    test('should navigate from profile to play', async ({ page, testUser }) => {
       const loginPage = new LoginPage(page)
       const dashboardPage = new DashboardPage(page)
 
       // Setup
       await loginPage.goto()
       await loginPage.register(testUser.email, testUser.password)
-      await page.waitForURL('/dashboard')
+      await page.waitForURL('/play?mode=training')
 
-      // Navigate to play
+      // Navigate from the protected account page to training
+      await dashboardPage.navigateToProfile()
       await dashboardPage.navigateToPlay()
 
       // Should be on play page

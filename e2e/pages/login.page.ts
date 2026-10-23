@@ -1,11 +1,12 @@
 import { expect, type Locator, type Page } from '@playwright/test'
-import { timeouts } from '../fixtures/test-data'
+import { timeouts, usernameForEmail } from '../fixtures/test-data'
 
 /**
  * Page object for the Login/Register page
  */
 export class LoginPage {
   readonly page: Page
+  readonly usernameInput: Locator
   readonly emailInput: Locator
   readonly passwordInput: Locator
   readonly submitButton: Locator
@@ -16,6 +17,7 @@ export class LoginPage {
 
   constructor(page: Page) {
     this.page = page
+    this.usernameInput = page.locator('input#username')
     this.emailInput = page.locator('input#email')
     this.passwordInput = page.locator('input#password')
     this.submitButton = page.locator('button[type="submit"]')
@@ -36,9 +38,10 @@ export class LoginPage {
     await this.submitButton.click()
   }
 
-  async register(email: string, password: string) {
+  async register(email: string, password: string, username = usernameForEmail(email)) {
     // Switch to registration mode
-    await this.toggleModeButton.click()
+    await this.switchToRegisterMode()
+    await this.usernameInput.fill(username)
     await this.emailInput.fill(email)
     await this.passwordInput.fill(password)
     await this.submitButton.click()
@@ -58,8 +61,8 @@ export class LoginPage {
     }
   }
 
-  async waitForRedirectToDashboard() {
-    await this.page.waitForURL('/dashboard', { timeout: timeouts.navigation })
+  async waitForRedirectToTraining() {
+    await this.page.waitForURL('/play?mode=training', { timeout: timeouts.navigation })
   }
 
   async expectError(errorText?: string) {

@@ -10,7 +10,7 @@ test.describe('Authentication Flow', () => {
   })
 
   test.describe('Registration', () => {
-    test('should register a new user and redirect to dashboard', async ({ page }) => {
+    test('should register a new user and redirect to training', async ({ page }) => {
       const loginPage = new LoginPage(page)
       const dashboardPage = new DashboardPage(page)
       const user = generateTestUser()
@@ -24,8 +24,8 @@ test.describe('Authentication Flow', () => {
       // Fill and submit registration form
       await loginPage.register(user.email, user.password)
 
-      // Should redirect to dashboard
-      await loginPage.waitForRedirectToDashboard()
+      // Should redirect to training
+      await loginPage.waitForRedirectToTraining()
 
       // Verify user is logged in
       await dashboardPage.expectUserLoggedIn()
@@ -67,7 +67,7 @@ test.describe('Authentication Flow', () => {
       // Register first time
       await loginPage.goto()
       await loginPage.register(user.email, user.password)
-      await loginPage.waitForRedirectToDashboard()
+      await loginPage.waitForRedirectToTraining()
 
       // Clear state and try to register again with same email
       await clearAuthState(page)
@@ -80,7 +80,7 @@ test.describe('Authentication Flow', () => {
   })
 
   test.describe('Login', () => {
-    test('should login existing user and redirect to dashboard', async ({ page }) => {
+    test('should login existing user and redirect to training', async ({ page }) => {
       const loginPage = new LoginPage(page)
       const dashboardPage = new DashboardPage(page)
       const user = generateTestUser()
@@ -88,14 +88,14 @@ test.describe('Authentication Flow', () => {
       // First register a user
       await loginPage.goto()
       await loginPage.register(user.email, user.password)
-      await loginPage.waitForRedirectToDashboard()
+      await loginPage.waitForRedirectToTraining()
 
       // Logout
       await dashboardPage.logout()
 
       // Now login with the same credentials
       await loginPage.login(user.email, user.password)
-      await loginPage.waitForRedirectToDashboard()
+      await loginPage.waitForRedirectToTraining()
 
       // Verify user is logged in
       await dashboardPage.expectUserLoggedIn()
@@ -122,7 +122,7 @@ test.describe('Authentication Flow', () => {
       // Register a user first
       await loginPage.goto()
       await loginPage.register(user.email, user.password)
-      await loginPage.waitForRedirectToDashboard()
+      await loginPage.waitForRedirectToTraining()
 
       // Clear state
       await clearAuthState(page)
@@ -145,13 +145,13 @@ test.describe('Authentication Flow', () => {
       // Register and login
       await loginPage.goto()
       await loginPage.register(user.email, user.password)
-      await loginPage.waitForRedirectToDashboard()
+      await loginPage.waitForRedirectToTraining()
 
       // Reload the page
       await page.reload()
 
       // Should still be logged in
-      await expect(page).toHaveURL('/dashboard')
+      await expect(page).toHaveURL('/play?mode=training')
       await dashboardPage.expectUserLoggedIn()
     })
 
@@ -185,7 +185,7 @@ test.describe('Authentication Flow', () => {
       // Register and login
       await loginPage.goto()
       await loginPage.register(user.email, user.password)
-      await loginPage.waitForRedirectToDashboard()
+      await loginPage.waitForRedirectToTraining()
 
       // Logout
       await dashboardPage.logout()
@@ -206,7 +206,7 @@ test.describe('Authentication Flow', () => {
       // Register and login
       await loginPage.goto()
       await loginPage.register(user.email, user.password)
-      await loginPage.waitForRedirectToDashboard()
+      await loginPage.waitForRedirectToTraining()
 
       // Logout
       await dashboardPage.logout()
@@ -263,7 +263,7 @@ test.describe('Authentication Flow', () => {
       await page.goto('/play')
 
       // Should be able to access play page (public route)
-      await expect(page).toHaveURL('/play')
+      await expect(page).toHaveURL('/play?mode=training')
     })
 
     test('should allow access to home page without authentication', async ({ page }) => {
