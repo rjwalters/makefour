@@ -1,0 +1,29 @@
+# Local-only Wrangler config for CI E2E (`wrangler pages dev`).
+#
+# Mirrors wrangler.toml minus the Workers AI binding. Wrangler has no local
+# simulation for AI: `pages dev` always treats an [ai] binding as remote and
+# opens an authenticated remote proxy session (Cloudflare API /memberships),
+# even with --local. Without the binding, the bot chat/reaction endpoints take
+# their canned-message fallback, so E2E runs with no Cloudflare credentials.
+#
+# CI selects this file via .wrangler/deploy/config.json (see ci.yml). Keep the
+# remaining bindings in step with wrangler.toml.
+name = "makefour"
+compatibility_date = "2024-01-01"
+pages_build_output_dir = "./dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "makefour-db"
+database_id = "e97c7189-5136-4901-b60c-d15105b91bfa"
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "a6799ad4f2b84bcb9323f5ddfb7f1714"
+
+[[r2_buckets]]
+binding = "MODELS"
+bucket_name = "makefour-models"
+
+[vars]
+ENVIRONMENT = "production"

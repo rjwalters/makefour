@@ -90,12 +90,19 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
+      # `wrangler pages dev` always opens a remote session for the [ai]
+      # binding, which needs Cloudflare credentials. Redirect it to the
+      # local-only config (no AI binding) for this runner.
+      - name: Select local-only Wrangler config
+        run: |
+          mkdir -p .wrangler/deploy
+          echo '{"configPath":"../../wrangler.e2e.toml"}' > .wrangler/deploy/config.json
+
       - name: Run E2E tests
         run: npm run test:e2e:chromium
         timeout-minutes: 15
         env:
           CI: true
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
