@@ -21,7 +21,8 @@ import DebugChatPage from './pages/DebugChatPage'
 import DebugGameRenderPage from './pages/DebugGameRenderPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, isRestoringSession } = useAuth()
+  if (isRestoringSession) return <output>Loading session...</output>
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />
 }
 

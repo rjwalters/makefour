@@ -7,6 +7,7 @@ import { API_AUTH } from '../lib/apiEndpoints'
 
 interface AuthContextType {
   isAuthenticated: boolean
+  isRestoringSession: boolean
   user: PublicUser | null
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
   register: (email: string, password: string, username: string) => Promise<{ success: boolean; error?: string }>
@@ -40,6 +41,7 @@ async function importKeyFromStorage(keyString: string): Promise<CryptoKey> {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isRestoringSession, setIsRestoringSession] = useState(true)
   const [user, setUser] = useState<PublicUser | null>(null)
   const [encryptionKey, setEncryptionKey] = useState<CryptoKey | null>(null)
 
@@ -125,7 +127,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    checkSession()
+    checkSession().finally(() => setIsRestoringSession(false))
   }, [])
 
   const register = async (email: string, password: string, username: string): Promise<{ success: boolean; error?: string }> => {
@@ -296,6 +298,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         isAuthenticated,
+        isRestoringSession,
         user,
         login,
         register,

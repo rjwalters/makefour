@@ -20,6 +20,7 @@ describe('POST /api/auth/register', () => {
       const request = createMockRequest('https://example.com/api/auth/register', {
         method: 'POST',
         body: {
+          username: 'newuser',
           email: 'newuser@example.com',
           password: 'SecurePassword123!',
         },
@@ -44,6 +45,7 @@ describe('POST /api/auth/register', () => {
       const request = createMockRequest('https://example.com/api/auth/register', {
         method: 'POST',
         body: {
+          username: 'newuser',
           email: 'stored@example.com',
           password: 'SecurePassword123!',
         },
@@ -71,6 +73,7 @@ describe('POST /api/auth/register', () => {
       const request = createMockRequest('https://example.com/api/auth/register', {
         method: 'POST',
         body: {
+          username: 'newuser',
           email: 'existing@example.com',
           password: 'SecurePassword123!',
         },
@@ -91,6 +94,7 @@ describe('POST /api/auth/register', () => {
       const request = createMockRequest('https://example.com/api/auth/register', {
         method: 'POST',
         body: {
+          username: 'newuser',
           email: 'not-an-email',
           password: 'SecurePassword123!',
         },
@@ -109,6 +113,7 @@ describe('POST /api/auth/register', () => {
       const request = createMockRequest('https://example.com/api/auth/register', {
         method: 'POST',
         body: {
+          username: 'newuser',
           email: '',
           password: 'SecurePassword123!',
         },
@@ -126,6 +131,7 @@ describe('POST /api/auth/register', () => {
       const request = createMockRequest('https://example.com/api/auth/register', {
         method: 'POST',
         body: {
+          username: 'newuser',
           email: 'test@example.com',
           password: 'short',
         },
@@ -145,6 +151,7 @@ describe('POST /api/auth/register', () => {
       const request = createMockRequest('https://example.com/api/auth/register', {
         method: 'POST',
         body: {
+          username: 'newuser',
           email: 'test@example.com',
           password: 'a'.repeat(129),
         },
@@ -163,6 +170,7 @@ describe('POST /api/auth/register', () => {
       const request = createMockRequest('https://example.com/api/auth/register', {
         method: 'POST',
         body: {
+          username: 'newuser',
           email: 'test@example.com',
           password: '',
         },
@@ -180,6 +188,7 @@ describe('POST /api/auth/register', () => {
       const request = createMockRequest('https://example.com/api/auth/register', {
         method: 'POST',
         body: {
+          username: 'newuser',
           password: 'SecurePassword123!',
         },
       })
@@ -194,6 +203,7 @@ describe('POST /api/auth/register', () => {
       const request = createMockRequest('https://example.com/api/auth/register', {
         method: 'POST',
         body: {
+          username: 'newuser',
           email: 'test@example.com',
         },
       })

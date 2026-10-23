@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/base'
-import { GamesPage, LoginPage } from '../pages'
+import { DashboardPage, GamesPage, LoginPage } from '../pages'
 
 test.describe('Game History Flow', () => {
   test.describe('Games Page Access', () => {
@@ -10,7 +10,7 @@ test.describe('Game History Flow', () => {
       // Register first
       await loginPage.goto()
       await loginPage.register(testUser.email, testUser.password)
-      await page.waitForURL('/dashboard')
+      await page.waitForURL('/play?mode=training')
 
       // Go to games
       await gamesPage.goto()
@@ -36,38 +36,34 @@ test.describe('Game History Flow', () => {
   })
 
   test.describe('Navigation', () => {
-    test('should navigate from dashboard to games', async ({ page, testUser }) => {
+    test('should navigate from profile to games', async ({ page, testUser }) => {
       const loginPage = new LoginPage(page)
 
       // Register
       await loginPage.goto()
       await loginPage.register(testUser.email, testUser.password)
-      await page.waitForURL('/dashboard')
+      await page.waitForURL('/play?mode=training')
 
-      // Navigate to games via navbar or link
+      // Navigate to games from the profile history link
+      await new DashboardPage(page).navigateToProfile()
       const gamesLink = page.locator('a[href="/games"]').first()
-      if (await gamesLink.isVisible()) {
-        await gamesLink.click()
-        await expect(page).toHaveURL('/games')
-      }
+      await gamesLink.click()
+      await expect(page).toHaveURL('/games')
     })
 
-    test('should navigate from games back to dashboard', async ({ page, testUser }) => {
+    test('should navigate from games back to profile', async ({ page, testUser }) => {
       const loginPage = new LoginPage(page)
       const gamesPage = new GamesPage(page)
 
       // Register and go to games
       await loginPage.goto()
       await loginPage.register(testUser.email, testUser.password)
-      await page.waitForURL('/dashboard')
+      await page.waitForURL('/play?mode=training')
       await gamesPage.goto()
 
-      // Navigate back to dashboard via navbar
-      const dashboardLink = page.locator('a[href="/dashboard"]').first()
-      if (await dashboardLink.isVisible()) {
-        await dashboardLink.click()
-        await expect(page).toHaveURL('/dashboard')
-      }
+      // Navigate back to the protected account page through the user menu
+      await new DashboardPage(page).navigateToProfile()
+      await expect(page).toHaveURL('/profile')
     })
   })
 
@@ -78,7 +74,7 @@ test.describe('Game History Flow', () => {
       // Login first
       await loginPage.goto()
       await loginPage.register(testUser.email, testUser.password)
-      await page.waitForURL('/dashboard')
+      await page.waitForURL('/play?mode=training')
 
       // Try to access a non-existent game
       await page.goto('/replay/nonexistent-game-id')

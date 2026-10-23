@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 /**
  * Test data and fixtures for E2E tests
  */
@@ -5,6 +7,11 @@
 export interface TestUser {
   email: string
   password: string
+  username: string
+}
+
+export function usernameForEmail(email: string): string {
+  return `e2e_${createHash('sha256').update(email).digest('hex').slice(0, 16)}`
 }
 
 /**
@@ -13,9 +20,11 @@ export interface TestUser {
  */
 export function generateTestUser(): TestUser {
   const timestamp = Date.now()
+  const email = `test-${timestamp}@e2e-test.makefour.local`
   return {
-    email: `test-${timestamp}@e2e-test.makefour.local`,
+    email,
     password: `TestPass123!${timestamp}`,
+    username: usernameForEmail(email),
   }
 }
 
@@ -28,6 +37,7 @@ export const testUsers = {
   persistent: {
     email: 'e2e-persistent@test.makefour.local',
     password: 'PersistentTestPass123!',
+    username: usernameForEmail('e2e-persistent@test.makefour.local'),
   },
 }
 
@@ -76,6 +86,7 @@ export const timeouts = {
 export const selectors = {
   // Login page
   loginForm: {
+    username: 'input#username',
     email: 'input#email',
     password: 'input#password',
     submitButton: 'button[type="submit"]',

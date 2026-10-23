@@ -138,7 +138,9 @@ export class LRUCache<K, V> {
    * Iterates over all entries in the cache.
    */
   forEach(callback: (value: V, key: K, cache: LRUCache<K, V>) => void): void {
-    this.cache.forEach((value, key) => callback(value, key, this))
+    this.cache.forEach((value, key) => {
+      callback(value, key, this)
+    })
   }
 }
 
@@ -199,7 +201,9 @@ export class DisposableCache<K, V> extends LRUCache<K, V> {
    */
   override clear(): void {
     if (this.disposeCallback) {
-      this.forEach((value) => this.disposeCallback!(value))
+      this.forEach((value) => {
+        this.disposeCallback!(value)
+      })
     }
     super.clear()
   }
