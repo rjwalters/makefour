@@ -155,7 +155,9 @@ describe('Move Quality Scoring', () => {
     })
   })
 
-  describe('analyzeGame', () => {
+  // Multi-move analysis takes ~2 s locally and ~3x that on CI runners; like the
+  // Performance tests below, it needs more than Vitest 4's enforced 5 s default.
+  describe('analyzeGame', { timeout: 20000 }, () => {
     it('analyzes empty game', async () => {
       const analyses = await analyzeGame([])
       expect(analyses).toHaveLength(0)
