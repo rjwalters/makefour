@@ -3,7 +3,10 @@
 overrides:
   'undici@>=7 <7.30.1': '7.30.1'
   '@esbuild-kit/core-utils>esbuild': '0.25.12'
-  'postcss-selector-parser@<7.1.6': '7.1.6'
+  # No 6.x release fixes GHSA-rj75-hqrm-r3gf, so Tailwind's ^6 range is lifted
+  # to 7.x. Unscoped because npm 10 resolves a range-keyed override against the
+  # dependent's spec and keeps an affected 6.x copy.
+  'postcss-selector-parser': '^7.1.6'
 
 # These vendor installers select and validate the locked platform binaries.
 # protobufjs's postinstall only prints a version-scheme warning; it stays off.
