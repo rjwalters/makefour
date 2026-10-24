@@ -1,0 +1,17 @@
+# Miniflare pins an affected Undici version; keep both package-manager graphs patched.
+# These overrides mirror package.json "overrides" for npm; pnpm reads only this file.
+overrides:
+  'undici@>=7 <7.30.1': '7.30.1'
+  '@esbuild-kit/core-utils>esbuild': '0.25.12'
+  # No 6.x release fixes GHSA-rj75-hqrm-r3gf, so Tailwind's ^6 range is lifted
+  # to 7.x. Unscoped because npm 10 resolves a range-keyed override against the
+  # dependent's spec and keeps an affected 6.x copy.
+  'postcss-selector-parser': '^7.1.6'
+
+# These vendor installers select and validate the locked platform binaries.
+# protobufjs's postinstall only prints a version-scheme warning; it stays off.
+allowBuilds:
+  esbuild@0.25.12: true
+  esbuild@0.28.2: true
+  workerd@1.20261019.1: true
+  protobufjs@7.6.6: false

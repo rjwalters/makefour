@@ -155,7 +155,9 @@ describe('Move Quality Scoring', () => {
     })
   })
 
-  describe('analyzeGame', () => {
+  // Multi-move analysis takes ~2 s locally and ~3x that on CI runners; like the
+  // Performance tests below, it needs more than Vitest 4's enforced 5 s default.
+  describe('analyzeGame', { timeout: 20000 }, () => {
     it('analyzes empty game', async () => {
       const analyses = await analyzeGame([])
       expect(analyses).toHaveLength(0)
@@ -329,6 +331,9 @@ describe('Move Quality Scoring', () => {
     })
   })
 
+  // The analysis runs synchronously, so Vitest 2's 5 s default timer could
+  // not fire before it finished; Vitest 4 enforces the timeout after the fact.
+  // Each test's own budget is its timeout.
   describe('Performance', () => {
     it('analyzes a short game in reasonable time (< 20 seconds)', async () => {
       // Expert difficulty (depth 8) takes ~500-800ms per move locally
@@ -338,7 +343,7 @@ describe('Move Quality Scoring', () => {
       const elapsed = Date.now() - start
 
       expect(elapsed).toBeLessThan(20000)
-    })
+    }, 20000)
 
     it('analyzes a typical game in reasonable time (< 30 seconds)', async () => {
       // 10-move game at ~500-800ms per move locally
@@ -348,6 +353,6 @@ describe('Move Quality Scoring', () => {
       const elapsed = Date.now() - start
 
       expect(elapsed).toBeLessThan(30000)
-    })
+    }, 30000)
   })
 })
